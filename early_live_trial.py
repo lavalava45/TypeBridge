@@ -16,7 +16,6 @@ from typebridge_app import LiveHook, Settings, FocusContext, GuiThreadInfo, WM_I
 from incremental_recognition import suggest_live_early, prepare_early
 from early_native_edit import NativeEditBridge
 from early_scintilla import replace_prefix
-from early_tom import NativeUndoGroup
 
 
 class TrialHook(LiveHook):
@@ -25,15 +24,6 @@ class TrialHook(LiveHook):
                             direct_ru='Отключено', direct_en='Отключено', direct_he='Отключено')
         super().__init__(engine, settings, emit, accept_injected=accept_injected)
         self.trial_top, self.trial_field = top, field
-
-    def run(self):
-        # Bind the marshalled object on this thread before installing the hook.
-        # COM calls are not a proven bounded production transport; trial only.
-        self.undo_group = NativeUndoGroup(self.trial_field)
-        try:
-            super().run()
-        finally:
-            self.undo_group.close()
 
     def context(self):
         if int(self.user32.GetForegroundWindow() or 0) != self.trial_top:
@@ -66,8 +56,7 @@ class TrialHook(LiveHook):
             return (current is not None and self._word_scope(current) == self._word_scope(context)
                     and current.language == context.language
                     and not any(self.pressed(vk) for vk in (0x10, 0x11, 0x12, 0x5B, 0x5C)))
-        bridge = NativeEditBridge(context, valid, pending_char=decision.typed[-1],
-                                  undo_group=getattr(self, 'undo_group', None))
+        bridge = NativeEditBridge(context, valid, pending_char=decision.typed[-1])
         try:
             with bridge:
                 outcome = replace_prefix(bridge, decision.typed[:-1], decision.replacement, valid)
@@ -115,7 +104,7 @@ def main(*, accept_injected=False):
     ttk.Label(frame, text='Стенд исправляет только собственное поле ниже. Другие окна не обрабатываются.\n'
               'Перед проверкой отключи автоисправление в основном TypeBridge, чтобы два\n'
               'переключателя не обрабатывали одно и то же слово. Здесь текст не сохраняется.\n'
-              'Undo пока не прошёл приёмку — вводи только тестовый текст.').pack(anchor='w')
+              'Экспериментальный транспорт — вводи только тестовый текст.').pack(anchor='w')
     host = ttk.Frame(frame, height=220)
     host.pack(fill='both', expand=True, pady=12)
     root.update_idletasks()

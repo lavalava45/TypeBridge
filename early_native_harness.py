@@ -16,7 +16,6 @@ import uuid
 
 from early_native_edit import NativeEditBridge, utf8_position
 from early_scintilla import replace_prefix
-from early_tom import NativeUndoGroup
 
 
 def worker():
@@ -87,7 +86,6 @@ def self_test():
     u.CloseDesktop.argtypes = [w.HANDLE]
     original = u.GetThreadDesktop(k.GetCurrentThreadId())
     desktop = None
-    undo = None
     process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--worker'],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -104,7 +102,6 @@ def self_test():
         if not desktop or not u.SetThreadDesktop(desktop):
             raise ctypes.WinError(ctypes.get_last_error())
         ctx = SimpleNamespace(top=ready['top'], focus=ready['focus'])
-        undo = NativeUndoGroup(ctx.focus)
         checks = []
         cases = [('рудд', 'hello', 'щ'), ('יקךך', 'hello', 'ם'), ('ghbdt', 'привет', 'n'),
                  ('עינגא', 'привет', 'מ'), ('aku', 'שלום', 'o'), ('флг', 'שלום', 'щ')]
@@ -112,7 +109,7 @@ def self_test():
             initial = '🙂 начало\r' + prefix + ' конец'
             # Fixture setup is not a timed early operation. Let the child
             # finish its cold-start message-loop initialization first.
-            with NativeEditBridge(ctx, lambda: True, pending_char=held, undo_group=undo) as bridge:
+            with NativeEditBridge(ctx, lambda: True, pending_char=held) as bridge:
                 value = ctypes.create_unicode_buffer(initial)
                 answer = ctypes.c_size_t()
                 if not bridge.u.SendMessageTimeoutW(ctx.focus, 0xC, 0, ctypes.addressof(value), 3, 500, ctypes.byref(answer)):
@@ -120,7 +117,7 @@ def self_test():
                 caret = utf8_position(initial, len(('🙂 начало\r' + prefix).encode()))
                 bridge.u.SendMessageTimeoutW(ctx.focus, 0xB1, caret, caret, 3, 500, ctypes.byref(answer))
                 bridge.u.SendMessageTimeoutW(ctx.focus, 0xCD, 0, 0, 3, 500, ctypes.byref(answer))
-            with NativeEditBridge(ctx, lambda: True, pending_char=held, undo_group=undo) as bridge:
+            with NativeEditBridge(ctx, lambda: True, pending_char=held) as bridge:
                 outcome = replace_prefix(bridge, prefix, replacement, lambda: True)
                 after, position = bridge.snapshot()
                 expected = ('🙂 начало\r' + replacement + ' конец').encode()
@@ -140,6 +137,12 @@ def self_test():
                 after, _ = bridge.snapshot()
                 if after != ('🙂 начало\r' + replacement + '!  конец').encode():
                     raise AssertionError('native-tail-order')
+                # Continuation is a separate Undo group, then one more Undo
+                # must restore the source word, including the held character.
+                if not bridge.msg(0xC7) or bridge.snapshot(allow_selection=True)[0] != expected:
+                    raise AssertionError('native-tail-undo-group')
+                if not bridge.msg(0xC7) or bridge.snapshot(allow_selection=True)[0] != ('🙂 начало\r' + prefix + held + ' конец').encode():
+                    raise AssertionError('native-replacement-undo-group')
                 checks.append({'replacement': replacement, 'state': outcome.state, 'undo_restores_source': undo_ok,
                                'fixture_undo_text': undo_text.decode() if not undo_ok else None})
         with NativeEditBridge(ctx, lambda: True, pending_char='x') as bridge:
@@ -151,9 +154,9 @@ def self_test():
                 'desktop': 'private-inactive', 'physical_input_tested': False,
                 'clipboard_touched': False, 'hooks_installed': False,
                 'undo_restores_source': all(check['undo_restores_source'] for check in checks),
-                'integration_gate': 'BLOCKED_PENDING_UNDO_AND_PHYSICAL_INPUT', 'checks': checks}
+                'integration_gate': ('BLOCKED_PENDING_PHYSICAL_INPUT' if all(check['undo_restores_source'] for check in checks)
+                                     else 'BLOCKED_PENDING_UNDO_AND_PHYSICAL_INPUT'), 'checks': checks}
     finally:
-        if undo is not None: undo.close()
         u.SetThreadDesktop(original)
         if desktop: u.CloseDesktop(desktop)
         try:

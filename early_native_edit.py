@@ -1,8 +1,8 @@
 """Research-only range replacement for RichEdit50W fields, not EXE adapters.
 
 No global hooks, clipboard, SendInput or focus changes. Uses the existing early
-transaction protocol. Undo has NOT passed admission; never wire to production
-until native Undo and physical-input gates pass. Legacy EDIT was rejected.
+transaction protocol. Never wire to production until physical-input and
+cross-application gates pass. Legacy EDIT was rejected.
 """
 import ctypes
 from ctypes import wintypes as w
@@ -26,12 +26,11 @@ def utf8_position(text, byte_offset):
 
 
 class NativeEditBridge:
-    def __init__(self, context, still_valid=lambda: False, *, pending_char='', undo_group=None):
+    def __init__(self, context, still_valid=lambda: False, *, pending_char=''):
         self.context, self.still_valid = context, still_valid
         if len(pending_char) != 1 or not pending_char.isalpha() or ord(pending_char) > 0xFFFF:
             raise ValueError('held-character-required')
         self.pending_char = pending_char
-        self.undo_group = undo_group
         self.timeout = self.budget_exceeded = self.write_started = False
         self.started = perf_counter()
         self.prepared = None
@@ -114,16 +113,17 @@ class NativeEditBridge:
         return text.encode('utf-8'), utf16_position(text, end if allow_selection else start)
 
     def prepare(self, start, end, target):
-        if self.undo_group is None:
-            raise ValueError('undo-group-not-provided')
         if not target or len(target) > 256:
             raise ValueError('replacement-limit')
+        replacement = target.decode('utf-8', 'strict')
+        if len(replacement) > 64 or any(not ch.isprintable() or ord(ch) > 0xFFFF for ch in replacement):
+            raise ValueError('unsupported-replacement-character')
         original, caret = self.snapshot()
         if end != caret:
             raise ValueError('range-not-at-caret')
         text = original.decode('utf-8', 'strict')
         self.prepared = (utf8_position(text, start), utf8_position(text, end),
-                         ctypes.create_unicode_buffer(target.decode('utf-8', 'strict')),
+                         replacement,
                          original[:end] + self.pending_char.encode() + original[end:],
                          end + len(self.pending_char.encode()))
 
@@ -145,11 +145,18 @@ class NativeEditBridge:
         self.msg(0x458)  # EM_STOPGROUPTYPING: replacement is separate from typed source.
         # Selection is also observable. Never forward/replay a possibly already
         # inserted physical character after any uncertain phase of this commit.
-        self.undo_group.begin()
+        self.msg(0xB1, first, last)  # EM_SETSEL; no focus change.
+        if self.selection() != (first, last) or not self.still_valid():
+            raise ValueError('selection-not-confirmed')
         try:
-            self.msg(0xB1, first, last)  # EM_SETSEL; no focus change.
-            if self.selection() != (first, last) or not self.still_valid():
-                raise ValueError('selection-not-confirmed')
-            self.msg(0xC2, 1, ctypes.addressof(value))
+            # EM_REPLACESEL loses the replaced source in native Undo for our
+            # Hebrew cases. Native typing records the deletion plus insertion
+            # together, without unbounded TOM/COM edit collections.
+            for char in value:
+                if not self.still_valid():
+                    raise ValueError('context-changed-during-write')
+                self.msg(0x102, ord(char), 1)
         finally:
-            self.undo_group.end()
+            # A following physical character must be its own Undo operation.
+            if not self.timeout and not self.budget_exceeded:
+                self.msg(0x458)  # EM_STOPGROUPTYPING.

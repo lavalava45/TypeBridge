@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from early_native_edit import utf16_position, utf8_position
+from early_native_edit import NativeEditBridge, utf16_position, utf8_position
 from early_scintilla import replace_prefix
 from test_early_runtime import ByteEditor
 from test_app_controls import make_hook
@@ -126,6 +126,42 @@ class TrialDeliveryTests(unittest.TestCase):
         self.assertFalse(hook.early_done)
         self.assertEqual(hook.keys, [])
         hook.user32.SendInput.assert_not_called()
+
+
+class NativeTypingTests(unittest.TestCase):
+    def fixture(self):
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.pending_char = 'щ'
+        bridge.prepared = (0, 3, 'שלום', 'флгщ'.encode(), 8)
+        bridge.still_valid = lambda: True
+        bridge.check_identity = Mock()
+        bridge.check_deadline = Mock()
+        bridge.selection = Mock(side_effect=[(3, 3), (0, 4)])
+        bridge.snapshot = Mock(return_value=('флгщ'.encode(), 8))
+        bridge.timeout = bridge.budget_exceeded = bridge.write_started = False
+        bridge.msg = Mock()
+        return bridge
+
+    def test_hebrew_uses_native_typing_group_with_undo_boundaries(self):
+        bridge = self.fixture()
+        bridge.replace(0, 6, 'שלום'.encode())
+        self.assertEqual([call.args for call in bridge.msg.call_args_list], [
+            (0x102, ord('щ'), 1), (0x458,), (0xB1, 0, 4),
+            *[(0x102, ord(char), 1) for char in 'שלום'], (0x458,)])
+        self.assertTrue(bridge.write_started)
+
+    def test_partial_character_timeout_is_uncertain_and_never_replayed(self):
+        bridge = self.fixture()
+        def send(command, *args):
+            if command == 0x102 and args[0] == ord('ל'):
+                bridge.timeout = True
+                raise TimeoutError('native-message')
+        bridge.msg.side_effect = send
+        with self.assertRaises(TimeoutError):
+            bridge.replace(0, 6, 'שלום'.encode())
+        characters = [call.args[1] for call in bridge.msg.call_args_list if call.args[0] == 0x102]
+        self.assertEqual(characters, [ord('щ'), ord('ש'), ord('ל')])
+        self.assertTrue(bridge.write_started)
 
 
 class TrialWindowTests(unittest.TestCase):
