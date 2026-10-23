@@ -1187,12 +1187,12 @@ class TypeBridgeGui:
                      values=tuple(CYCLE_KEYS), width=15).pack(side="left", padx=10)
         title_row = ttk.Frame(frame)
         title_row.pack(fill="x", pady=(12, 4))
-        ttk.Label(title_row, text="Только окно с заголовком:").pack(side="left")
+        ttk.Label(title_row, text="Переключать только в окнах с заголовками:").pack(side="left")
         ttk.Entry(title_row, textvariable=self.only_title).pack(
             side="left", fill="x", expand=True, padx=(10, 0))
-        ttk.Label(frame, text="Оставь поле пустым для всех приложений. "
-                  "Исключения приложений настраиваются отдельно.",
-                  foreground="#555").pack(anchor="w")
+        ttk.Label(frame, text="Укажи один заголовок или его часть — правило действует во всех совпавших окнах. "
+                  "Пустое поле — все приложения. Исключения настраиваются отдельно.",
+                  wraplength=650, justify="left", foreground="#555").pack(anchor="w")
         tools = ttk.Frame(frame)
         tools.pack(fill="x", pady=(10, 2))
         ttk.Button(tools, text="Исключения приложений…", command=self.open_exclusions).pack(side="left")
