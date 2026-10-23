@@ -124,5 +124,65 @@ class EarlyRuntimeTests(WordCycleTests):
         self.assertEqual(self.text, "hello ")
 
 
+class KeyboardEarlyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from engine import LanguageEngine, source_data_dir
+        cls.engine = LanguageEngine(source_data_dir())
+
+    def setUp(self):
+        self.driver = WordCycleTests()
+        self.driver.engine = self.engine
+        self.driver.setUp()
+        self.hook = self.driver.hook
+        self.hook.settings = replace(self.hook.settings, early_correction=True, early_native=True)
+        prepare_early(self.engine)
+        def name(hwnd, buffer, size):
+            buffer.value = 'Chrome_RenderWidgetHostHWND'
+            return len(buffer.value)
+        self.hook.user32.GetClassNameW.side_effect = name
+
+    def test_six_directions_before_space_through_one_keyboard_transport(self):
+        for source, physical, target, expected in (
+                ('ru','hello','en','hello'), ('he','hello','en','hello'),
+                ('en','ghbdtn','ru','привет'), ('he','ghbdtn','ru','привет'),
+                ('en','akuo','he','שלום'), ('ru','akuo','he','שלום')):
+            self.driver.text = ''
+            self.driver.language = self.hook.last_language = source
+            self.hook.clear_token()
+            self.driver.type(physical)
+            self.assertEqual((self.driver.text,self.driver.language),(expected,target))
+
+    def test_continuation_separator_and_next_word(self):
+        self.driver.language = self.hook.last_language = 'ru'
+        self.driver.type('hello ghbdtnf ')
+        self.assertEqual(self.driver.text,'hello привета ')
+
+    def test_zero_insertions_forward_held_character_without_layout_change(self):
+        self.driver.language = self.hook.last_language = 'ru'
+        self.hook.user32.SendInput.side_effect = lambda *args: 0
+        self.driver.type('hello')
+        self.assertEqual((self.driver.text,self.driver.language),('руддщ','ru'))
+        self.assertFalse(getattr(self.hook,'native_early_disabled',False))
+        self.assertTrue(self.hook.token_blocked)
+
+    def test_partial_insertions_do_not_retry_or_change_layout(self):
+        self.driver.language = self.hook.last_language = 'ru'
+        self.hook.user32.SendInput.side_effect = lambda *args: 1
+        self.driver.type('hello')
+        self.assertTrue(self.hook.native_early_disabled)
+        self.assertTrue(self.hook.token_blocked)
+        self.assertEqual(self.hook.user32.SendInput.call_count,2)  # Batch + keyup cleanup only.
+        self.hook.user32.SendMessageTimeoutW.assert_not_called()
+
+    def test_changed_field_prevents_keyboard_submission(self):
+        self.driver.language = self.hook.last_language = 'ru'
+        self.hook.keys = [(ord(c.upper()),False) for c in 'hell']
+        original = self.hook.context()
+        self.driver.focus = 101
+        self.assertFalse(self.hook._try_early(original))
+        self.hook.user32.SendInput.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

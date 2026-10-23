@@ -538,8 +538,9 @@ class LiveHook:
                 return False
             name = ctypes.create_unicode_buffer(128)
             self.user32.GetClassNameW(context.focus, name, len(name))
-            if name.value.casefold() != "richedit50w":
-                return False
+            keyboard = name.value.casefold() != "richedit50w"
+        else:
+            keyboard = False
         decision = suggest_live_early(self.engine, self.keys, context.language)
         if decision is None:
             return False
@@ -551,6 +552,8 @@ class LiveHook:
                     and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
                     and not any(self.pressed(vk) for vk in
                                 (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
+        if keyboard:
+            return self._try_keyboard_early(context, decision, valid)
         bridge = None
         try:
             adapter = (NativeEditBridge(context, valid, pending_char=decision.typed[-1])
@@ -577,6 +580,39 @@ class LiveHook:
             self.token_blocked = True
             self.emit("error", "Ранняя замена не подтверждена; повтор отключён")
             return True  # Mutation may already include this character; never replay.
+        return self._finish_early_layout(context, decision, disabled_attribute)
+
+    def _try_keyboard_early(self, context, decision, valid):
+        # Use the existing boundary-correction transport, with no delimiter.
+        # The current key is still held: remove only the preceding physical keys.
+        # No editor API, clipboard, worker, or application-specific adapter.
+        if not valid():
+            return False
+        events = correction_inputs(len(self.keys) - 1, decision.replacement, None, "")
+        batch = (Input * len(events))(*events)
+        if not valid():
+            return False
+        sent = int(self.user32.SendInput(len(events), batch, ctypes.sizeof(Input)))
+        if sent != len(events):
+            self.emit("error", f"SendInput: отправлено {sent}/{len(events)}")
+            if sent == 0:
+                self.token_blocked = True
+                return False  # Nothing inserted: deliver the held physical key normally.
+            self.native_early_disabled = True
+            if 0 < sent < len(events) and sent % 2:
+                # Release the last accepted down event; never repeat its edit.
+                last = events[sent - 1].u.ki
+                release = input_key(last.wVk, last.dwFlags | KEYEVENTF_KEYUP, last.wScan)
+                self.user32.SendInput(1, ctypes.byref(release), ctypes.sizeof(Input))
+            self.suppressed_keyups.add(self.keys[-1][0])
+            self.clear_token()
+            self.token_blocked = True
+            return True  # Partial edit is uncertain; do not repeat or append the held key.
+        self.suppressed_keyups.add(self.keys[-1][0])
+        return self._finish_early_layout(context, decision, "native_early_disabled",
+                                         keyboard=True)
+
+    def _finish_early_layout(self, context, decision, disabled_attribute, *, keyboard=False):
         hkl = int(self.engine.mapper.layouts[decision.language])
         result = ctypes.c_size_t()
         self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
@@ -592,7 +628,9 @@ class LiveHook:
             self.emit("error", "Ранний текст исправлен, но смена раскладки не подтверждена")
         else:
             self.early_done = True
-            self.emit("ok", f"До пробела: {context.language.upper()} → {decision.language.upper()}"
+            # SendInput confirms submission, not text readback. Keep that
+            # distinction in the status; the direct native paths read back text.
+            self.emit("info" if keyboard else "ok", f"До пробела: {context.language.upper()} → {decision.language.upper()}"
                       f" · {len(self.keys)} символов")
         return True
 
@@ -1080,7 +1118,7 @@ class TypeBridgeGui:
                         variable=self.early_correction).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Раннее исправление в других приложениях (эксперимент)",
                         variable=self.early_native).pack(anchor="w", pady=(6, 0))
-        ttk.Label(frame, text="Пока: текстовые поля RichEdit. Требуется включить исправление до пробела.",
+        ttk.Label(frame, text="Для остальных полей используется обычная клавиатурная замена.",
                   wraplength=620).pack(anchor="w")
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))

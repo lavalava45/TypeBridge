@@ -1249,7 +1249,7 @@ CATALOG.update({
     'Раннее исправление в других приложениях (эксперимент)': {
         'en': 'Early correction in other apps (experimental)',
         'he': 'תיקון מוקדם ביישומים אחרים (ניסיוני)'},
-    'Пока: текстовые поля RichEdit. Требуется включить исправление до пробела.': {
-        'en': 'Currently: RichEdit text fields. Enable correction before space as well.',
-        'he': 'כרגע: שדות טקסט RichEdit. יש להפעיל גם תיקון לפני רווח.'},
+    'Для остальных полей используется обычная клавиатурная замена.': {
+        'en': 'Other fields use ordinary keyboard replacement.',
+        'he': 'בשדות אחרים נעשה שימוש בהחלפה באמצעות אירועי מקלדת רגילים.'},
 })

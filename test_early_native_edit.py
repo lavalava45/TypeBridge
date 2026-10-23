@@ -52,14 +52,14 @@ class TrialDeliveryTests(unittest.TestCase):
             self.assertFalse(hook._try_early(hook.context()))
         factory.assert_not_called()
 
-    def test_unknown_field_does_not_get_native_messages_or_disable_old_path(self):
+    def test_unknown_field_uses_keyboard_transport_not_native_messages(self):
         hook, editor, decision, language = self.fixture()
         hook.user32.GetClassNameW.side_effect = lambda hwnd, buffer, size: setattr(buffer, 'value', 'Chrome_RenderWidgetHostHWND')
-        with patch('typebridge_app.NativeEditBridge') as factory:
-            self.assertFalse(hook._try_early(hook.context()))
+        with patch('typebridge_app.NativeEditBridge') as factory, patch('typebridge_app.suggest_live_early', return_value=decision):
+            self.assertTrue(hook._try_early(hook.context()))
         factory.assert_not_called()
         self.assertFalse(getattr(hook, 'early_disabled', False))
-        hook.user32.SendMessageTimeoutW.assert_not_called()
+        hook.user32.SendInput.assert_called_once()
 
     def test_other_window_is_not_observed_or_intercepted(self):
         hook = TrialHook.__new__(TrialHook)
