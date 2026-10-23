@@ -12,6 +12,10 @@ text templates. It runs locally in the notification area.
 
 - RU / EN / HE layout correction at word boundaries.
 - Optional early correction in Notepad++ UTF-8 documents (experimental).
+  **Why leave it off?** With this option disabled, correction waits until the
+  word ends (for example, at Space or punctuation). Checking the completed word
+  can reduce premature corrections and avoids the experimental, Notepad++-only
+  editing path.
 - Manual last-word layout cycling and configurable direct language shortcuts.
 - Personal words and exclusions, with optional case sensitivity.
 - Optional accidental CapsLock correction: `hELLO` → `Hello`.
