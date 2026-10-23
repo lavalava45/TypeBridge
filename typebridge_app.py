@@ -35,6 +35,7 @@ from incremental_recognition import prepare_early, build_early_index, suggest_li
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
 from early_native_edit import NativeEditBridge, supports_native_edit
 from password_fields import PasswordFieldGuard
+from windows_shortcuts import read_windows_shortcuts, open_windows_keyboard_settings
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
@@ -1175,6 +1176,8 @@ class TypeBridgeGui:
         self.corrections_enabled = tk.BooleanVar(value=settings.corrections_enabled)
         self.direct_keys = {lang: ChoiceVar(value=getattr(settings, f"direct_{lang}"))
                             for lang in LANGS}
+        self.windows_language_shortcut = LocalizedStringVar()
+        self.windows_layout_shortcut = LocalizedStringVar()
         self.only_title = tk.StringVar(value=settings.only_window_title)
         self.excluded = tk.StringVar(value=", ".join(
             name for name in settings.excluded_processes if name not in PASSWORD_PROCESSES))
@@ -1184,12 +1187,25 @@ class TypeBridgeGui:
         self._build()
         root._i18n_refresh = self._translate_word_rows
         localize_window(root)
+        self.refresh_windows_shortcuts()
+        root.bind("<FocusIn>", self.refresh_windows_shortcuts, add="+")
         root.after(100, self._drain)
         root.after(150, self._start_tray)
         root.after(500, self._update_tray)
         root.after(200, lambda: self._apply_caret_indicator(self.show_caret_flag.get()))
         if settings.corrections_enabled:
             root.after(300, self._restore_corrections)
+
+    def refresh_windows_shortcuts(self, _event=None) -> None:
+        language, layout = read_windows_shortcuts()
+        self.windows_language_shortcut.set(language)
+        self.windows_layout_shortcut.set(layout)
+
+    def open_windows_shortcuts(self) -> None:
+        try:
+            open_windows_keyboard_settings()
+        except OSError as exc:
+            messagebox.showerror("TypeBridge", f"{tr('Не удалось открыть настройки Windows')}: {exc}")
 
     def _build(self) -> None:
         language_bar = ttk.Frame(self.root)
@@ -1279,6 +1295,20 @@ class TypeBridgeGui:
                   "переключателе, в том числе когда автоисправление отключено.",
                   wraplength=620).pack(anchor="w", pady=14)
         ttk.Button(shortcuts, text="Сохранить настройки", command=self.save).pack(anchor="w")
+        system_keys = ttk.LabelFrame(shortcuts, text="Системные сочетания Windows", padding=12)
+        system_keys.pack(fill="x", pady=(20, 0))
+        for title, variable in (
+            ("Между языками:", self.windows_language_shortcut),
+            ("Между раскладками одного языка:", self.windows_layout_shortcut),
+        ):
+            row = ttk.Frame(system_keys)
+            row.pack(fill="x", pady=4)
+            ttk.Label(row, text=title).pack(side="left")
+            ttk.Label(row, textvariable=variable).pack(side="right")
+        ttk.Button(system_keys, text="Изменить в Windows…",
+                   command=self.open_windows_shortcuts).pack(anchor="w", pady=(8, 4))
+        ttk.Label(system_keys, text="В Windows: дополнительные параметры клавиатуры → сочетания клавиш для языков ввода.",
+                  wraplength=580).pack(anchor="w")
         clipboard = ttk.Frame(notebook, padding=18)
         notebook.add(clipboard, text="Буфер обмена")
         for text, enabled, hotkey in (

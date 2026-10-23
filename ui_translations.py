@@ -1248,3 +1248,23 @@ CATALOG.update({
         'en': 'Other fields use ordinary keyboard replacement.',
         'he': 'בשדות אחרים נעשה שימוש בהחלפה באמצעות אירועי מקלדת רגילים.'},
 })
+
+CATALOG.update({
+    'Системные сочетания Windows': {
+        'en': 'Windows system shortcuts', 'he': 'קיצורי מקשים של Windows'},
+    'Между языками:': {
+        'en': 'Between input languages:', 'he': 'בין שפות קלט:'},
+    'Между раскладками одного языка:': {
+        'en': 'Between layouts of the same language:', 'he': 'בין פריסות של אותה שפה:'},
+    'Изменить в Windows…': {
+        'en': 'Change in Windows…', 'he': 'שינוי ב־Windows…'},
+    'Левый Alt+Shift': {
+        'en': 'Left Alt+Shift', 'he': 'Alt שמאלי+Shift'},
+    'Не назначено': {'en': 'Not assigned', 'he': 'לא הוקצה'},
+    'Не удалось определить': {'en': 'Unknown', 'he': 'לא ניתן לקבוע'},
+    'Не удалось открыть настройки Windows': {
+        'en': 'Could not open Windows settings', 'he': 'לא ניתן לפתוח את הגדרות Windows'},
+    'В Windows: дополнительные параметры клавиатуры → сочетания клавиш для языков ввода.': {
+        'en': 'In Windows: Advanced keyboard settings → Input language hot keys.',
+        'he': 'ב־Windows: הגדרות מקלדת מתקדמות ← מקשי קיצור לשפות קלט.'},
+})
