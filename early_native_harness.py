@@ -77,7 +77,79 @@ def worker():
     thread.join(3)
 
 
-def self_test():
+def runtime_checks(ctx, thread):
+    """Main recognition/routing against the private native field, no OS hooks.
+
+    Physical-key delivery is simulated explicitly with WM_CHAR only when the
+    callback forwards a key. SendInput and actual hook chaining are forbidden.
+    """
+    from engine import LanguageEngine, source_data_dir, LANGS
+    from typebridge_app import LiveHook, Settings, FocusContext, KbdHook, WM_KEYDOWN, WM_KEYUP
+    engine = LanguageEngine(source_data_dir())
+    hook = LiveHook(engine, Settings(early_correction=True, early_native=True))
+    hook.pressed = lambda vk: False
+    hook.user32.GetKeyState = lambda vk: 0
+    hook.user32.CallNextHookEx = lambda *args: 0
+    def forbidden(*args):
+        raise AssertionError('background-runtime-must-not-use-SendInput')
+    hook.user32.SendInput = forbidden
+    def context():
+        code = int(hook.user32.GetKeyboardLayout(thread) or 0) & 0xFFFF
+        language = next((key for key, value in LANGS.items() if code == value), '')
+        return FocusContext(ctx.top, ctx.focus, thread, language, 'native-fixture.exe', 'private fixture', ctx.focus)
+    hook.context = context
+    def message(command, wp=0, lp=0):
+        # Fixture setup / delivery may include cold font and language loading.
+        # Only the real early transaction is subject to its 45 ms deadline.
+        with NativeEditBridge(ctx, lambda: True, pending_char='x') as bridge:
+            answer = ctypes.c_size_t()
+            if not bridge.u.SendMessageTimeoutW(ctx.focus, command, wp, lp, 3, 500, ctypes.byref(answer)):
+                raise TimeoutError('private-fixture-message')
+            return answer.value
+    def text():
+        with NativeEditBridge(ctx, lambda: True, pending_char='x') as bridge:
+            return bridge.snapshot(allow_selection=True)[0].decode()
+    def type_keys(physical):
+        for char in physical:
+            vk = 0x20 if char == ' ' else ord(char.upper())
+            event = KbdHook(vkCode=vk)
+            consumed = hook.handle_keyboard(0, WM_KEYDOWN, ctypes.addressof(event))
+            if not consumed:
+                translated = ' ' if vk == 0x20 else engine.mapper.char(vk, context().language, False)
+                if len(translated) != 1:
+                    raise AssertionError('fixture-key-translation')
+                message(0x102, ord(translated), 1)
+            hook.handle_keyboard(0, WM_KEYUP, ctypes.addressof(event))
+    checks = []
+    for source, physical, target, expected in (
+            ('ru', 'hello', 'en', 'hello'), ('he', 'hello', 'en', 'hello'),
+            ('en', 'ghbdtn', 'ru', 'привет'), ('he', 'ghbdtn', 'ru', 'привет'),
+            ('en', 'akuo', 'he', 'שלום'), ('ru', 'akuo', 'he', 'שלום')):
+        empty = ctypes.create_unicode_buffer('')
+        message(0xC, 0, ctypes.addressof(empty))
+        message(0x50, 0, int(engine.mapper.layouts[source]))
+        if context().language != source:
+            raise AssertionError('private-fixture-source-layout')
+        hook.clear_token()
+        hook.last_focus, hook.last_language = ctx.focus, source
+        hook.early_disabled = hook.native_early_disabled = False
+        hook.suppressed_keyups.clear()
+        type_keys(physical)
+        if text() != expected or context().language != target or not hook.early_done:
+            raise AssertionError('main-native-runtime-before-space-' + source + '-' + target)
+        type_keys(' ')
+        if text() != expected + ' ':
+            raise AssertionError('main-native-runtime-boundary')
+        if target == 'en':
+            type_keys('ghbdtn ')
+            if text() != expected + ' привет ':
+                raise AssertionError('main-native-runtime-next-token')
+        checks.append({'source': source, 'target': target, 'before_space': True,
+                       'separator_preserved': True, 'next_token_checked': target == 'en'})
+    return checks
+
+
+def self_test(*, include_runtime=False):
     u = ctypes.WinDLL('user32', use_last_error=True)
     k = ctypes.WinDLL('kernel32')
     u.GetThreadDesktop.argtypes, u.GetThreadDesktop.restype = [w.DWORD], w.HANDLE
@@ -150,12 +222,14 @@ def self_test():
             outcome = replace_prefix(bridge, 'xx', 'yy', lambda: True)
             if outcome.state != 'refused' or bridge.write_started:
                 raise AssertionError('selection-not-refused')
+        runtime = runtime_checks(ctx, ready['thread']) if include_runtime else []
         return {'range_checks_ok': True, 'native_cases': len(checks), 'selection_refused': True,
                 'desktop': 'private-inactive', 'physical_input_tested': False,
                 'clipboard_touched': False, 'hooks_installed': False,
                 'undo_restores_source': all(check['undo_restores_source'] for check in checks),
                 'integration_gate': ('BLOCKED_PENDING_PHYSICAL_INPUT' if all(check['undo_restores_source'] for check in checks)
-                                     else 'BLOCKED_PENDING_UNDO_AND_PHYSICAL_INPUT'), 'checks': checks}
+                                     else 'BLOCKED_PENDING_UNDO_AND_PHYSICAL_INPUT'),
+                'runtime_cases': runtime, 'checks': checks}
     finally:
         u.SetThreadDesktop(original)
         if desktop: u.CloseDesktop(desktop)
@@ -170,8 +244,8 @@ if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
     if '--worker' in sys.argv:
         worker()
-    elif '--self-test' in sys.argv:
-        report = self_test()
+    elif '--self-test' in sys.argv or '--runtime-self-test' in sys.argv:
+        report = self_test(include_runtime='--runtime-self-test' in sys.argv)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         # Successful range checks are not an admission pass. Make the unresolved
         # Undo gate visible to scripts as well as to readers of the JSON.

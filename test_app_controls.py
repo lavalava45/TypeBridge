@@ -16,6 +16,19 @@ from typebridge_app import (
 
 
 class SettingsTests(unittest.TestCase):
+    def test_native_early_settings_are_opt_in_persisted_and_strict_boolean(self):
+        from dataclasses import replace
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'settings.json'
+            path.write_text('{}')
+            self.assertFalse(load_settings(path).early_native)
+            expected = replace(Settings(), early_correction=True, early_native=True)
+            save_settings(expected, path)
+            self.assertEqual(load_settings(path), expected)
+            path.write_text('{"early_native": "true"}')
+            with self.assertRaises(ValueError):
+                load_settings(path)
+
     def test_roundtrip_and_no_temporary_files_left(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "settings.json"

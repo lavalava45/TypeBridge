@@ -5,6 +5,7 @@
   "manual_key": "Scroll Lock",
   "cycle_key": "Pause",
   "early_correction": false,
+  "early_native": false,
   "show_caret_flag": false,
   "fix_caps_lock": false,
   "autostart": false,

@@ -33,6 +33,7 @@ from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bi
 from word_cycle import CYCLE_KEYS, RecentWord, remember_word
 from incremental_recognition import prepare_early, build_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
+from early_native_edit import NativeEditBridge
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
@@ -147,6 +148,7 @@ class Settings:
     quick_search_engines: tuple[tuple[str, str], ...] = DEFAULT_ENGINES
     cycle_key: str = "Pause"
     early_correction: bool = False
+    early_native: bool = False
     show_caret_flag: bool = False
     fix_caps_lock: bool = False
     autostart: bool = False
@@ -179,7 +181,7 @@ def load_settings(path: Path | None = None) -> Settings:
     excluded = raw.get("excluded_processes", list(Settings.excluded_processes))
     if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
         raise ValueError("excluded_processes must be a JSON array of names")
-    for name in ("conservative", "manual_f8", "early_correction", "show_caret_flag",
+    for name in ("conservative", "manual_f8", "early_correction", "early_native", "show_caret_flag",
                  "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste", "journal_enabled", "quick_search"):
         if name in raw and type(raw[name]) is not bool:
             raise ValueError(f"{name} must be true or false")
@@ -210,6 +212,7 @@ def load_settings(path: Path | None = None) -> Settings:
                     plain_paste_key=raw.get("plain_paste_key", "Ctrl+Shift+V"),
                     cycle_key=cycle_key,
                     early_correction=raw.get("early_correction", False),
+                    early_native=raw.get("early_native", False),
                     show_caret_flag=raw.get("show_caret_flag", False),
                     fix_caps_lock=raw.get("fix_caps_lock", False),
                     autostart=raw.get("autostart", False),
@@ -322,6 +325,7 @@ class LiveHook:
         self.last_word: RecentWord | None = None
         self.early_done = False
         self.early_disabled = False
+        self.native_early_disabled = False
         if settings.early_correction:
             prepare_early(engine)
         self.last_focus = 0
@@ -523,10 +527,19 @@ class LiveHook:
 
     def _try_early(self, context: FocusContext) -> bool:
         if (not self.settings.early_correction or self.paused
-                or getattr(self, "early_done", False)
-                or getattr(self, "early_disabled", False)
-                or context.process_name != "notepad++.exe"):
+                or getattr(self, "early_done", False)):
             return False
+        native = context.process_name != "notepad++.exe"
+        disabled_attribute = "native_early_disabled" if native else "early_disabled"
+        if getattr(self, disabled_attribute, False):
+            return False
+        if native:
+            if not self.settings.early_native:
+                return False
+            name = ctypes.create_unicode_buffer(128)
+            self.user32.GetClassNameW(context.focus, name, len(name))
+            if name.value.casefold() != "richedit50w":
+                return False
         decision = suggest_live_early(self.engine, self.keys, context.language)
         if decision is None:
             return False
@@ -540,20 +553,26 @@ class LiveHook:
                                 (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
         bridge = None
         try:
-            with ScintillaEarlyBridge(context) as bridge:
+            adapter = (NativeEditBridge(context, valid, pending_char=decision.typed[-1])
+                       if native else ScintillaEarlyBridge(context))
+            with adapter as bridge:
                 outcome = replace_prefix(bridge, decision.typed[:-1],
                                          decision.replacement, valid)
         except Exception as error:
-            self.early_disabled = True
+            if native and isinstance(error, ValueError):
+                return False  # Unsupported field state; no write was attempted.
+            setattr(self, disabled_attribute, True)
             self.emit("error", f"Ранний режим отключён до перезапуска: {type(error).__name__}")
             return False
         if bridge.timeout or getattr(bridge, "budget_exceeded", False):
-            self.early_disabled = True
+            setattr(self, disabled_attribute, True)
             self.emit("error", "Ранний режим отключён: редактор не ответил вовремя")
         if outcome.state == "refused":
             return False  # No document write: forward the triggering key normally.
+        if native:
+            self.suppressed_keyups.add(self.keys[-1][0])
         if outcome.state != "verified":
-            self.early_disabled = True
+            setattr(self, disabled_attribute, True)
             self.clear_token()
             self.token_blocked = True
             self.emit("error", "Ранняя замена не подтверждена; повтор отключён")
@@ -567,7 +586,7 @@ class LiveHook:
         self.last_language = next((name for name, code in LANGS.items()
                                    if code == (observed & 0xFFFF)), "")
         if observed != hkl & 0xFFFFFFFF:
-            self.early_disabled = True
+            setattr(self, disabled_attribute, True)
             self.clear_token()
             self.token_blocked = True
             self.emit("error", "Ранний текст исправлен, но смена раскладки не подтверждена")
@@ -1011,6 +1030,7 @@ class TypeBridgeGui:
         self.plain_paste_key = ChoiceVar(value=settings.plain_paste_key)
         self.cycle_key = ChoiceVar(value=settings.cycle_key)
         self.early_correction = tk.BooleanVar(value=settings.early_correction)
+        self.early_native = tk.BooleanVar(value=settings.early_native)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
@@ -1058,6 +1078,10 @@ class TypeBridgeGui:
             variable=self.conservative).pack(anchor="w")
         ttk.Checkbutton(frame, text="Исправлять до введения пробела",
                         variable=self.early_correction).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(frame, text="Раннее исправление в других приложениях (эксперимент)",
+                        variable=self.early_native).pack(anchor="w", pady=(6, 0))
+        ttk.Label(frame, text="Пока: текстовые поля RichEdit. Требуется включить исправление до пробела.",
+                  wraplength=620).pack(anchor="w")
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
@@ -1092,7 +1116,7 @@ class TypeBridgeGui:
         self.save_button = ttk.Button(buttons, text="Сохранить настройки", command=self.save)
         self.save_button.pack(side="left")
         ttk.Label(frame, text="События (слова не записываются):").pack(anchor="w")
-        self.log = tk.Text(frame, height=8, state="disabled", wrap="word")
+        self.log = tk.Text(frame, height=6, state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, pady=(5, 0))
         footer = ttk.Frame(frame)
         footer.pack(fill="x", pady=(12, 0))
@@ -1330,6 +1354,7 @@ class TypeBridgeGui:
                         plain_paste_key=self.plain_paste_key.get().strip(),
                         cycle_key=self.cycle_key.get(),
                         early_correction=self.early_correction.get(),
+                        early_native=self.early_native.get(),
                         show_caret_flag=self.show_caret_flag.get(),
                         fix_caps_lock=self.fix_caps_lock.get(),
                         autostart=self.autostart.get(),

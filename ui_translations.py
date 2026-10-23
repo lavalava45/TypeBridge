@@ -1244,3 +1244,12 @@ for source, en, he in zip(PRIVACY_TEXT, (
     'קוד המקור פתוח לבדיקה. זו אינה הוכחה לביקורת עצמאית או להיעדר תקלות. לסיום כל התכונות בחר יציאה במגש המערכת. קבצים אישיים: %LOCALAPPDATA%\\TypeBridge. ניתן למחוק את רשומות היומן בחלון שלו.',
 )):
     CATALOG[source] = {'en': en, 'he': he}
+
+CATALOG.update({
+    'Раннее исправление в других приложениях (эксперимент)': {
+        'en': 'Early correction in other apps (experimental)',
+        'he': 'תיקון מוקדם ביישומים אחרים (ניסיוני)'},
+    'Пока: текстовые поля RichEdit. Требуется включить исправление до пробела.': {
+        'en': 'Currently: RichEdit text fields. Enable correction before space as well.',
+        'he': 'כרגע: שדות טקסט RichEdit. יש להפעיל גם תיקון לפני רווח.'},
+})

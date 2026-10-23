@@ -1,8 +1,8 @@
-"""Research-only range replacement for RichEdit50W fields, not EXE adapters.
+"""Experimental opt-in range replacement for RichEdit50W fields.
 
 No global hooks, clipboard, SendInput or focus changes. Uses the existing early
-transaction protocol. Never wire to production until physical-input and
-cross-application gates pass. Legacy EDIT was rejected.
+transaction protocol. Physical-input and cross-application release gates are
+still open; the main app keeps this path disabled by default. EDIT is unsupported.
 """
 import ctypes
 from ctypes import wintypes as w

@@ -1,5 +1,6 @@
 """Range proof and state-machine regressions, without OS hooks or live input."""
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -36,6 +37,30 @@ class PositionTests(unittest.TestCase):
 
 
 class TrialDeliveryTests(unittest.TestCase):
+    def test_native_path_is_disabled_by_default_without_reading_other_fields(self):
+        hook, editor, decision, language = self.fixture()
+        hook.settings = replace(hook.settings, early_native=False)
+        with patch('typebridge_app.NativeEditBridge') as factory:
+            self.assertFalse(hook._try_early(hook.context()))
+        factory.assert_not_called()
+        hook.user32.GetClassNameW.assert_not_called()
+
+    def test_master_switch_disables_native_path(self):
+        hook, editor, decision, language = self.fixture()
+        hook.settings = replace(hook.settings, early_correction=False)
+        with patch('typebridge_app.NativeEditBridge') as factory:
+            self.assertFalse(hook._try_early(hook.context()))
+        factory.assert_not_called()
+
+    def test_unknown_field_does_not_get_native_messages_or_disable_old_path(self):
+        hook, editor, decision, language = self.fixture()
+        hook.user32.GetClassNameW.side_effect = lambda hwnd, buffer, size: setattr(buffer, 'value', 'Chrome_RenderWidgetHostHWND')
+        with patch('typebridge_app.NativeEditBridge') as factory:
+            self.assertFalse(hook._try_early(hook.context()))
+        factory.assert_not_called()
+        self.assertFalse(getattr(hook, 'early_disabled', False))
+        hook.user32.SendMessageTimeoutW.assert_not_called()
+
     def test_other_window_is_not_observed_or_intercepted(self):
         hook = TrialHook.__new__(TrialHook)
         hook.user32 = Mock()
@@ -62,6 +87,11 @@ class TrialDeliveryTests(unittest.TestCase):
     def fixture(self, source='en', typed='ghbdtn', target='ru', result='привет'):
         hook = TrialHook.__new__(TrialHook)
         hook.__dict__.update(make_hook().__dict__)
+        hook.settings = replace(hook.settings, early_correction=True, early_native=True)
+        def class_name(hwnd, buffer, size):
+            buffer.value = 'RichEdit50W'
+            return len(buffer.value)
+        hook.user32.GetClassNameW.side_effect = class_name
         language = [source]
         layouts = {'ru': 0x419, 'en': 0x409, 'he': 0x40D}
         hook.engine = SimpleNamespace(mapper=SimpleNamespace(layouts=layouts))
@@ -87,7 +117,7 @@ class TrialDeliveryTests(unittest.TestCase):
                 ('ru', 'руддщ', 'en', 'hello'), ('he', 'יקךךם', 'en', 'hello'),
                 ('en', 'akuo', 'he', 'שלום'), ('ru', 'флгщ', 'he', 'שלום')):
             hook, editor, decision, language = self.fixture(source, typed, target, result)
-            with patch('early_live_trial.NativeEditBridge', return_value=editor), patch('early_live_trial.suggest_live_early', return_value=decision):
+            with patch('typebridge_app.NativeEditBridge', return_value=editor), patch('typebridge_app.suggest_live_early', return_value=decision):
                 self.assertTrue(hook._try_early(hook.context()))
             self.assertEqual(editor.data, result.encode())
             self.assertEqual(language[0], target)
@@ -97,7 +127,7 @@ class TrialDeliveryTests(unittest.TestCase):
     def test_refusal_does_not_consume_held_key_or_change_layout(self):
         hook, editor, decision, language = self.fixture()
         editor.data = b'prefix-not-delivered'
-        with patch('early_live_trial.NativeEditBridge', return_value=editor), patch('early_live_trial.suggest_live_early', return_value=decision):
+        with patch('typebridge_app.NativeEditBridge', return_value=editor), patch('typebridge_app.suggest_live_early', return_value=decision):
             self.assertFalse(hook._try_early(hook.context()))
         self.assertEqual(language[0], 'en')
         self.assertFalse(editor.write_started)
@@ -110,13 +140,14 @@ class TrialDeliveryTests(unittest.TestCase):
             replace(*args)
             raise TimeoutError('test')
         editor.replace = uncertain
-        with patch('early_live_trial.NativeEditBridge', return_value=editor) as factory, patch('early_live_trial.suggest_live_early', return_value=decision):
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory, patch('typebridge_app.suggest_live_early', return_value=decision):
             self.assertTrue(hook._try_early(hook.context()))
-            self.assertTrue(hook.early_disabled)
+            self.assertTrue(hook.native_early_disabled)
             self.assertFalse(hook._try_early(hook.context()))
             factory.assert_called_once()
         self.assertTrue(hook.token_blocked)
         self.assertEqual(editor.writes, 1)
+        self.assertFalse(getattr(hook, 'early_disabled', False))
         hook.user32.SendInput.assert_not_called()
 
     def test_boundary_resets_trial_without_changing_completed_word(self):

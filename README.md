@@ -12,9 +12,11 @@ text templates. It runs locally in the notification area.
 
 - RU / EN / HE layout correction at word boundaries.
 - Optional early correction in Notepad++ UTF-8 documents (experimental).
+  A separate, default-off setting enables experimental early correction in
+  standard RichEdit50W fields in other apps; enable the main early option too.
   **Why leave it off?** With this option disabled, correction waits until the
   word ends (for example, at Space or punctuation). Checking the completed word
-  can reduce premature corrections and avoids the experimental, Notepad++-only
+  can reduce premature corrections and avoids the experimental
   editing path.
 - Manual last-word layout cycling and configurable direct language shortcuts.
 - Personal words and exclusions, with optional case sensitivity.
@@ -78,8 +80,10 @@ py -3.12 -m unittest discover -p "test_*.py"
 
 The executable is `dist/TypeBridge.exe`. Automated tests use model input or
 withdrawn windows; they do not prove physical typing compatibility in every app.
-Early correction is limited to Notepad++; multiline expansion and Undo behavior
-still need validation in each editor. This is an actively developed prototype.
+Early correction supports Notepad++ and, through a separate opt-in, RichEdit50W
+fields. Browsers, Windows Settings and Electron do not support the early path
+yet. Physical typing compatibility, multiline expansion and Undo behavior still
+need validation in each editor. This is an actively developed prototype.
 
 ## Data and privacy
 
