@@ -35,6 +35,7 @@ from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
 from app_paths import USER_DIR, migrate_user_data
+from input_journal import DEFAULT_APPS, JournalStore, JournalService, validate_journal
 from app_exclusions import PASSWORD_PROCESSES, DEFAULT_CATEGORIES, CATEGORIES, effective_exclusions, validate_categories
 
 
@@ -129,6 +130,9 @@ class Settings:
     only_window_title: str = ""
     manual_f8: bool = True
     manual_key: str = "Scroll Lock"
+    journal_enabled: bool = False
+    journal_days: int = 7
+    journal_apps: tuple[str, ...] = DEFAULT_APPS
     clipboard_history: bool = False
     clipboard_history_key: str = "Ctrl+Alt+H"
     plain_paste: bool = False
@@ -168,7 +172,7 @@ def load_settings(path: Path | None = None) -> Settings:
     if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
         raise ValueError("excluded_processes must be a JSON array of names")
     for name in ("conservative", "manual_f8", "early_correction", "show_caret_flag",
-                 "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste"):
+                 "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste", "journal_enabled"):
         if name in raw and type(raw[name]) is not bool:
             raise ValueError(f"{name} must be true or false")
     title = raw.get("only_window_title", "")
@@ -177,8 +181,11 @@ def load_settings(path: Path | None = None) -> Settings:
         raise ValueError("Выбери поддерживаемую клавишу переключения слова")
     if not isinstance(title, str):
         raise ValueError("only_window_title must be text")
+    journal_apps = validate_journal(raw.get("journal_days", 7), raw.get("journal_apps", list(DEFAULT_APPS)))
     categories = validate_categories(raw.get("excluded_categories", list(DEFAULT_CATEGORIES)))
-    settings = Settings(excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
+    settings = Settings(journal_enabled=raw.get("journal_enabled", False),
+                    journal_days=raw.get("journal_days", 7), journal_apps=journal_apps,
+                    excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
                     conservative=raw.get("conservative", True),
                     manual_f8=raw.get("manual_f8", True),
                     manual_key=raw.get("manual_key", "Scroll Lock"),
@@ -955,6 +962,14 @@ class TypeBridgeGui:
         self.snippet_config = SnippetConfig.load(USER_DIR / 'snippets.json')
         self.snippets_editor = None
         self.dictionary_import_window = None
+        self.journal_window = None
+        self.journal_enabled = tk.BooleanVar(value=settings.journal_enabled)
+        self.journal_days = tk.StringVar(value=str(settings.journal_days))
+        self.journal_apps = tk.StringVar(value=", ".join(settings.journal_apps))
+        self.journal_status = tk.StringVar(value="Дневник включён" if settings.journal_enabled else "Дневник выключен")
+        self.journal_service = JournalService(JournalStore(USER_DIR / 'journal' / 'journal.sqlite3'),
+                                            lambda message: self.events.put(("journal", message)))
+        self.journal_service.configure(settings)
         self.clipboard_window = None
         from clipboard_tools import ClipboardTools
         self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
@@ -1034,8 +1049,11 @@ class TypeBridgeGui:
         ttk.Label(frame, text="Оставь поле пустым для всех приложений. "
                   "Исключения приложений настраиваются отдельно.",
                   foreground="#555").pack(anchor="w")
-        ttk.Button(frame, text="Исключения приложений…", command=self.open_exclusions).pack(
-            anchor="w", pady=(10, 2))
+        tools = ttk.Frame(frame)
+        tools.pack(fill="x", pady=(10, 2))
+        ttk.Button(tools, text="Исключения приложений…", command=self.open_exclusions).pack(side="left")
+        ttk.Button(tools, text="Дневник ввода…", command=self.open_journal).pack(side="left", padx=8)
+        ttk.Label(frame, textvariable=self.journal_status, foreground="#a12b20").pack(anchor="w")
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=15)
         self.save_button = ttk.Button(buttons, text="Сохранить настройки", command=self.save)
@@ -1124,6 +1142,29 @@ class TypeBridgeGui:
         self.show_caret_flag.set(enabled)
         self._apply_caret_indicator(enabled)
 
+    def open_journal(self):
+        from journal_gui import JournalWindow
+        if self.journal_window and self.journal_window.window.winfo_exists():
+            self.journal_window.window.deiconify()
+            self.journal_window.window.lift()
+        else:
+            self.journal_window = JournalWindow(self.root, self)
+
+    def apply_journal_settings(self, enabled, days, apps):
+        apps = validate_journal(days, apps)
+        settings = replace(load_settings(), journal_enabled=enabled, journal_days=days, journal_apps=apps)
+        save_settings(settings)
+        self.journal_enabled.set(enabled)
+        self.journal_days.set(str(days))
+        self.journal_apps.set(", ".join(apps))
+        self._configure_journal(settings)
+
+    def _configure_journal(self, settings):
+        self.journal_service.configure(settings)
+        self.journal_status.set("Дневник включён" if self.journal_service.enabled else "Дневник выключен")
+        if self.tray:
+            self.tray.set_journal_enabled(self.journal_service.enabled)
+
     def open_exclusions(self):
         from exclusions_gui import ExclusionsWindow
         if self.exclusions_window and self.exclusions_window.window.winfo_exists():
@@ -1153,6 +1194,7 @@ class TypeBridgeGui:
             self.tray = TrayController(lambda action: self.events.put(("tray", action)))
             self.tray.set_state(self.run_state, self.last_start_error)
             self.tray.set_caret_flag(self.show_caret_flag.get())
+            self.tray.set_journal_enabled(self.journal_service.enabled)
             self.tray.configure_clipboard(self.clipboard_tools.settings)
             self.tray.start()
         except Exception as error:
@@ -1221,7 +1263,10 @@ class TypeBridgeGui:
         excluded = [x.strip().casefold() for x in self.excluded.get().split(",") if x.strip()]
         if any(not x.endswith(".exe") or any(c in x for c in "\\/:\n") for x in excluded):
             raise ValueError("Укажи имена приложений вроде notepad.exe через запятую")
-        settings = Settings(corrections_enabled=self.corrections_enabled.get(),
+        days = int(self.journal_days.get())
+        journal_apps = validate_journal(days, tuple(x.strip().casefold() for x in self.journal_apps.get().split(",") if x.strip()))
+        settings = Settings(journal_enabled=self.journal_enabled.get(), journal_days=days, journal_apps=journal_apps,
+                        corrections_enabled=self.corrections_enabled.get(),
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
                         manual_key=self.manual_key.get(),
@@ -1259,6 +1304,7 @@ class TypeBridgeGui:
             if hook:
                 hook.request_config(settings, self.lexicon)
             self.clipboard_tools.configure(settings)
+            self._configure_journal(settings)
             if self.tray:
                 self.tray.configure_clipboard(settings)
             self._apply_caret_indicator(settings.show_caret_flag)
@@ -1387,6 +1433,14 @@ class TypeBridgeGui:
         try:
             while True:
                 kind, message = self.events.get_nowait()
+                if kind == "journal":
+                    generation, text = message
+                    if generation != self.journal_service.generation:
+                        continue
+                    self.journal_status.set(text)
+                    if self.tray:
+                        self.tray.set_journal_enabled(self.journal_service.enabled)
+                    continue
                 if kind == "clipboard":
                     try:
                         self.clipboard_tools.receive(message)
@@ -1412,7 +1466,7 @@ class TypeBridgeGui:
                             kind, message = "error", f"Трей: {message[1]}"
                     else:
                         action = {"open": self.show, "snippets": self.open_snippets, "toggle": self.toggle_corrections,
-                                  "toggle-caret-flag": self.toggle_caret_flag,
+                                  "toggle-caret-flag": self.toggle_caret_flag, "journal": self.open_journal,
                                   "exit": self.close}.get(message)
                         if action:
                             action()
@@ -1501,6 +1555,7 @@ class TypeBridgeGui:
             return
         self.closing = True
         self.clipboard_tools.close()
+        self.journal_service.close()
         if self.tray:
             self.tray.stop()
         if self.caret_indicator:

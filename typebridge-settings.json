@@ -27,5 +27,11 @@
   "excluded_categories": [
     "development",
     "creative"
+  ],
+  "journal_enabled": false,
+  "journal_days": 7,
+  "journal_apps": [
+    "notepad.exe",
+    "notepad++.exe"
   ]
 }

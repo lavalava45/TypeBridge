@@ -69,5 +69,14 @@ The previous LayoutSwitch data files are copied on first launch without deleting
 the old files or overwriting existing TypeBridge files. Typed words and template
 contents are not written to the event log. The app has no cloud correction service.
 
+The optional **input journal** in current source (pending the next binary build)
+is disabled by default. When enabled, it stores encrypted snapshots of explicitly
+allowed text editors every two seconds; Notepad and Notepad++ are the defaults.
+It has a visible enabled indicator, configurable 1–365 day retention (default 7),
+recovery/copy and manual deletion. Text is protected with Windows user-scoped DPAPI.
+Unknown/password fields are skipped; browsers are not supported. Disabling stops
+capture and saving, but existing records remain until cleared or expired after
+re-enabling. See [feature status](docs/FEATURE-STATUS.md) for limits.
+
 No binaries containing the private research dictionaries are distributed here.
 The source and the open-data preparation path are available for local builds.

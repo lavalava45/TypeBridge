@@ -24,6 +24,7 @@ MENU_OPEN, MENU_ENABLE, MENU_EXIT = 4001, 4002, 4005
 MENU_SNIPPETS = 4006
 MENU_HISTORY = 4007
 MENU_CARET_FLAG = 4008
+MENU_JOURNAL = 4009
 MENU_LAYOUT_BASE = 5000
 ICON_LABELS = {"ru": "RU", "en": "EN", "he": "HE", "idle": "--"}
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
@@ -31,19 +32,21 @@ STATE_LABELS = {"stopped": "Автоисправление выключено", 
                 "stopping": "Останавливается…", "error": "Ошибка запуска"}
 
 
-def menu_items(state: str, detail: str = "", caret_flag: bool = False):
+def menu_items(state: str, detail: str = "", caret_flag: bool = False, journal_enabled: bool = False):
     """One checked correction toggle; no separate stop/pause commands."""
     busy = state in ("starting", "stopping")
     status = STATE_LABELS[state]
     if state == "error" and detail:
         status = detail
     status_row = ((0, status[:180], False, False),) if busy or state == "error" else ()
-    return status_row + (
+    journal_row = ((0, "● Дневник включён", False, False),) if journal_enabled else ()
+    return status_row + journal_row + (
         (MENU_ENABLE, "Автоисправление", not busy, state == "running"),
         (MENU_CARET_FLAG, "Флажок у текстового курсора", True, caret_flag),
         (MENU_OPEN, "Открыть настройки", True, False),
         (MENU_SNIPPETS, "Автозамена и шаблоны…", True, False),
         (MENU_HISTORY, "История буфера обмена…", True, False),
+        (MENU_JOURNAL, "Дневник ввода…", True, False),
         (MENU_EXIT, "Выход", True, False),
     )
 
@@ -107,6 +110,7 @@ class TrayController:
         self.layouts = WindowsLayouts()
         self.last_target = None
         self.caret_flag = False
+        self.journal_enabled = False
         self.clipboard_settings = None
         self.clipboard_hotkeys = None
 
@@ -117,6 +121,11 @@ class TrayController:
 
     def set_caret_flag(self, enabled):
         self.caret_flag = bool(enabled)
+
+    def set_journal_enabled(self, enabled):
+        self.journal_enabled = bool(enabled)
+        if self.hwnd:
+            win32gui.PostMessage(self.hwnd, WM_SET_LANGUAGE, 0, 0)
 
     def _register_clipboard_hotkeys(self):
         from clipboard_hotkeys import ClipboardHotkeys
@@ -184,7 +193,7 @@ class TrayController:
         status = detail if state == "error" and detail else STATE_LABELS[state]
         return (self.hwnd, 0, win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
                 WM_TRAY, self.icons.get(self.language) or self.icons["idle"],
-                f"TypeBridge — {status}"[:127])
+                f"TypeBridge — {'Дневник ВКЛ · ' if self.journal_enabled else ''}{status}"[:127])
 
     def _wndproc(self, hwnd, message, wparam, lparam):
         if message == WM_CLIPBOARD_CONFIG:
@@ -239,7 +248,8 @@ class TrayController:
             except OSError as error:
                 win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0, str(error)[:180])
             insert_position = 0
-            for code, title, enabled, checked in menu_items(*self.run_state, caret_flag=self.caret_flag):
+            for code, title, enabled, checked in menu_items(*self.run_state, caret_flag=self.caret_flag,
+                                                          journal_enabled=self.journal_enabled):
                 flags = win32con.MF_STRING
                 if not enabled:
                     flags |= win32con.MF_GRAYED
@@ -259,7 +269,7 @@ class TrayController:
         finally:
             win32gui.DestroyMenu(menu)
         commands = {MENU_OPEN: "open", MENU_SNIPPETS: "snippets", MENU_ENABLE: "toggle",
-                    MENU_CARET_FLAG: "toggle-caret-flag", MENU_EXIT: "exit"}
+                    MENU_CARET_FLAG: "toggle-caret-flag", MENU_JOURNAL: "journal", MENU_EXIT: "exit"}
         if chosen == MENU_HISTORY:
             self.notify(("history", target))
         if chosen in (0, MENU_ENABLE, MENU_CARET_FLAG) and self.layouts.valid(target):

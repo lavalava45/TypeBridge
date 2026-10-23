@@ -34,3 +34,8 @@ settings.json
 /START-LAYOUTSWITCH.cmd
 /snippets.json
 /user_lexicon.json
+/journal/
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
