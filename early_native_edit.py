@@ -34,7 +34,7 @@ def utf8_position(text, byte_offset):
 class NativeEditBridge:
     def __init__(self, context, still_valid=lambda: False, *, pending_char=''):
         self.context, self.still_valid = context, still_valid
-        if len(pending_char) != 1 or not pending_char.isalpha() or ord(pending_char) > 0xFFFF:
+        if pending_char and (len(pending_char) != 1 or not pending_char.isalpha() or ord(pending_char) > 0xFFFF):
             raise ValueError('held-character-required')
         self.pending_char = pending_char
         self.timeout = self.budget_exceeded = self.write_started = False
@@ -144,7 +144,8 @@ class NativeEditBridge:
         if self.selection() != (last, last):
             raise ValueError('caret-changed')
         self.write_started = True
-        self.msg(0x102, ord(self.pending_char), 1)  # WM_CHAR to the fixed field.
+        if self.pending_char:
+            self.msg(0x102, ord(self.pending_char), 1)  # WM_CHAR to the fixed field.
         if self.snapshot() != (delivered, delivered_caret):
             raise ValueError('held-character-not-confirmed')
         last += len(self.pending_char.encode('utf-16-le')) // 2

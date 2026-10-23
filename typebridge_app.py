@@ -563,6 +563,7 @@ class LiveHook:
                                          decision.replacement, valid)
         except Exception as error:
             if native and isinstance(error, ValueError):
+                self.emit("diagnostic", "early-refused:" + type(error).__name__)
                 return False  # Unsupported field state; no write was attempted.
             setattr(self, disabled_attribute, True)
             self.emit("error", f"Ранний режим отключён до перезапуска: {type(error).__name__}")
@@ -571,6 +572,7 @@ class LiveHook:
             setattr(self, disabled_attribute, True)
             self.emit("error", "Ранний режим отключён: редактор не ответил вовремя")
         if outcome.state == "refused":
+            self.emit("diagnostic", "early-refused:" + outcome.reason)
             return False  # No document write: forward the triggering key normally.
         if native:
             self.suppressed_keyups.add(self.keys[-1][0])
@@ -747,6 +749,11 @@ class LiveHook:
                     whole = bool(match and match.reason == "unique dictionary match")
                 self._remember(context, keys, typed, context.language, suffix, whole=whole)
             return False
+        name = ctypes.create_unicode_buffer(128)
+        self.user32.GetClassNameW(context.focus, name, len(name))
+        if supports_native_edit(name.value):
+            return self._correct_native(context, decision, keys, boundary_vk,
+                                        boundary_text, remember, suffix, manual, bool(caps))
         events = correction_inputs(original_length, decision.replacement,
                                    boundary_vk, boundary_text)
         if caps:
@@ -785,6 +792,49 @@ class LiveHook:
         else:
             self.emit("error", "Текст исправлен, но приложение не подтвердило смену раскладки")
         return True
+
+    def _correct_native(self, context, decision, keys, boundary_vk, boundary_text,
+                        remember, suffix, manual, caps):
+        # The word is already delivered; the delimiter/manual hotkey is held.
+        # A refusal must never fall back to deleting an unverified character count.
+        def valid():
+            current = self.context()
+            return (not self.stopping and current is not None
+                    and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language)
+        target = decision.replacement + (boundary_text if boundary_vk is None else "")
+        try:
+            with NativeEditBridge(context, valid, pending_char="") as bridge:
+                outcome = replace_prefix(bridge, decision.typed, target, valid)
+        except Exception as error:
+            self.emit("diagnostic", "boundary-refused:" + type(error).__name__)
+            return False
+        if outcome.state != "verified":
+            self.emit("diagnostic", "boundary-" + outcome.state + ":" + outcome.reason)
+            if outcome.state == "uncertain":
+                self.native_early_disabled = True
+                self.token_blocked = True
+            return False  # Forward the delimiter; never retry a possibly partial word edit.
+        if caps:
+            events = (Input * 2)(input_key(VK_CAPITAL), input_key(VK_CAPITAL, KEYEVENTF_KEYUP))
+            self.user32.SendInput(2, events, ctypes.sizeof(Input))
+            keys = [(vk, not shift if 0x41 <= vk <= 0x5A else shift) for vk, shift in keys]
+        hkl = int(self.engine.mapper.layouts[decision.language])
+        result = ctypes.c_size_t()
+        self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
+            WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            30, ctypes.byref(result))
+        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
+        self.last_language = next((lang for lang, code in LANGS.items() if code == observed), "")
+        if remember:
+            self._remember(context, keys, decision.replacement, decision.language,
+                           suffix, whole=decision.reason == "unique dictionary match")
+        self.token_blocked = manual
+        self.emit("diagnostic", "boundary-verified:layout-" +
+                  ("confirmed" if observed == hkl & 0xFFFF else "unconfirmed"))
+        # Space/Enter/Tab pass physically, preserving the application's own handling.
+        # Literal punctuation was included in the verified range replacement.
+        return boundary_vk is None
 
     def handle_keyboard(self, code, message, param):
         if code < 0:
@@ -1581,6 +1631,13 @@ class TypeBridgeGui:
         try:
             while True:
                 kind, message = self.events.get_nowait()
+                if kind == "diagnostic":
+                    from ui_diagnostics import record_runtime_event
+                    try:
+                        record_runtime_event(USER_DIR, message)
+                    except OSError:
+                        pass
+                    message = "Замена текста: " + message
                 if kind == "quick-search-result":
                     if self.tray:
                         text = self.quick_search.receive(message, self.clipboard_tools.settings, self.tray.layouts, self.closing)

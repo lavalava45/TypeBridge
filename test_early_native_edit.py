@@ -8,7 +8,7 @@ from early_native_edit import NativeEditBridge, utf16_position, utf8_position, s
 from early_scintilla import replace_prefix
 from test_early_runtime import ByteEditor
 from test_app_controls import make_hook
-from typebridge_app import FocusContext
+from typebridge_app import FocusContext, LiveHook
 from engine import Decision
 from early_live_trial import TrialHook
 
@@ -37,6 +37,31 @@ class PositionTests(unittest.TestCase):
 
 
 class TrialDeliveryTests(unittest.TestCase):
+    def test_boundary_uses_native_word_replacement_and_forwards_space(self):
+        hook, editor, decision, language = self.fixture()
+        editor.data = decision.typed.encode()
+        editor.caret = len(editor.data)
+        hook.engine.decide_token = Mock(return_value=decision)
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory:
+            self.assertFalse(LiveHook._correct(hook, hook.context(), 0x20, ''))
+        self.assertEqual(editor.data, 'привет'.encode())
+        self.assertEqual(language[0], 'ru')
+        self.assertEqual(factory.call_args.kwargs['pending_char'], '')
+        hook.user32.SendInput.assert_not_called()
+
+    def test_boundary_refusal_never_falls_back_to_blind_backspaces(self):
+        hook, editor, decision, language = self.fixture()
+        editor.data = b'ghb'
+        editor.caret = len(editor.data)
+        hook.engine.decide_token = Mock(return_value=decision)
+        with patch('typebridge_app.NativeEditBridge', return_value=editor):
+            self.assertFalse(LiveHook._correct(hook, hook.context(), 0x20, ''))
+        self.assertEqual(editor.data, b'ghb')
+        self.assertFalse(editor.write_started)
+        self.assertEqual(language[0], 'en')
+        hook.user32.SendInput.assert_not_called()
+        hook.emit.assert_called_with('diagnostic', 'boundary-refused:prefix-not-delivered')
+
     def test_modern_richedit_uses_verified_replacement_without_backspace_batch(self):
         hook, editor, decision, language = self.fixture()
         hook.user32.GetClassNameW.side_effect = lambda hwnd, buffer, size: setattr(buffer, 'value', 'RichEditD2DPT')
@@ -173,6 +198,17 @@ class TrialDeliveryTests(unittest.TestCase):
 
 
 class NativeTypingTests(unittest.TestCase):
+    def test_complete_word_does_not_materialize_an_extra_held_character(self):
+        bridge = self.fixture()
+        bridge.pending_char = ''
+        bridge.prepared = (0, 6, 'привет', b'ghbdtn', 6)
+        bridge.selection = Mock(side_effect=[(6, 6), (0, 6)])
+        bridge.snapshot = Mock(return_value=(b'ghbdtn', 6))
+        bridge.replace(0, 6, 'привет'.encode())
+        self.assertEqual([call.args for call in bridge.msg.call_args_list], [
+            (0x458,), (0xB1, 0, 6),
+            *[(0x102, ord(char), 1) for char in 'привет'], (0x458,)])
+
     def fixture(self):
         bridge = NativeEditBridge.__new__(NativeEditBridge)
         bridge.pending_char = 'щ'

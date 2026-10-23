@@ -4,6 +4,17 @@ from pathlib import Path
 import traceback
 
 
+def record_runtime_event(folder, code):
+    # Only internal outcome codes, never exception arguments, keys or word text.
+    path = Path(folder) / 'replacement-diagnostics.log'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size > 65536:
+        path.write_text('', encoding='utf-8')
+    with path.open('a', encoding='utf-8') as stream:
+        stream.write(f'{datetime.now(timezone.utc).isoformat()} {code}\n')
+    return path
+
+
 def record_callback_error(folder, exception_type, tb):
     path = Path(folder) / 'ui-errors.log'
     frames = traceback.extract_tb(tb)
