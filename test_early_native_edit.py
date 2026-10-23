@@ -129,6 +129,13 @@ class TrialDeliveryTests(unittest.TestCase):
 
 
 class TrialWindowTests(unittest.TestCase):
+    def test_injected_input_is_opt_in_and_keeps_trial_scope(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled), patch('early_live_trial.LiveHook.__init__', return_value=None) as initialize:
+                hook = TrialHook(None, 90, 100, lambda *args: None, accept_injected=enabled)
+                self.assertEqual(initialize.call_args.kwargs['accept_injected'], enabled)
+                self.assertEqual((hook.trial_top, hook.trial_field), (90, 100))
+
     def test_opening_withdrawn_trial_does_not_create_or_start_hook(self):
         import tkinter as tk
         import early_live_trial

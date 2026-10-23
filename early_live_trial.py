@@ -6,6 +6,7 @@ existing hook on a worker; context() refuses every other window and field.
 import ctypes
 from ctypes import wintypes as w
 import queue
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -19,10 +20,10 @@ from early_tom import NativeUndoGroup
 
 
 class TrialHook(LiveHook):
-    def __init__(self, engine, top, field, emit):
+    def __init__(self, engine, top, field, emit, *, accept_injected=False):
         settings = Settings(early_correction=True, manual_f8=False, cycle_key='Отключено',
                             direct_ru='Отключено', direct_en='Отключено', direct_he='Отключено')
-        super().__init__(engine, settings, emit)
+        super().__init__(engine, settings, emit, accept_injected=accept_injected)
         self.trial_top, self.trial_field = top, field
 
     def run(self):
@@ -103,9 +104,11 @@ class TrialHook(LiveHook):
         return True
 
 
-def main():
+def main(*, accept_injected=False):
     root = tk.Tk()
     root.title('TypeBridge — отдельный стенд раннего исправления')
+    if accept_injected:
+        root.title(root.title() + ' [автоматизированный ввод]')
     root.geometry('760x460')
     frame = ttk.Frame(root, padding=14)
     frame.pack(fill='both', expand=True)
@@ -135,7 +138,8 @@ def main():
         try:
             engine = LanguageEngine(source_data_dir())
             prepare_early(engine)
-            hook = TrialHook(engine, top, field, lambda kind, text: events.put(text))
+            hook = TrialHook(engine, top, field, lambda kind, text: events.put(text),
+                             accept_injected=accept_injected)
             state['hook'] = hook
             def run():
                 try: hook.run()
@@ -166,4 +170,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(accept_injected='--accept-injected' in sys.argv[1:])
