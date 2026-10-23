@@ -23,6 +23,7 @@ WM_CLIPBOARD_CONFIG = win32con.WM_APP + 54
 MENU_OPEN, MENU_ENABLE, MENU_EXIT = 4001, 4002, 4005
 MENU_SNIPPETS = 4006
 MENU_HISTORY = 4007
+MENU_CARET_FLAG = 4008
 MENU_LAYOUT_BASE = 5000
 ICON_LABELS = {"ru": "RU", "en": "EN", "he": "HE", "idle": "--"}
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
@@ -30,7 +31,7 @@ STATE_LABELS = {"stopped": "Автоисправление выключено", 
                 "stopping": "Останавливается…", "error": "Ошибка запуска"}
 
 
-def menu_items(state: str, detail: str = ""):
+def menu_items(state: str, detail: str = "", caret_flag: bool = False):
     """One checked correction toggle; no separate stop/pause commands."""
     busy = state in ("starting", "stopping")
     status = STATE_LABELS[state]
@@ -39,6 +40,7 @@ def menu_items(state: str, detail: str = ""):
     status_row = ((0, status[:180], False, False),) if busy or state == "error" else ()
     return status_row + (
         (MENU_ENABLE, "Автоисправление", not busy, state == "running"),
+        (MENU_CARET_FLAG, "Флажок у текстового курсора", True, caret_flag),
         (MENU_OPEN, "Открыть настройки", True, False),
         (MENU_SNIPPETS, "Автозамена и шаблоны…", True, False),
         (MENU_HISTORY, "История буфера обмена…", True, False),
@@ -104,6 +106,7 @@ class TrayController:
         self.run_state = ("stopped", "")
         self.layouts = WindowsLayouts()
         self.last_target = None
+        self.caret_flag = False
         self.clipboard_settings = None
         self.clipboard_hotkeys = {}
 
@@ -111,6 +114,9 @@ class TrayController:
         self.clipboard_settings = settings
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, WM_CLIPBOARD_CONFIG, 0, 0)
+
+    def set_caret_flag(self, enabled):
+        self.caret_flag = bool(enabled)
 
     def _register_clipboard_hotkeys(self):
         from clipboard_tools import clipboard_bindings
@@ -246,7 +252,7 @@ class TrayController:
             except OSError as error:
                 win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0, str(error)[:180])
             insert_position = 0
-            for code, title, enabled, checked in menu_items(*self.run_state):
+            for code, title, enabled, checked in menu_items(*self.run_state, caret_flag=self.caret_flag):
                 flags = win32con.MF_STRING
                 if not enabled:
                     flags |= win32con.MF_GRAYED
@@ -265,10 +271,11 @@ class TrayController:
                 win32con.TPM_NONOTIFY, x, y, 0, self.hwnd, None)
         finally:
             win32gui.DestroyMenu(menu)
-        commands = {MENU_OPEN: "open", MENU_SNIPPETS: "snippets", MENU_ENABLE: "toggle", MENU_EXIT: "exit"}
+        commands = {MENU_OPEN: "open", MENU_SNIPPETS: "snippets", MENU_ENABLE: "toggle",
+                    MENU_CARET_FLAG: "toggle-caret-flag", MENU_EXIT: "exit"}
         if chosen == MENU_HISTORY:
             self.notify(("history", target))
-        if chosen in (0, MENU_ENABLE) and self.layouts.valid(target):
+        if chosen in (0, MENU_ENABLE, MENU_CARET_FLAG) and self.layouts.valid(target):
             try:
                 self._return_to_target(target)
             except OSError:

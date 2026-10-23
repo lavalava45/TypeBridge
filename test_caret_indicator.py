@@ -96,6 +96,43 @@ class AccessibilityAbiTests(unittest.TestCase):
 
 
 class SettingsAndLifecycleTests(unittest.TestCase):
+    def test_tray_menu_flag_check_is_independent_of_autocorrection(self):
+        from tray_win32 import menu_items, MENU_CARET_FLAG
+        for state in ("running", "paused", "stopped", "starting", "error"):
+            for enabled in (False, True):
+                item = next(row for row in menu_items(state, caret_flag=enabled)
+                            if row[0] == MENU_CARET_FLAG)
+                self.assertTrue(item[2])
+                self.assertEqual(item[3], enabled)
+
+    def test_tray_toggle_saves_only_flag_and_syncs_gui(self):
+        app = TypeBridgeGui.__new__(TypeBridgeGui)
+        app.tray = SimpleNamespace(caret_flag=False)
+        app.show_caret_flag = Mock()
+        app.show_caret_flag.get.return_value = True  # Unsaved GUI edit.
+        app._apply_caret_indicator = Mock()
+        app.emit = Mock()
+        saved = replace(Settings(), plain_paste=True, conservative=False)
+        with (patch('typebridge_app.load_settings', return_value=saved),
+              patch('typebridge_app.save_settings') as write):
+            app.toggle_caret_flag()
+            write.assert_called_once_with(replace(saved, show_caret_flag=True))
+            app.show_caret_flag.set.assert_called_once_with(True)
+            app._apply_caret_indicator.assert_called_once_with(True)
+
+    def test_failed_tray_save_does_not_change_indicator_or_check(self):
+        app = TypeBridgeGui.__new__(TypeBridgeGui)
+        app.tray = SimpleNamespace(caret_flag=True)
+        app.show_caret_flag = Mock()
+        app._apply_caret_indicator = Mock()
+        app.emit = Mock()
+        with (patch('typebridge_app.load_settings', return_value=Settings()),
+              patch('typebridge_app.save_settings', side_effect=OSError('read-only'))):
+            app.toggle_caret_flag()
+        app.show_caret_flag.set.assert_not_called()
+        app._apply_caret_indicator.assert_not_called()
+        app.emit.assert_called_once()
+
     def test_option_persistence_legacy_defaults_and_invalid_type(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/"settings.json"

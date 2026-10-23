@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 from ctypes import wintypes
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 import json
 import os
 from pathlib import Path
@@ -1103,6 +1103,20 @@ class TypeBridgeGui:
             self.caret_indicator.start()
         if self.caret_indicator is not None:
             self.caret_indicator.set_enabled(enabled)
+        if getattr(self, "tray", None):
+            self.tray.set_caret_flag(enabled)
+
+    def toggle_caret_flag(self) -> None:
+        current = self.tray.caret_flag if self.tray else self.show_caret_flag.get()
+        enabled = not current
+        try:
+            # Change only this saved setting; leave unsaved GUI edits alone.
+            save_settings(replace(load_settings(), show_caret_flag=enabled))
+        except (ValueError, OSError) as error:
+            self.emit("error", f"Не удалось сохранить настройку флажка: {error}")
+            return
+        self.show_caret_flag.set(enabled)
+        self._apply_caret_indicator(enabled)
 
     def open_snippets(self):
         from snippets_gui import SnippetsWindow
@@ -1124,6 +1138,7 @@ class TypeBridgeGui:
             from tray_win32 import TrayController
             self.tray = TrayController(lambda action: self.events.put(("tray", action)))
             self.tray.set_state(self.run_state, self.last_start_error)
+            self.tray.set_caret_flag(self.show_caret_flag.get())
             self.tray.configure_clipboard(self.clipboard_tools.settings)
             self.tray.start()
         except Exception as error:
@@ -1358,6 +1373,7 @@ class TypeBridgeGui:
                             kind, message = "error", f"Трей: {message[1]}"
                     else:
                         action = {"open": self.show, "snippets": self.open_snippets, "toggle": self.toggle_corrections,
+                                  "toggle-caret-flag": self.toggle_caret_flag,
                                   "exit": self.close}.get(message)
                         if action:
                             action()
