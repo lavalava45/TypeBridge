@@ -79,12 +79,11 @@ class HostedFocusTests(unittest.TestCase):
         self.assertEqual((context.focus, context.thread_id, context.process_name), (20, 11, "systemsettings.exe"))
         self.assertEqual((context.language, context.layout_window), ("ru", 10))
 
-    def test_unknown_cross_thread_editor_uses_same_foreground_owner(self):
+    def test_normal_editor_still_uses_child_layout(self):
         hook = self.fixture()
         hook.user32.GetClassNameW.side_effect = lambda hwnd, output, size: 0
         context = hook.context()
-        self.assertEqual((context.focus, context.thread_id, context.language,
-                          context.layout_window), (20, 11, "ru", 10))
+        self.assertEqual((context.thread_id, context.language, context.layout_window), (22, "en", 20))
 
     def test_correction_requests_host_and_observes_host_thread(self):
         from test_app_controls import make_hook
