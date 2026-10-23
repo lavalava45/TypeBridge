@@ -64,6 +64,11 @@ still need validation in each editor. This is an actively developed prototype.
 
 ## Data and privacy
 
+Current source adds **Русский / עברית / English** interface selection at the top
+of Settings. The choice is saved and applied immediately to settings, tray and
+tool windows. Hebrew uses right-to-left alignment/layout. It does not change
+keyboard layouts, personal words or template content. Pending the next binary build.
+
 Settings, personal dictionaries and templates live in `%LOCALAPPDATA%\TypeBridge`.
 The previous LayoutSwitch data files are copied on first launch without deleting
 the old files or overwriting existing TypeBridge files. Typed words and template

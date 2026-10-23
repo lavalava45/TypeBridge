@@ -1,6 +1,7 @@
 """Explicit application exclusions editor; changes apply on Save only."""
 import tkinter as tk
 from tkinter import ttk
+from ui_i18n import localize_window
 
 from app_exclusions import CATEGORIES, PASSWORD_PROCESSES
 
@@ -41,6 +42,7 @@ class ExclusionsWindow:
         buttons.pack(fill='x')
         ttk.Button(buttons, text='Сохранить настройки', command=self.save).pack(side='left')
         ttk.Button(buttons, text='Отмена', command=self.window.destroy).pack(side='right')
+        localize_window(self.window)
 
     @staticmethod
     def _names(parent, names, height):

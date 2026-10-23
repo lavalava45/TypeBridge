@@ -33,5 +33,6 @@
   "journal_apps": [
     "notepad.exe",
     "notepad++.exe"
-  ]
+  ],
+  "ui_language": "ru"
 }

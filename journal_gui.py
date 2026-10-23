@@ -1,7 +1,8 @@
 """Explicit opt-in settings and recovery viewer for encrypted editor snapshots."""
 from datetime import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
+from ui_i18n import localize_window, messagebox
 
 
 class JournalWindow:
@@ -53,6 +54,7 @@ class JournalWindow:
         ttk.Label(frame, text='База: %LOCALAPPDATA%\\TypeBridge\\journal\\journal.sqlite3. '
                   'Не более 50 МБ зашифрованных данных / 20 000 снимков.', wraplength=750).pack(anchor='w', pady=(8, 0))
         self.refresh()
+        localize_window(self.window)
 
     def save(self):
         try:

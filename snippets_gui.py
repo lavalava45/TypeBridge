@@ -1,6 +1,7 @@
 """Separate editor for literal replacement rules; persistence belongs to the caller."""
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
+from ui_i18n import tr, localize_window, LocalizedStringVar, messagebox
 from snippets import Snippet, SnippetConfig
 
 
@@ -46,7 +47,7 @@ class SnippetsWindow:
         row=ttk.Frame(frame); row.pack(fill='x',pady=(6,0))
         ttk.Button(row,text='Сохранить и применить',command=self.save).pack(side='left')
         ttk.Button(row,text='Закрыть',command=self.close).pack(side='right')
-        self.status=tk.StringVar(value='Изменения применяются кнопкой «Сохранить и применить».')
+        self.status=LocalizedStringVar(value='Изменения применяются кнопкой «Сохранить и применить».')
         ttk.Label(frame,textvariable=self.status,wraplength=720).pack(anchor='w',pady=(8,0))
         self.dirty=False
         self.trigger.trace_add('write',self.changed)
@@ -56,6 +57,15 @@ class SnippetsWindow:
         self.text.bind('<<Modified>>',self.text_changed)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.refresh()
+        self.window._i18n_refresh = self.refresh_language
+        localize_window(self.window)
+
+    def refresh_language(self):
+        selected = self.table.selection()
+        self.refresh()
+        for item in selected:
+            if self.table.exists(item):
+                self.table.selection_set(item)
 
     def changed(self,*args):
         if not self._loading: self.dirty=True
@@ -76,8 +86,8 @@ class SnippetsWindow:
         for i,r in enumerate(self.rules):
             preview=r.text.replace('\n',' ↵ ').replace('\t',' ⇥ ')
             self.table.insert('', 'end', iid=str(i), values=(r.trigger, preview[:90],
-                              'Сразу' if r.immediate else 'После разделителя',
-                              'Точный' if r.sensitive else 'Любой'))
+                              tr('Сразу' if r.immediate else 'После разделителя'),
+                              tr('Точный' if r.sensitive else 'Любой')))
 
     def new(self, force=False):
         if not force and not self.allow_discard_editor(): return

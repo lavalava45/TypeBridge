@@ -1,6 +1,7 @@
 """Dictionary import UI: bundled examples in one click, custom files previewed."""
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk
+from ui_i18n import tr, localize_window, LocalizedStringVar, ChoiceVar, filedialog, messagebox
 
 from dictionary_import import BUILTINS, PACK_DIR, read_import
 
@@ -29,7 +30,7 @@ class DictionaryImportWindow:
         row = ttk.Frame(custom)
         row.pack(fill='x')
         ttk.Label(row, text='Язык TXT:').pack(side='left')
-        self.language = tk.StringVar(value='auto')
+        self.language = ChoiceVar(value='auto')
         picker = ttk.Combobox(row, textvariable=self.language, values=('auto', 'ru', 'en', 'he'),
                               state='readonly', width=8)
         picker.pack(side='left', padx=8)
@@ -41,7 +42,7 @@ class DictionaryImportWindow:
         ttk.Label(custom, text='UTF-8, одно слово на строку; auto определяет RU/EN/HE. '
                   'JSON хранит язык и регистр каждой записи. До 2 МБ / 50 000 записей.',
                   wraplength=660).pack(anchor='w')
-        self.summary = tk.StringVar(value='Выбери пример или свой файл.')
+        self.summary = LocalizedStringVar(value='Выбери пример или свой файл.')
         ttk.Label(frame, textvariable=self.summary, wraplength=690).pack(anchor='w', pady=12)
         self.details = tk.Text(frame, height=9, wrap='word', state='disabled')
         self.details.pack(fill='both', expand=True)
@@ -55,6 +56,8 @@ class DictionaryImportWindow:
                                        state='disabled')
         self.apply_button.pack(side='left')
         ttk.Button(row, text='Закрыть', command=self.window.destroy).pack(side='right')
+        self.window._i18n_refresh = self.render_details
+        localize_window(self.window)
 
     def choose(self):
         path = filedialog.askopenfilename(parent=self.window, title='Словарь исключений',
@@ -67,13 +70,19 @@ class DictionaryImportWindow:
         self.preview = preview
         self.summary.set(f'{preview.name}: слов — {len(preview.entries)}, '
                          f'повторов внутри файла — {preview.duplicates}, пропущено — {len(preview.skipped)}.')
+        self.render_details()
+
+    def render_details(self):
+        preview = self.preview
+        if preview is None:
+            return
         self.details.configure(state='normal')
         self.details.delete('1.0', 'end')
-        self.details.insert('end', 'Примеры: ' + ', '.join(entry.word for entry in preview.entries[:60]) + '\n')
+        self.details.insert('end', tr('Примеры: ') + ', '.join(entry.word for entry in preview.entries[:60]) + '\n')
         for index, reason in preview.skipped[:40]:
-            self.details.insert('end', f'Строка/запись {index}: {reason}\n')
+            self.details.insert('end', tr(f'Строка/запись {index}: {tr(reason)}\n'))
         if len(preview.skipped) > 40:
-            self.details.insert('end', 'Показаны первые 40 пропусков.\n')
+            self.details.insert('end', tr('Показаны первые 40 пропусков.\n'))
         self.details.configure(state='disabled')
 
     def reload(self):

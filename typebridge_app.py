@@ -20,7 +20,9 @@ import sys
 import tempfile
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
+from ui_i18n import (messagebox, tr, localize_window, LocalizedStringVar, ChoiceVar,
+                     LANGUAGES, get_language, set_language)
 
 from engine import LANGS, WORD_AFFIXES, LanguageEngine, candidate_token_key, source_data_dir
 from runtime_safety import require_no_original_switcher
@@ -125,6 +127,7 @@ class GuiThreadInfo(ctypes.Structure):
 
 @dataclass(frozen=True)
 class Settings:
+    ui_language: str = "ru"
     corrections_enabled: bool = False
     conservative: bool = True
     only_window_title: str = ""
@@ -181,9 +184,12 @@ def load_settings(path: Path | None = None) -> Settings:
         raise ValueError("Выбери поддерживаемую клавишу переключения слова")
     if not isinstance(title, str):
         raise ValueError("only_window_title must be text")
+    ui_language = raw.get("ui_language", "ru")
+    if not isinstance(ui_language, str) or ui_language not in LANGUAGES:
+        raise ValueError("Unsupported interface language")
     journal_apps = validate_journal(raw.get("journal_days", 7), raw.get("journal_apps", list(DEFAULT_APPS)))
     categories = validate_categories(raw.get("excluded_categories", list(DEFAULT_CATEGORIES)))
-    settings = Settings(journal_enabled=raw.get("journal_enabled", False),
+    settings = Settings(ui_language=ui_language, journal_enabled=raw.get("journal_enabled", False),
                     journal_days=raw.get("journal_days", 7), journal_apps=journal_apps,
                     excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
                     conservative=raw.get("conservative", True),
@@ -958,6 +964,8 @@ class TypeBridgeGui:
         self.run_state = "stopped"
         self.last_start_error = ""
         settings = load_settings()
+        set_language(settings.ui_language)
+        self.ui_language = tk.StringVar(value=LANGUAGES[settings.ui_language])
         self.lexicon = load_user_lexicon()
         self.snippet_config = SnippetConfig.load(USER_DIR / 'snippets.json')
         self.snippets_editor = None
@@ -966,7 +974,7 @@ class TypeBridgeGui:
         self.journal_enabled = tk.BooleanVar(value=settings.journal_enabled)
         self.journal_days = tk.StringVar(value=str(settings.journal_days))
         self.journal_apps = tk.StringVar(value=", ".join(settings.journal_apps))
-        self.journal_status = tk.StringVar(value="Дневник включён" if settings.journal_enabled else "Дневник выключен")
+        self.journal_status = LocalizedStringVar(value="Дневник включён" if settings.journal_enabled else "Дневник выключен")
         self.journal_service = JournalService(JournalStore(USER_DIR / 'journal' / 'journal.sqlite3'),
                                             lambda message: self.events.put(("journal", message)))
         self.journal_service.configure(settings)
@@ -978,21 +986,21 @@ class TypeBridgeGui:
         root.geometry("740x775")
         root.minsize(700, 735)
         root.protocol("WM_DELETE_WINDOW", self.hide)
-        self.status = tk.StringVar(value="Остановлен")
+        self.status = LocalizedStringVar(value="Остановлен")
         self.conservative = tk.BooleanVar(value=settings.conservative)
         self.manual_f8 = tk.BooleanVar(value=settings.manual_f8)
-        self.manual_key = tk.StringVar(value=settings.manual_key)
+        self.manual_key = ChoiceVar(value=settings.manual_key)
         self.clipboard_history = tk.BooleanVar(value=settings.clipboard_history)
-        self.clipboard_history_key = tk.StringVar(value=settings.clipboard_history_key)
+        self.clipboard_history_key = ChoiceVar(value=settings.clipboard_history_key)
         self.plain_paste = tk.BooleanVar(value=settings.plain_paste)
-        self.plain_paste_key = tk.StringVar(value=settings.plain_paste_key)
-        self.cycle_key = tk.StringVar(value=settings.cycle_key)
+        self.plain_paste_key = ChoiceVar(value=settings.plain_paste_key)
+        self.cycle_key = ChoiceVar(value=settings.cycle_key)
         self.early_correction = tk.BooleanVar(value=settings.early_correction)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
         self.corrections_enabled = tk.BooleanVar(value=settings.corrections_enabled)
-        self.direct_keys = {lang: tk.StringVar(value=getattr(settings, f"direct_{lang}"))
+        self.direct_keys = {lang: ChoiceVar(value=getattr(settings, f"direct_{lang}"))
                             for lang in LANGS}
         self.only_title = tk.StringVar(value=settings.only_window_title)
         self.excluded = tk.StringVar(value=", ".join(
@@ -1001,6 +1009,8 @@ class TypeBridgeGui:
                                     for name in CATEGORIES}
         self.exclusions_window = None
         self._build()
+        root._i18n_refresh = self._translate_word_rows
+        localize_window(root)
         root.after(100, self._drain)
         root.after(150, self._start_tray)
         root.after(500, self._update_tray)
@@ -1009,6 +1019,13 @@ class TypeBridgeGui:
             root.after(300, self._restore_corrections)
 
     def _build(self) -> None:
+        language_bar = ttk.Frame(self.root)
+        language_bar.pack(fill="x", padx=14, pady=(10, 0))
+        ttk.Label(language_bar, text="Язык интерфейса:").pack(side="left")
+        language_picker = ttk.Combobox(language_bar, textvariable=self.ui_language,
+                                      values=tuple(LANGUAGES.values()), state="readonly", width=16)
+        language_picker.pack(side="left", padx=8)
+        language_picker.bind("<<ComboboxSelected>>", self.change_ui_language)
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=12, pady=12)
         frame = ttk.Frame(notebook, padding=18)
@@ -1116,6 +1133,20 @@ class TypeBridgeGui:
                   "от автоисправления. Если поле не сообщает положение каретки,\n"
                   "индикатор скрывается.", wraplength=620).pack(anchor="w", pady=(0, 14))
         ttk.Button(indication, text="Сохранить настройки", command=self.save).pack(anchor="w")
+
+    def change_ui_language(self, event=None):
+        selected = next((code for code, name in LANGUAGES.items() if name == self.ui_language.get()), None)
+        if selected is None:
+            return
+        try:
+            save_settings(replace(load_settings(), ui_language=selected))
+        except (ValueError, OSError) as error:
+            self.ui_language.set(LANGUAGES[get_language()])
+            messagebox.showerror("Настройки", f"Не удалось сохранить язык интерфейса: {error}", parent=self.root)
+            return
+        set_language(selected)
+        if self.tray:
+            self.tray.refresh_ui()
 
     def _apply_caret_indicator(self, enabled: bool) -> None:
         if self.closing:
@@ -1265,7 +1296,8 @@ class TypeBridgeGui:
             raise ValueError("Укажи имена приложений вроде notepad.exe через запятую")
         days = int(self.journal_days.get())
         journal_apps = validate_journal(days, tuple(x.strip().casefold() for x in self.journal_apps.get().split(",") if x.strip()))
-        settings = Settings(journal_enabled=self.journal_enabled.get(), journal_days=days, journal_apps=journal_apps,
+        selected_language = next((code for code, name in LANGUAGES.items() if name == self.ui_language.get()), get_language())
+        settings = Settings(ui_language=selected_language, journal_enabled=self.journal_enabled.get(), journal_days=days, journal_apps=journal_apps,
                         corrections_enabled=self.corrections_enabled.get(),
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
@@ -1360,9 +1392,14 @@ class TypeBridgeGui:
                 for mode in ("insensitive", "sensitive"):
                     for word in sorted(self.lexicon.data[kind][lang][mode]):
                         item = self.word_list.insert("", "end", values=(
-                            lang.upper(), "Слово" if kind == "words" else "Исключение", word,
-                            "Точный" if mode == "sensitive" else "Любой"))
+                            lang.upper(), tr("Слово" if kind == "words" else "Исключение"), word,
+                            tr("Точный" if mode == "sensitive" else "Любой")))
                         self.word_rows[item] = (kind, lang, word, mode == "sensitive")
+
+    def _translate_word_rows(self):
+        for item, (kind, lang, word, sensitive) in self.word_rows.items():
+            self.word_list.item(item, values=(lang.upper(), tr("Слово" if kind == "words" else "Исключение"),
+                                             word, tr("Точный" if sensitive else "Любой")))
 
     def open_dictionary_import(self):
         from dictionary_import_gui import DictionaryImportWindow
@@ -1487,7 +1524,7 @@ class TypeBridgeGui:
                 self._sync_tray_state()
                 self.status.set(message)
                 self.log.configure(state="normal")
-                self.log.insert("end", message + "\n")
+                self.log.insert("end", tr(message) + "\n")
                 if int(self.log.index("end-1c").split(".")[0]) > 300:
                     self.log.delete("1.0", "2.0")
                 self.log.see("end")

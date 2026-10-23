@@ -1,6 +1,7 @@
 """History picker: text stays in memory; no automatic paste on selection."""
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
+from ui_i18n import localize_window, set_text, messagebox
 
 
 class ClipboardWindow:
@@ -31,6 +32,7 @@ class ClipboardWindow:
                   wraplength=680).pack(anchor='w', pady=(10, 0))
         self.snapshot = None
         self.refresh()
+        localize_window(self.window)
 
     def show(self, target):
         self.target = target
@@ -61,7 +63,7 @@ class ClipboardWindow:
                 self.list.selection_set(items.index(selected) if selected in items else 0)
             self.preview()
         enabled = self.tools.settings.clipboard_history
-        self.status.configure(text=(f'История включена · фрагментов: {len(items)}' if enabled else
+        set_text(self.status, (f'История включена · фрагментов: {len(items)}' if enabled else
                               'История отключена. Включи её в настройках → «Буфер обмена».'))
         self.window.after(400, self.refresh)
 

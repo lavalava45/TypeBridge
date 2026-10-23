@@ -15,6 +15,7 @@ import win32api
 import win32con
 import win32gui
 from tray_layouts import WindowsLayouts, SHELL_CLASSES
+from ui_i18n import tr
 
 
 WM_TRAY = win32con.WM_APP + 52
@@ -40,7 +41,7 @@ def menu_items(state: str, detail: str = "", caret_flag: bool = False, journal_e
         status = detail
     status_row = ((0, status[:180], False, False),) if busy or state == "error" else ()
     journal_row = ((0, "● Дневник включён", False, False),) if journal_enabled else ()
-    return status_row + journal_row + (
+    items = status_row + journal_row + (
         (MENU_ENABLE, "Автоисправление", not busy, state == "running"),
         (MENU_CARET_FLAG, "Флажок у текстового курсора", True, caret_flag),
         (MENU_OPEN, "Открыть настройки", True, False),
@@ -49,6 +50,7 @@ def menu_items(state: str, detail: str = "", caret_flag: bool = False, journal_e
         (MENU_JOURNAL, "Дневник ввода…", True, False),
         (MENU_EXIT, "Выход", True, False),
     )
+    return tuple((code, tr(title), enabled, checked) for code, title, enabled, checked in items)
 
 
 def _icon_files() -> dict[str, Path]:
@@ -127,6 +129,10 @@ class TrayController:
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, WM_SET_LANGUAGE, 0, 0)
 
+    def refresh_ui(self):
+        if self.hwnd:
+            win32gui.PostMessage(self.hwnd, WM_SET_LANGUAGE, 0, 0)
+
     def _register_clipboard_hotkeys(self):
         from clipboard_hotkeys import ClipboardHotkeys
         if self.clipboard_settings is None:
@@ -190,10 +196,10 @@ class TrayController:
 
     def _icon_data(self):
         state, detail = self.run_state
-        status = detail if state == "error" and detail else STATE_LABELS[state]
+        status = tr(detail if state == "error" and detail else STATE_LABELS[state])
         return (self.hwnd, 0, win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
                 WM_TRAY, self.icons.get(self.language) or self.icons["idle"],
-                f"TypeBridge — {'Дневник ВКЛ · ' if self.journal_enabled else ''}{status}"[:127])
+                f"TypeBridge — {tr('Дневник ВКЛ · ') if self.journal_enabled else ''}{status}"[:127])
 
     def _wndproc(self, hwnd, message, wparam, lparam):
         if message == WM_CLIPBOARD_CONFIG:
@@ -230,7 +236,7 @@ class TrayController:
         try:
             layout_menu = win32gui.CreatePopupMenu()
             # Attach immediately: destroying the parent then owns its cleanup.
-            win32gui.AppendMenu(menu, win32con.MF_POPUP, layout_menu, "Раскладка")
+            win32gui.AppendMenu(menu, win32con.MF_POPUP, layout_menu, tr("Раскладка"))
             try:
                 current_hkl = self.layouts.current(target)
                 for index, choice in enumerate(self.layouts.installed()):
@@ -244,9 +250,9 @@ class TrayController:
                     win32gui.AppendMenu(layout_menu, flags, code, choice.label)
                 if not self.layouts.valid(target):
                     win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0,
-                                        "Сначала выбери окно приложения")
+                                        tr("Сначала выбери окно приложения"))
             except OSError as error:
-                win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0, str(error)[:180])
+                win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0, tr(str(error))[:180])
             insert_position = 0
             for code, title, enabled, checked in menu_items(*self.run_state, caret_flag=self.caret_flag,
                                                           journal_enabled=self.journal_enabled):
