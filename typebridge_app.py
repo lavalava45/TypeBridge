@@ -1033,7 +1033,7 @@ class TypeBridgeGui:
                          values=SUGGESTIONS, width=25).pack(side="left")
         ttk.Label(shortcuts, text="Выбери сочетание или введи своё, например Ctrl+Alt+1.\n"
                   "Для отключения выбери «Отключено». Команды работают при запущенном\n"
-                  "переключателе, в том числе когда автоисправление на паузе.",
+                  "переключателе, в том числе когда автоисправление отключено.",
                   wraplength=620).pack(anchor="w", pady=14)
         ttk.Button(shortcuts, text="Сохранить сочетания", command=self.save).pack(anchor="w")
         indication = ttk.Frame(notebook, padding=18)
