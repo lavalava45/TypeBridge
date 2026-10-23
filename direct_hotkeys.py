@@ -62,7 +62,7 @@ def compile_bindings(settings) -> dict[Chord, str]:
     from clipboard_tools import clipboard_bindings
     for chord in clipboard_bindings(settings):
         if chord in bindings:
-            raise ValueError("Сочетание буфера уже назначено переключению языка")
+            raise ValueError("Сочетание поиска или буфера уже назначено переключению языка")
         if chord.vk == 0x13 and {0x11, 0x12} <= chord.modifiers:
             raise ValueError("Ctrl+Alt+Pause уже занят")
     return bindings

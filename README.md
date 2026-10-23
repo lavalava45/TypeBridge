@@ -25,6 +25,18 @@ text templates. It runs locally in the notification area.
 
 ## Download and run
 
+Current sources also include opt-in **Quick search**: open its settings window,
+enable it and select text, then press **Ctrl+Alt+G** (configurable). Google is
+provided; add other engines or dictionaries with an HTTP/HTTPS URL containing
+`{query}`. Search needs Windows UI Automation selection support and leaves the
+clipboard unchanged. Unsupported fields are skipped. These additions await the
+next combined EXE build; the existing alpha download has not been replaced.
+
+The **Privacy** settings tab explains keyboard access, optional recording and
+their limits. Read [Privacy and input access](docs/PRIVACY.md) before enabling
+clipboard history or the journal. Disabling autocorrection does not disable
+those separate features.
+
 For the ready-to-run Windows x64 bundle, open [Releases](https://github.com/lavalava45/TypeBridge/releases),
 download the TypeBridge ZIP, extract all files and run `TypeBridge.exe`.
 Python and separate dictionary preparation are not required for the bundle.

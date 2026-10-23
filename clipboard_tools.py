@@ -39,13 +39,14 @@ def clipboard_bindings(settings):
     for enabled, name, action in (
         (settings.clipboard_history, settings.clipboard_history_key, 'history'),
         (settings.plain_paste, settings.plain_paste_key, 'plain-paste'),
+        (getattr(settings, 'quick_search', False), getattr(settings, 'quick_search_key', 'Ctrl+Alt+G'), 'quick-search'),
     ):
         chord = parse_chord(name)  # Validate even disabled settings.
         if chord and (not chord.modifiers or chord.vk == 0x7B):
-            raise ValueError('Для команд буфера выбери сочетание с Ctrl/Alt/Shift, без F12')
+            raise ValueError('Для поиска и команд буфера выбери сочетание с Ctrl/Alt/Shift, без F12')
         if enabled and chord:
             if chord in result:
-                raise ValueError('Одно сочетание назначено двум командам буфера')
+                raise ValueError('Одно сочетание назначено нескольким командам поиска или буфера')
             result[chord] = action
     return result
 

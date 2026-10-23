@@ -1174,3 +1174,51 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                 'he': 'לא ניתן לשמור את שפת הממשק: {v0}'},
  'Программирование: Python / JavaScript / C++': {'en': 'Programming: Python / JavaScript / C++',
                                                  'he': 'תכנות: Python / JavaScript / C++'}}
+
+CATALOG.update({
+    'Для поиска и команд буфера выбери сочетание с Ctrl/Alt/Shift, без F12': {'en': 'Search and clipboard shortcuts require Ctrl/Alt/Shift and cannot use F12', 'he': 'קיצורי חיפוש ולוח דורשים Ctrl/Alt/Shift ואינם יכולים להשתמש ב־F12'},
+    'Одно сочетание назначено нескольким командам поиска или буфера': {'en': 'One shortcut is assigned to multiple search or clipboard commands', 'he': 'קיצור אחד הוקצה למספר פקודות חיפוש או לוח'},
+    'Сочетание поиска или буфера уже назначено переключению языка': {'en': 'The search or clipboard shortcut is already assigned to a language switch', 'he': 'קיצור החיפוש או הלוח כבר הוקצה להחלפת שפה'},
+    'Быстрый поиск': {'en': 'Quick search', 'he': 'חיפוש מהיר'},
+    'Быстрый поиск…': {'en': 'Quick search…', 'he': 'חיפוש מהיר…'},
+    'TypeBridge — Быстрый поиск': {'en': 'TypeBridge — Quick search', 'he': 'TypeBridge — חיפוש מהיר'},
+    'Включить быстрый поиск выделения': {'en': 'Enable selection search', 'he': 'הפעל חיפוש טקסט מסומן'},
+    'Горячая клавиша': {'en': 'Keyboard shortcut', 'he': 'קיצור מקשים'},
+    'Искать через': {'en': 'Search with', 'he': 'חפש באמצעות'},
+    'Название': {'en': 'Name', 'he': 'שם'},
+    'URL поиска': {'en': 'Search URL', 'he': 'כתובת החיפוש'},
+    'URL поиска (вместо текста — {query})': {'en': 'Search URL (use {query} for the text)', 'he': 'כתובת חיפוש (השתמש ב־{query} עבור הטקסט)'},
+    'Обновить выбранный': {'en': 'Update selected', 'he': 'עדכן את הנבחר'},
+    'Оставь хотя бы один поисковик': {'en': 'Keep at least one search provider', 'he': 'השאר לפחות ספק חיפוש אחד'},
+    'Добавь от 1 до 30 поисковиков': {'en': 'Add between 1 and 30 search providers', 'he': 'הוסף בין ספק חיפוש אחד ל־30 ספקים'},
+    'Укажи название и URL поисковика': {'en': 'Enter the provider name and URL', 'he': 'הזן את שם ספק החיפוש ואת הכתובת'},
+    'Укажи название поисковика (до 80 символов)': {'en': 'Enter a provider name (up to 80 characters)', 'he': 'הזן שם לספק החיפוש (עד 80 תווים)'},
+    'Укажи HTTP/HTTPS URL с меткой {query}': {'en': 'Enter an HTTP/HTTPS URL with a {query} placeholder', 'he': 'הזן כתובת HTTP/HTTPS עם מציין המקום {query}'},
+    'Названия поисковиков должны различаться': {'en': 'Search provider names must be unique', 'he': 'שמות ספקי החיפוש חייבים להיות ייחודיים'},
+    'Выбери поисковик из списка': {'en': 'Select a search provider from the list', 'he': 'בחר ספק חיפוש מהרשימה'},
+    'Выдели текст длиной от 1 до 2000 символов': {'en': 'Select text between 1 and 2000 characters', 'he': 'סמן טקסט באורך של 1 עד 2000 תווים'},
+    'Нет доступного выделения: выдели текст в поддерживаемом поле': {'en': 'No accessible selection: select text in a supported field', 'he': 'אין טקסט מסומן נגיש: סמן טקסט בשדה נתמך'},
+    'Поиск открыт в браузере': {'en': 'Search opened in the browser', 'he': 'החיפוש נפתח בדפדפן'},
+    'Не удалось открыть браузер': {'en': 'Could not open the browser', 'he': 'לא ניתן לפתוח את הדפדפן'},
+    'Выдели слово или фразу и нажми сочетание. Текст отправляется выбранному сервису только по этой команде. Буфер не меняется. Парольные и исключённые приложения пропускаются; нужна поддержка выделения Windows UI Automation.': {
+        'en': 'Select a word or phrase and press the shortcut. Text is sent to the chosen service only on this command. The clipboard stays unchanged. Password fields and excluded apps are skipped; Windows UI Automation selection support is required.',
+        'he': 'סמן מילה או ביטוי ולחץ על קיצור המקשים. הטקסט נשלח לשירות הנבחר רק לפי פקודה זו. הלוח אינו משתנה. שדות סיסמה ויישומים מוחרגים מדולגים; נדרשת תמיכה בסימון טקסט של Windows UI Automation.'},
+    'Приватность': {'en': 'Privacy', 'he': 'פרטיות'},
+})
+
+# Kept in the same order as privacy_ui.PRIVACY_TEXT; source text stays canonical.
+from privacy_ui import PRIVACY_TEXT
+for source, en, he in zip(PRIVACY_TEXT, (
+    'To correct layouts, TypeBridge receives Windows keyboard events. The word being processed and the last word for manual cycling are held in memory; ordinary mode does not keep a diary of typed text.',
+    'Clipboard history and the journal are separate opt-in features, disabled by default. History keeps up to 30 items in memory and clears them when disabled or on exit. The journal saves snapshots from allowed editors to disk, encrypted by Windows for the current user, with automatic expiry. Disabling it does not delete old entries.',
+    'Known password managers and ordinary password fields are skipped. Protection is not absolute: browsers and custom fields may not identify secret text. Messages, keys and crypto addresses cannot be reliably recognized by their content. Exclude sensitive apps; disable history and the journal when not needed.',
+    'Layout correction runs locally, without sending typed text. Quick search sends the selection to your chosen service through the browser only on its shortcut. Queries may remain in browser history and with the search provider. Disabling autocorrection does not disable separately enabled history, journal or search.',
+    'Source code is public. This enables inspection; it is not proof of an independent audit or absence of bugs. To end all features, choose Exit in the tray. Personal files: %LOCALAPPDATA%\\TypeBridge. Clear journal entries in its separate window.',
+), (
+    'כדי לתקן פריסות, TypeBridge מקבל אירועי מקלדת מ־Windows. המילה המעובדת והמילה האחרונה להחלפה ידנית נשמרות בזיכרון; במצב רגיל לא נשמר יומן של הטקסט המוקלד.',
+    'היסטוריית הלוח והיומן מופעלים בנפרד ומושבתים כברירת מחדל. ההיסטוריה מחזיקה עד 30 פריטים בזיכרון ונמחקת בכיבוי התכונה או ביציאה. היומן שומר צילומי טקסט מעורכים מורשים בדיסק, עם הצפנת Windows למשתמש הנוכחי ומחיקה אוטומטית לפי גיל. כיבוי היומן אינו מוחק רשומות ישנות.',
+    'מנהלי סיסמאות מוכרים ושדות סיסמה רגילים מדולגים. ההגנה אינה מוחלטת: דפדפנים ושדות מותאמים עלולים לא לזהות טקסט סודי. אי אפשר לזהות באופן אמין התכתבויות, מפתחות וכתובות קריפטו לפי התוכן. הוסף יישומים רגישים להחרגות; השבת היסטוריה ויומן כשאין בהם צורך.',
+    'תיקון הפריסה מתבצע מקומית ללא שליחת הטקסט המוקלד. חיפוש מהיר שולח את הטקסט המסומן לשירות שבחרת דרך הדפדפן רק בלחיצה על קיצור המקשים. השאילתה עלולה להישמר בהיסטוריית הדפדפן ואצל ספק החיפוש. כיבוי התיקון האוטומטי אינו מכבה היסטוריה, יומן או חיפוש שהופעלו בנפרד.',
+    'קוד המקור פתוח לבדיקה. זו אינה הוכחה לביקורת עצמאית או להיעדר תקלות. לסיום כל התכונות בחר יציאה במגש המערכת. קבצים אישיים: %LOCALAPPDATA%\\TypeBridge. ניתן למחוק את רשומות היומן בחלון שלו.',
+)):
+    CATALOG[source] = {'en': en, 'he': he}

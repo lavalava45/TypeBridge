@@ -108,12 +108,14 @@ class HiddenWindowTests(unittest.TestCase):
                 app.open_dictionary_import(); app.dictionary_import_window.window.withdraw()
                 app.open_clipboard_history(); app.clipboard_window.window.withdraw()
                 app.open_journal(); app.journal_window.window.withdraw()
+                app.open_search(); app.search_window.window.withdraw()
                 snippet = app.snippets_editor
                 draft = 'Несохранённый draft שלום //email'
                 snippet.text.insert('1.0', draft)
                 snippet.trigger.set('//draft')
                 windows = [app.snippets_editor.window, app.exclusions_window.window,
-                           app.dictionary_import_window.window, app.clipboard_window.window, app.journal_window.window]
+                           app.dictionary_import_window.window, app.clipboard_window.window, app.journal_window.window,
+                           app.search_window.window]
                 for language in ('en', 'he', 'ru'):
                     app.ui_language.set(LANGUAGES[language])
                     app.change_ui_language()

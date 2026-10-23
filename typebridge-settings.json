@@ -34,5 +34,11 @@
     "notepad.exe",
     "notepad++.exe"
   ],
-  "ui_language": "ru"
+  "ui_language": "ru",
+  "quick_search": false,
+  "quick_search_key": "Ctrl+Alt+G",
+  "quick_search_engine": "Google",
+  "quick_search_engines": [
+    ["Google", "https://www.google.com/search?q={query}"]
+  ]
 }

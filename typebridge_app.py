@@ -38,6 +38,7 @@ from startup_registration import read_registration, write_registration, startup_
 from snippets import SnippetConfig, SnippetMatcher
 from app_paths import USER_DIR, migrate_user_data
 from input_journal import DEFAULT_APPS, JournalStore, JournalService, validate_journal
+from quick_search import DEFAULT_ENGINES, QuickSearch, validate_engines
 from app_exclusions import PASSWORD_PROCESSES, DEFAULT_CATEGORIES, CATEGORIES, effective_exclusions, validate_categories
 
 
@@ -140,6 +141,10 @@ class Settings:
     clipboard_history_key: str = "Ctrl+Alt+H"
     plain_paste: bool = False
     plain_paste_key: str = "Ctrl+Shift+V"
+    quick_search: bool = False
+    quick_search_key: str = "Ctrl+Alt+G"
+    quick_search_engine: str = "Google"
+    quick_search_engines: tuple[tuple[str, str], ...] = DEFAULT_ENGINES
     cycle_key: str = "Pause"
     early_correction: bool = False
     show_caret_flag: bool = False
@@ -175,7 +180,7 @@ def load_settings(path: Path | None = None) -> Settings:
     if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
         raise ValueError("excluded_processes must be a JSON array of names")
     for name in ("conservative", "manual_f8", "early_correction", "show_caret_flag",
-                 "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste", "journal_enabled"):
+                 "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste", "journal_enabled", "quick_search"):
         if name in raw and type(raw[name]) is not bool:
             raise ValueError(f"{name} must be true or false")
     title = raw.get("only_window_title", "")
@@ -190,6 +195,10 @@ def load_settings(path: Path | None = None) -> Settings:
     journal_apps = validate_journal(raw.get("journal_days", 7), raw.get("journal_apps", list(DEFAULT_APPS)))
     categories = validate_categories(raw.get("excluded_categories", list(DEFAULT_CATEGORIES)))
     settings = Settings(ui_language=ui_language, journal_enabled=raw.get("journal_enabled", False),
+                    quick_search=raw.get("quick_search", False),
+                    quick_search_key=raw.get("quick_search_key", "Ctrl+Alt+G"),
+                    quick_search_engine=raw.get("quick_search_engine", "Google"),
+                    quick_search_engines=validate_engines(raw.get("quick_search_engines", DEFAULT_ENGINES), raw.get("quick_search_engine", "Google")),
                     journal_days=raw.get("journal_days", 7), journal_apps=journal_apps,
                     excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
                     conservative=raw.get("conservative", True),
@@ -971,6 +980,9 @@ class TypeBridgeGui:
         self.snippets_editor = None
         self.dictionary_import_window = None
         self.journal_window = None
+        self.search_window = None
+        self.search_settings = settings
+        self.quick_search = QuickSearch(lambda result: self.events.put(("quick-search-result", result)))
         self.journal_enabled = tk.BooleanVar(value=settings.journal_enabled)
         self.journal_days = tk.StringVar(value=str(settings.journal_days))
         self.journal_apps = tk.StringVar(value=", ".join(settings.journal_apps))
@@ -1070,6 +1082,7 @@ class TypeBridgeGui:
         tools.pack(fill="x", pady=(10, 2))
         ttk.Button(tools, text="Исключения приложений…", command=self.open_exclusions).pack(side="left")
         ttk.Button(tools, text="Дневник ввода…", command=self.open_journal).pack(side="left", padx=8)
+        ttk.Button(tools, text="Быстрый поиск…", command=self.open_search).pack(side="left")
         ttk.Label(frame, textvariable=self.journal_status, foreground="#a12b20").pack(anchor="w")
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=15)
@@ -1122,6 +1135,8 @@ class TypeBridgeGui:
                   "Не копируй секреты при включённой истории: не все приложения помечают их как приватные.",
                   wraplength=620).pack(anchor="w", pady=16)
         ttk.Button(clipboard, text="Открыть историю…", command=self.open_clipboard_history).pack(anchor="w", pady=6)
+        from privacy_ui import build_privacy_tab
+        build_privacy_tab(notebook)
         ttk.Button(clipboard, text="Очистить историю", command=self.clipboard_tools.clear_history).pack(anchor="w", pady=6)
         ttk.Button(clipboard, text="Сохранить настройки", command=self.save).pack(anchor="w", pady=12)
         indication = ttk.Frame(notebook, padding=18)
@@ -1298,6 +1313,10 @@ class TypeBridgeGui:
         journal_apps = validate_journal(days, tuple(x.strip().casefold() for x in self.journal_apps.get().split(",") if x.strip()))
         selected_language = next((code for code, name in LANGUAGES.items() if name == self.ui_language.get()), get_language())
         settings = Settings(ui_language=selected_language, journal_enabled=self.journal_enabled.get(), journal_days=days, journal_apps=journal_apps,
+                        quick_search=self.search_settings.quick_search,
+                        quick_search_key=self.search_settings.quick_search_key,
+                        quick_search_engine=self.search_settings.quick_search_engine,
+                        quick_search_engines=self.search_settings.quick_search_engines,
                         corrections_enabled=self.corrections_enabled.get(),
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
@@ -1336,6 +1355,7 @@ class TypeBridgeGui:
             if hook:
                 hook.request_config(settings, self.lexicon)
             self.clipboard_tools.configure(settings)
+            self.quick_search.configure()
             self._configure_journal(settings)
             if self.tray:
                 self.tray.configure_clipboard(settings)
@@ -1466,10 +1486,37 @@ class TypeBridgeGui:
         else:
             self.clipboard_window = ClipboardWindow(self.root, self.clipboard_tools, target)
 
+    def open_search(self):
+        from quick_search_gui import QuickSearchWindow
+        if self.search_window and self.search_window.window.winfo_exists():
+            self.search_window.window.deiconify()
+            self.search_window.window.lift()
+        else:
+            self.search_window = QuickSearchWindow(self.root, self)
+
+    def apply_search_settings(self, enabled, key, engine, engines):
+        # Save only this window's options; unrelated unsaved main-window drafts stay drafts.
+        settings = replace(load_settings(), quick_search=enabled, quick_search_key=key,
+                           quick_search_engine=engine, quick_search_engines=validate_engines(engines, engine))
+        compile_bindings(settings)
+        save_settings(settings)
+        self.search_settings = settings
+        self.quick_search.configure()
+        self.clipboard_tools.configure(settings)
+        if self.tray:
+            self.tray.configure_clipboard(settings)
+        self.emit("info", "Настройки сохранены и применены")
+
     def _drain(self) -> None:
         try:
             while True:
                 kind, message = self.events.get_nowait()
+                if kind == "quick-search-result":
+                    if self.tray:
+                        text = self.quick_search.receive(message, self.clipboard_tools.settings, self.tray.layouts, self.closing)
+                        if text:
+                            self.status.set(text)
+                    continue
                 if kind == "journal":
                     generation, text = message
                     if generation != self.journal_service.generation:
@@ -1487,6 +1534,9 @@ class TypeBridgeGui:
                     continue
                 if kind == "tray":
                     if isinstance(message, tuple):
+                        if message[0] == "quick-search":
+                            self.quick_search.request(message[1], self.clipboard_tools.settings, self.tray.layouts)
+                            continue
                         if message[0] in ("history", "plain-paste"):
                             try:
                                 if message[0] == "history":

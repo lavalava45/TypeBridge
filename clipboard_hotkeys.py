@@ -1,4 +1,4 @@
-"""Context-aware clipboard hotkeys on the tray thread, without global reservation.
+"""Context-aware clipboard/search hotkeys on the tray thread, without global reservation.
 
 Install explicitly only when enabled. Excluded/unknown applications receive
 their original keyboard events; no replay of swallowed keys is used.
