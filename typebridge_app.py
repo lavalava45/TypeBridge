@@ -27,7 +27,7 @@ from runtime_safety import require_no_original_switcher
 from single_instance import exclusive_live_hook
 from user_lexicon import UserLexicon
 from tray_layouts import layout_owner, WindowsLayouts
-from direct_hotkeys import DEFAULTS, SUGGESTIONS, Chord, compile_bindings
+from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bindings
 from word_cycle import CYCLE_KEYS, RecentWord, remember_word
 from incremental_recognition import prepare_early, build_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
@@ -127,6 +127,7 @@ class Settings:
     conservative: bool = True
     only_window_title: str = ""
     manual_f8: bool = True
+    manual_key: str = "Scroll Lock"
     cycle_key: str = "Pause"
     early_correction: bool = False
     show_caret_flag: bool = False
@@ -176,6 +177,7 @@ def load_settings(path: Path | None = None) -> Settings:
     settings = Settings(corrections_enabled=raw.get("corrections_enabled", False),
                     conservative=raw.get("conservative", True),
                     manual_f8=raw.get("manual_f8", True),
+                    manual_key=raw.get("manual_key", "Scroll Lock"),
                     cycle_key=cycle_key,
                     early_correction=raw.get("early_correction", False),
                     show_caret_flag=raw.get("show_caret_flag", False),
@@ -765,11 +767,12 @@ class LiveHook:
                 self.suppressed_keyups.add(vk)
                 self._cycle_word(context)
             return 1
-        if self.paused and vk == VK_F8:
+        manual_vk = MANUAL_KEYS[self.settings.manual_key]
+        if self.paused and vk == manual_vk and manual_vk != 0:
             self.clear_token()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
-        if (vk == VK_F8 and self.settings.manual_f8
+        if (vk == manual_vk and manual_vk != 0 and self.settings.manual_f8
                 and not any(self.pressed(key) for key in
                             (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN))):
             if vk in self.suppressed_keyups:
@@ -778,7 +781,7 @@ class LiveHook:
             if self._correct(context, None, "", manual=True):
                 self.suppressed_keyups.add(vk)
                 return 1
-            self.emit("info", "F8: однозначное исправление не найдено")
+            self.emit("info", "Однозначное исправление не найдено")
             self.suppressed_keyups.add(vk)
             return 1
         if (self.pressed(VK_CONTROL) or self.pressed(VK_MENU)
@@ -948,6 +951,7 @@ class TypeBridgeGui:
         self.status = tk.StringVar(value="Остановлен")
         self.conservative = tk.BooleanVar(value=settings.conservative)
         self.manual_f8 = tk.BooleanVar(value=settings.manual_f8)
+        self.manual_key = tk.StringVar(value=settings.manual_key)
         self.cycle_key = tk.StringVar(value=settings.cycle_key)
         self.early_correction = tk.BooleanVar(value=settings.early_correction)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
@@ -988,8 +992,12 @@ class TypeBridgeGui:
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
                         variable=self.autostart).pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(frame, text="F8 — исправить набираемое слово до пробела",
-                        variable=self.manual_f8).pack(anchor="w", pady=(6, 0))
+        manual_row = ttk.Frame(frame)
+        manual_row.pack(fill="x", pady=(6, 0))
+        ttk.Checkbutton(manual_row, text="Исправить набираемое слово до пробела",
+                        variable=self.manual_f8).pack(side="left")
+        ttk.Combobox(manual_row, textvariable=self.manual_key, state="readonly",
+                     values=tuple(MANUAL_KEYS), width=15).pack(side="left", padx=10)
         cycle_row = ttk.Frame(frame)
         cycle_row.pack(fill="x", pady=(6, 0))
         ttk.Label(cycle_row, text="Перебрать раскладки последнего слова:").pack(side="left")
@@ -1147,6 +1155,7 @@ class TypeBridgeGui:
         settings = Settings(corrections_enabled=self.corrections_enabled.get(),
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
+                        manual_key=self.manual_key.get(),
                         cycle_key=self.cycle_key.get(),
                         early_correction=self.early_correction.get(),
                         show_caret_flag=self.show_caret_flag.get(),

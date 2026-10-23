@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 DISABLED = "Отключено"
 DEFAULTS = {"ru": "Ctrl+Shift+F1", "en": "Ctrl+Shift+F2", "he": "Ctrl+Shift+F3"}
+MANUAL_KEYS = {"Scroll Lock": 0x91, **{f"F{n}": 0x6F + n for n in range(1, 13)},
+               "Pause": 0x13, "Отключено": 0}
 MODIFIERS = {"ctrl": 0x11, "control": 0x11, "alt": 0x12, "shift": 0x10}
 KEYS = {**{f"f{n}": 0x6F + n for n in range(1, 13)},
         **{c.lower(): ord(c) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"},
@@ -36,6 +38,12 @@ def parse_chord(value: str) -> Chord | None:
 
 def compile_bindings(settings) -> dict[Chord, str]:
     from word_cycle import CYCLE_KEYS
+    manual_key = settings.manual_key
+    if not isinstance(manual_key, str) or manual_key not in MANUAL_KEYS:
+        raise ValueError("Выбери поддерживаемую клавишу исправления слова")
+    manual_vk = MANUAL_KEYS[manual_key] if settings.manual_f8 else 0
+    if manual_vk and manual_vk == CYCLE_KEYS[settings.cycle_key]:
+        raise ValueError("Клавиша уже занята перебором раскладок последнего слова")
     bindings = {}
     for lang in DEFAULTS:
         chord = parse_chord(getattr(settings, f"direct_{lang}"))
@@ -48,7 +56,7 @@ def compile_bindings(settings) -> dict[Chord, str]:
         if not chord.modifiers:
             if chord.vk == CYCLE_KEYS[settings.cycle_key]:
                 raise ValueError("Клавиша занята ручным переключением слова")
-            if chord.vk == 0x77 and settings.manual_f8:
-                raise ValueError("F8 занят словарным исправлением")
+            if manual_vk and chord.vk == manual_vk:
+                raise ValueError("Клавиша занята словарным исправлением")
         bindings[chord] = lang
     return bindings

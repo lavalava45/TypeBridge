@@ -18,11 +18,19 @@ class ShortcutSettingsTests(unittest.TestCase):
     def test_roundtrip_and_legacy_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "settings.json"
-            expected = replace(Settings(), direct_ru="Alt+Shift+R", direct_he="Отключено")
+            expected = replace(Settings(), manual_key="F9", direct_ru="Alt+Shift+R", direct_he="Отключено")
             save_settings(expected, path)
             self.assertEqual(load_settings(path), expected)
             path.write_text('{}', encoding="utf-8")
             self.assertEqual(load_settings(path).direct_en, "Ctrl+Shift+F2")
+            self.assertEqual(load_settings(path).manual_key, "Scroll Lock")
+
+    def test_manual_key_conflicts_and_invalid_values(self):
+        for value in ("Pause", "unknown", None, []):
+            with self.assertRaises(ValueError):
+                compile_bindings(replace(Settings(), manual_key=value))
+        compile_bindings(replace(Settings(), manual_key="Pause", manual_f8=False))
+        compile_bindings(replace(Settings(), manual_key="Отключено"))
 
     def test_bad_keys_types_and_unmodified_letters_rejected(self):
         for value in ([], "Win+R", "A", "Shift+A", "Ctrl+Ctrl+F1", "Ctrl++F1"):
@@ -34,7 +42,7 @@ class ShortcutSettingsTests(unittest.TestCase):
                 replace(Settings(), direct_ru="Shift+Control+F2"),
                 replace(Settings(), direct_ru="Pause"),
                 replace(Settings(), direct_ru="Ctrl+Alt+Shift+Pause"),
-                replace(Settings(), direct_ru="F8")):
+                replace(Settings(), direct_ru="Scroll Lock")):
             with self.assertRaises(ValueError):
                 compile_bindings(settings)
         self.assertEqual(compile_bindings(replace(Settings(), direct_ru="F8", manual_f8=False))[

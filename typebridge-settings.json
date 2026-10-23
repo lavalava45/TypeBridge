@@ -2,6 +2,7 @@
   "corrections_enabled": false,
   "conservative": true,
   "manual_f8": true,
+  "manual_key": "Scroll Lock",
   "cycle_key": "Pause",
   "early_correction": false,
   "show_caret_flag": false,
