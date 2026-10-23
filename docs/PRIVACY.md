@@ -6,6 +6,13 @@ of behavior and limitations, not a claim of independent security certification.
 
 ## English
 
+The UIA password guard belongs to the correction hook. It does not automatically
+protect the separate clipboard history or journal. The journal is restricted to
+known native editor controls and checks their password style. Clipboard history
+uses owner-process exclusions and clipboard privacy flags; it cannot reliably
+recognize every copied secret, including text copied from a browser. Leave it
+disabled if that retention is unacceptable.
+
 TypeBridge receives Windows keyboard events to detect words entered in the
 wrong layout. Interception is a capability shared with keyloggers; the important
 questions are what is processed, retained and sent elsewhere. Ordinary correction
@@ -80,6 +87,12 @@ matches it or that there are no defects. Antivirus warnings should be assessed
 using the actual file and its origin; do not blindly disable security software.
 
 ## Русский
+
+Общий UIA-контроль паролей относится к переключателю, а не автоматически ко всей
+истории буфера и дневнику. Дневник читает только известные нативные редакторы с
+проверкой парольного стиля. История учитывает исключённые процессы и признаки
+приватного буфера, но не распознаёт все скопированные секреты, в том числе из
+браузера. Если такое хранение неприемлемо, оставь историю выключенной.
 
 TypeBridge получает события клавиатуры Windows, чтобы находить слова в неверной
 раскладке. Такая техническая возможность есть и у кейлоггеров. Поэтому важно
@@ -206,3 +219,5 @@ Selection reading uses Microsoft's read-only
 API, in a hidden, time-limited helper process. An explicit unsupported-pattern
 result allows the Copy/preview fallback. Password, empty-selection and unknown
 failures do not activate it. Previously copied text is never searched.
+
+הגנת הסיסמאות של UIA שייכת לתיקון הפריסה; היא אינה מגינה אוטומטית על היסטוריית הלוח או היומן. היומן מוגבל לפקדי עורכים מוכרים ובודק את סגנון הסיסמה. היסטוריית הלוח אינה יכולה לזהות כל סוד שהועתק, לרבות מדפדפן; השאר אותה כבויה אם שמירה כזו אינה מקובלת.

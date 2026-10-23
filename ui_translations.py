@@ -1227,13 +1227,13 @@ CATALOG.update({
 from privacy_ui import PRIVACY_TEXT
 for source, en, he in zip(PRIVACY_TEXT, (
     'To correct layouts, TypeBridge receives Windows keyboard events. The word being processed and the last word for manual cycling are held in memory; ordinary mode does not keep a diary of typed text.',
-    'Clipboard history and the journal are separate opt-in features, disabled by default. History keeps up to 30 items in memory and clears them when disabled or on exit. The journal saves snapshots from allowed editors to disk, encrypted by Windows for the current user, with automatic expiry. Disabling it does not delete old entries.',
+    'Clipboard history and the journal are separate opt-in features, disabled by default. History keeps up to 30 items in memory and clears them when disabled or on exit. Copied secrets may enter history. The journal saves snapshots from allowed editors to disk, encrypted by Windows for the current user, with automatic expiry. Disabling it does not delete old entries.',
     'Known password managers and ordinary password fields are skipped. Protection is not absolute: browsers and custom fields may not identify secret text. Messages, keys and crypto addresses cannot be reliably recognized by their content. Exclude sensitive apps; disable history and the journal when not needed.',
     'Layout correction runs locally, without sending typed text. Quick search sends the selection to your chosen service through the browser only on its shortcut. Queries may remain in browser history and with the search provider. Disabling autocorrection does not disable separately enabled history, journal or search.',
     'Source code is public. This enables inspection; it is not proof of an independent audit or absence of bugs. To end all features, choose Exit in the tray. Personal files: %LOCALAPPDATA%\\TypeBridge. Clear journal entries in its separate window.',
 ), (
     'כדי לתקן פריסות, TypeBridge מקבל אירועי מקלדת מ־Windows. המילה המעובדת והמילה האחרונה להחלפה ידנית נשמרות בזיכרון; במצב רגיל לא נשמר יומן של הטקסט המוקלד.',
-    'היסטוריית הלוח והיומן מופעלים בנפרד ומושבתים כברירת מחדל. ההיסטוריה מחזיקה עד 30 פריטים בזיכרון ונמחקת בכיבוי התכונה או ביציאה. היומן שומר צילומי טקסט מעורכים מורשים בדיסק, עם הצפנת Windows למשתמש הנוכחי ומחיקה אוטומטית לפי גיל. כיבוי היומן אינו מוחק רשומות ישנות.',
+    'היסטוריית הלוח והיומן מופעלים בנפרד ומושבתים כברירת מחדל. ההיסטוריה מחזיקה עד 30 פריטים בזיכרון ונמחקת בכיבוי התכונה או ביציאה. סודות שהועתקו עלולים להישמר בהיסטוריה. היומן שומר צילומי טקסט מעורכים מורשים בדיסק, עם הצפנת Windows למשתמש הנוכחי ומחיקה אוטומטית לפי גיל. כיבוי היומן אינו מוחק רשומות ישנות.',
     'מנהלי סיסמאות מוכרים ושדות סיסמה רגילים מדולגים. ההגנה אינה מוחלטת: דפדפנים ושדות מותאמים עלולים לא לזהות טקסט סודי. אי אפשר לזהות באופן אמין התכתבויות, מפתחות וכתובות קריפטו לפי התוכן. הוסף יישומים רגישים להחרגות; השבת היסטוריה ויומן כשאין בהם צורך.',
     'תיקון הפריסה מתבצע מקומית ללא שליחת הטקסט המוקלד. חיפוש מהיר שולח את הטקסט המסומן לשירות שבחרת דרך הדפדפן רק בלחיצה על קיצור המקשים. השאילתה עלולה להישמר בהיסטוריית הדפדפן ואצל ספק החיפוש. כיבוי התיקון האוטומטי אינו מכבה היסטוריה, יומן או חיפוש שהופעלו בנפרד.',
     'קוד המקור פתוח לבדיקה. זו אינה הוכחה לביקורת עצמאית או להיעדר תקלות. לסיום כל התכונות בחר יציאה במגש המערכת. קבצים אישיים: %LOCALAPPDATA%\\TypeBridge. ניתן למחוק את רשומות היומן בחלון שלו.',
@@ -1267,4 +1267,13 @@ CATALOG.update({
     'В Windows: дополнительные параметры клавиатуры → сочетания клавиш для языков ввода.': {
         'en': 'In Windows: Advanced keyboard settings → Input language hot keys.',
         'he': 'ב־Windows: הגדרות מקלדת מתקדמות ← מקשי קיצור לשפות קלט.'},
+})
+
+CATALOG.update({
+    'Защита паролей: помощник недоступен; автоматическое восстановление': {
+        'en': 'Password protection: helper unavailable; recovering automatically',
+        'he': 'הגנת סיסמאות: תהליך העזר אינו זמין; שחזור אוטומטי'},
+    'Защита паролей: поле не удалось проверить; исправления в нём отключены': {
+        'en': 'Password protection: field could not be verified; corrections in it are disabled',
+        'he': 'הגנת סיסמאות: לא ניתן לבדוק את השדה; התיקון בו מושבת'},
 })

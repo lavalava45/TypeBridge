@@ -48,6 +48,7 @@ class CapsTests(unittest.TestCase):
         hook.keys = keys("gHBDTN")
         hook.user32.GetKeyState.return_value = int(caps)
         hook.user32.GetKeyboardLayout.return_value = self.engine.mapper.layouts['ru']
+        hook.context = lambda: FocusContext(90, 100, 1, 'ru', 'editor.exe', 'test')
         return hook
 
     def test_caps_toggle_and_replacement_share_marked_batch(self):
@@ -68,10 +69,10 @@ class CapsTests(unittest.TestCase):
             self.assertFalse(hook._correct(context, VK_SPACE, ''))
             hook.user32.SendInput.assert_not_called()
         hook = self.fixture(); hook.user32.SendInput.side_effect = lambda count, *args: count - 1
-        self.assertFalse(hook._correct(context, VK_SPACE, ''))
+        self.assertTrue(hook._correct(context, VK_SPACE, ''))  # Uncertain edit swallows boundary.
         self.assertTrue(hook.token_blocked)
         self.assertIsNone(hook.last_word)
-        self.assertEqual(hook.user32.SendInput.call_count, 1)
+        self.assertEqual(hook.user32.SendInput.call_count, 2)  # Batch + release only.
 
 
 class StartupTests(unittest.TestCase):

@@ -89,6 +89,7 @@ class HostedFocusTests(unittest.TestCase):
         from test_app_controls import make_hook
         hook = make_hook()
         context = self.fixture().context()
+        hook.context = lambda: context
         self.assertTrue(hook._correct(context, 32, ""))
         self.assertEqual(hook.user32.SendMessageTimeoutW.call_args.args[0], 10)
         hook.user32.GetKeyboardLayout.assert_called_with(11)

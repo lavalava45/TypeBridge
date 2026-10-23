@@ -48,8 +48,13 @@ class LanguagePrototypeTests(unittest.TestCase):
         self.assertEqual((result.typed, result.replacement, result.language),
                          ("עיחגאירכ", "проверка", "ru"))
 
-    def test_short_word_stays_unchanged(self):
-        self.assertIsNone(self.engine.decide(self.keys("a"), "ru"))
+    def test_unique_english_one_letter_word_is_corrected_at_boundary(self):
+        result = self.engine.decide(self.keys("a"), "ru")
+        self.assertEqual((result.language, result.replacement), ('en', 'a'))
+
+    def test_curated_russian_imperative_without_relaxing_confidence(self):
+        result = self.engine.decide_token(self.keys('gjzcyb'), 'en')
+        self.assertEqual((result.language, result.replacement), ('ru', 'поясни'))
 
     def test_unicode_replacement_emits_backspaces_letters_and_space(self):
         events = correction_inputs(4, "שלום")

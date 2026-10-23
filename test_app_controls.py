@@ -102,6 +102,21 @@ def key(hook, vk, message=WM_KEYDOWN, *, flags=0, extra=0):
 
 
 class HookControlTests(unittest.TestCase):
+    def test_boundary_rechecks_focus_before_sendinput(self):
+        hook = make_hook()
+        context = hook.context()
+        hook.context = lambda: None
+        self.assertFalse(hook._correct(context, 0x20, ''))
+        hook.user32.SendInput.assert_not_called()
+
+    def test_partial_boundary_submission_is_not_replayed(self):
+        hook = make_hook()
+        hook.user32.SendInput.side_effect = lambda *args: 1
+        self.assertTrue(hook._correct(hook.context(), 0x20, ''))
+        self.assertTrue(hook.token_blocked)
+        self.assertIn(0x20, hook.suppressed_keyups)
+        self.assertEqual(hook.user32.SendInput.call_count, 2)  # Partial batch + keyup only.
+
     def test_stop_event_unlocks_controls_even_while_worker_is_finishing(self):
         gui = TypeBridgeGui.__new__(TypeBridgeGui)
         gui.events = queue.Queue()

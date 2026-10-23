@@ -268,8 +268,9 @@ class LanguageEngine:
         # Russian spelling commonly omits the dots; preserve output spelling.
         for bucket in (self.words["ru"], self.confident["ru"]):
             bucket.update({word.replace("ё", "е") for word in bucket})
-        self.words["ru"].update(("а", "и"))
-        self.confident["ru"].update(("а", "и"))
+        # Small, explicit spelling supplement; not a relaxed ambiguity threshold.
+        self.words["ru"].update(("а", "и", "поясни"))
+        self.confident["ru"].update(("а", "и", "поясни"))
         self.words["en"].update(("a", "i"))
 
     def _excluded(self, language: str, word: str) -> bool:

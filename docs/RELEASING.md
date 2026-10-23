@@ -19,7 +19,8 @@ Downloads include:
 - `BUILD-MANIFEST.json`: source commit, dependency versions, dictionary sources,
   file hashes and the result of the frozen executable's background self-test.
 
-The build must pass its dictionary/model self-test, archive integrity check and
+The build must pass the entire background unittest suite on public dictionaries,
+its source and frozen dictionary/model self-tests, archive integrity check and
 private-file exclusion check before publication. These are not proof of physical
 typing compatibility in every editor. The executable is currently unsigned.
 

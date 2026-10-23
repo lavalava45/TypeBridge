@@ -144,6 +144,7 @@ class PunctuationRuntimeTests(unittest.TestCase):
     def test_flag_updates_without_hook_in_stopped_and_paused_modes(self):
         gui = TypeBridgeGui.__new__(TypeBridgeGui)
         gui.closing = False
+        gui.caret_indicator = None
         gui.tray = Mock()
         gui.root = Mock()
         for hook in (None, SimpleNamespace(paused=True)):

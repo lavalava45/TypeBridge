@@ -335,7 +335,6 @@ class LiveHook:
         self.last_focus = 0
         self.last_language = ""
         self.suppressed_keyups: set[int] = set()
-        self.process_cache: dict[int, str] = {}
         self.keyboard_hook = None
         self.mouse_hook = None
         self.keyboard_callback = None
@@ -424,8 +423,7 @@ class LiveHook:
         return bool(self.user32.GetAsyncKeyState(vk) & 0x8000)
 
     def process_name(self, pid: int) -> str:
-        if pid in self.process_cache:
-            return self.process_cache[pid]
+        # PIDs are reused; never authorize a new process using an old cached name.
         handle = self.kernel32.OpenProcess(0x1000, False, pid)
         if not handle:
             return ""
@@ -436,12 +434,12 @@ class LiveHook:
                     handle, 0, path, ctypes.byref(size)):
                 return ""
             name = path.value.rsplit("\\", 1)[-1].casefold()
-            self.process_cache[pid] = name
             return name
         finally:
             self.kernel32.CloseHandle(handle)
 
     def context(self) -> FocusContext | None:
+        self.protection_scope = None
         top = int(self.user32.GetForegroundWindow() or 0)
         if not top:
             return None
@@ -481,6 +479,7 @@ class LiveHook:
         guard = getattr(self, 'password_guard', None)
         revision = guard.permit_revision(top, focus) if guard is not None else 0
         if revision is None:
+            self.protection_scope = (top, focus)
             return None
         owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
         language_id = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFF
@@ -696,6 +695,11 @@ class LiveHook:
         events = correction_inputs(len(word.text + word.suffix),
                                    replacement + word.suffix, None, "")
         batch = (Input * len(events))(*events)
+        current = self.context()
+        if (current is None or self._word_scope(current) != self._word_scope(context)
+                or current.language != context.language):
+            self.clear_token()
+            return
         sent = int(self.user32.SendInput(len(events), batch, ctypes.sizeof(Input)))
         if sent != len(events):
             self.clear_token()
@@ -777,12 +781,25 @@ class LiveHook:
             # Last-word cycling must preserve the corrected case with CapsLock off.
             keys = [(vk, not shift if 0x41 <= vk <= 0x5A else shift) for vk, shift in keys]
         batch = (Input * len(events))(*events)
+        current = self.context()
+        if (current is None or self._word_scope(current) != self._word_scope(context)
+                or current.language != context.language):
+            self.token_blocked = True
+            return False
         ctypes.set_last_error(0)
         sent = int(self.user32.SendInput(
             len(events), batch, ctypes.sizeof(Input)))
         if sent != len(events):
             self.token_blocked = True
             self.emit("error", f"SendInput: отправлено {sent}/{len(events)}")
+            if sent > 0:
+                if sent % 2:
+                    last = events[sent - 1].u.ki
+                    release = input_key(last.wVk, last.dwFlags | KEYEVENTF_KEYUP, last.wScan)
+                    self.user32.SendInput(1, ctypes.byref(release), ctypes.sizeof(Input))
+                if boundary_vk is not None:
+                    self.suppressed_keyups.add(boundary_vk)
+                return True  # Uncertain edit: never replay the held boundary.
             return False
         target_hkl = int(self.engine.mapper.layouts[decision.language])
         result = ctypes.c_size_t()
@@ -883,8 +900,13 @@ class LiveHook:
                 self.keyboard_hook, code, message, param)
         context = self.context()
         if context is None:
-            if getattr(self, 'password_guard', None) is not None and vk not in MODIFIER_VKS:
+            scope = getattr(self, 'protection_scope', None)
+            if vk in (VK_SPACE, VK_RETURN, VK_TAB):
+                self.protection_skipped_input = False
+                self.skipped_input_scope = None
+            elif scope is not None and (0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2):
                 self.protection_skipped_input = True
+                self.skipped_input_scope = scope
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
@@ -906,8 +928,12 @@ class LiveHook:
         self.last_focus = context.focus
         self.last_language = context.language
         if getattr(self, 'protection_skipped_input', False):
+            scope = getattr(self, 'skipped_input_scope', None)
+            if scope is not None and scope != (context.top, context.focus):
+                self.protection_skipped_input = False
             # Never treat the tail of input skipped during protection as a new word.
-            self.token_blocked = True
+            else:
+                self.token_blocked = True
         if vk == VK_TAB and getattr(self, 'password_guard', None) is not None:
             self.password_guard.invalidate()
             self.protection_skipped_input = False
@@ -1013,6 +1039,8 @@ class LiveHook:
                 guard = getattr(self, 'password_guard', None)
                 if guard is not None:
                     guard.invalidate()
+                self.protection_skipped_input = False
+                self.skipped_input_scope = None
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
@@ -1025,6 +1053,29 @@ class LiveHook:
             return False
         return bool(self.user32.PostThreadMessageW(
             self.thread_id, WM_QUIT, 0, 0))
+
+    def _report_password_state(self):
+        guard = self.password_guard
+        snapshot = guard.snapshot
+        top = int(self.user32.GetForegroundWindow() or 0)
+        pid = wintypes.DWORD()
+        self.user32.GetWindowThreadProcessId(top, ctypes.byref(pid))
+        if not top or pid.value == os.getpid():
+            return  # Our own settings/log is intentionally outside correction.
+        if snapshot.state == 'safe':
+            self.last_password_notice = None
+            return
+        if snapshot.state == 'password':
+            notice = 'Защита паролей: парольное поле, обработка пропускается'
+        elif snapshot.reason in ('helper-failed', 'helper-exited', 'helper-timeout', 'restarting'):
+            notice = 'Защита паролей: помощник недоступен; автоматическое восстановление'
+        elif guard.clock() - guard.state_since >= 2:
+            notice = 'Защита паролей: поле не удалось проверить; исправления в нём отключены'
+        else:
+            return
+        if notice != getattr(self, 'last_password_notice', None):
+            self.last_password_notice = notice
+            self.emit('info', notice)
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused
@@ -1073,7 +1124,6 @@ class LiveHook:
         self.emit("ready", "Автоисправление включено")
         message = wintypes.MSG()
         try:
-            self.emit("info", "Защита паролей: проверка поля; обработка временно пропускается")
             self.password_guard.start()
             while self.user32.GetMessageW(
                     ctypes.byref(message), None, 0, 0) > 0:
@@ -1081,12 +1131,7 @@ class LiveHook:
                     if int(message.wParam) > self.last_guard_revision:
                         self.clear_token()
                         self.last_guard_revision = int(message.wParam)
-                    state = self.password_guard.snapshot.state
-                    self.emit("info", {
-                        'safe': 'Защита паролей: поле проверено, обработка разрешена',
-                        'password': 'Защита паролей: парольное поле, обработка пропускается',
-                        'unknown': 'Защита паролей: проверка поля; обработка временно пропускается',
-                    }[state])
+                    self._report_password_state()
                     continue
                 if message.message == WM_TOGGLE_PAUSE:
                     self.toggle_pause()

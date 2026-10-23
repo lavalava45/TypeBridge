@@ -42,6 +42,8 @@ def main():
     if any((source/'data').glob('*.txt')):
         raise ValueError('Source snapshot already contains dictionary text; refusing release build')
     run(sys.executable,source/'prepare_dictionaries.py',cwd=source)
+    # Release gate: every background regression test must pass on public data.
+    run(sys.executable,'-m','unittest','discover','-p','test_*.py','-q',cwd=source)
     # Fail visibly before freezing if the runner lacks the required layouts/data.
     run(sys.executable,source/'typebridge_app.py','--self-test',cwd=source)
     package=out/'portable'/'TypeBridge'; package.mkdir(parents=True)
@@ -92,6 +94,7 @@ def main():
               'dictionary_sources':json.loads((package/'data'/'SOURCES.json').read_text(encoding='utf-8')),
               'self_test_exit':result.returncode,
               'self_test_report':report,
+              'unittest_suite':'passed',
               'files':{p.relative_to(package).as_posix():sha(p) for p in sorted(package.rglob('*')) if p.is_file()}}
     (package/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     destination=out/f'TypeBridge-{args.version}-windows-x64.zip'
