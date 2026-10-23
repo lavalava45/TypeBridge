@@ -4,7 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from early_native_edit import NativeEditBridge, utf16_position, utf8_position
+from early_native_edit import NativeEditBridge, utf16_position, utf8_position, supports_native_edit
 from early_scintilla import replace_prefix
 from test_early_runtime import ByteEditor
 from test_app_controls import make_hook
@@ -37,6 +37,19 @@ class PositionTests(unittest.TestCase):
 
 
 class TrialDeliveryTests(unittest.TestCase):
+    def test_modern_richedit_uses_verified_replacement_without_backspace_batch(self):
+        hook, editor, decision, language = self.fixture()
+        hook.user32.GetClassNameW.side_effect = lambda hwnd, buffer, size: setattr(buffer, 'value', 'RichEditD2DPT')
+        with patch('typebridge_app.NativeEditBridge', return_value=editor), patch('typebridge_app.suggest_live_early', return_value=decision):
+            self.assertTrue(hook._try_early(hook.context()))
+        self.assertEqual(editor.data, 'привет'.encode())
+        self.assertEqual(language[0], 'ru')
+        hook.user32.SendInput.assert_not_called()
+        self.assertTrue(supports_native_edit('RichEditD2DPT'))
+        self.assertTrue(supports_native_edit('RICHEDIT50W'))
+        self.assertFalse(supports_native_edit('RichEdit20A'))
+        self.assertFalse(supports_native_edit('Chrome_RenderWidgetHostHWND'))
+
     def test_native_path_is_disabled_by_default_without_reading_other_fields(self):
         hook, editor, decision, language = self.fixture()
         hook.settings = replace(hook.settings, early_native=False)

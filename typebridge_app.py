@@ -33,7 +33,7 @@ from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bi
 from word_cycle import CYCLE_KEYS, RecentWord, remember_word
 from incremental_recognition import prepare_early, build_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
-from early_native_edit import NativeEditBridge
+from early_native_edit import NativeEditBridge, supports_native_edit
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
@@ -538,7 +538,7 @@ class LiveHook:
                 return False
             name = ctypes.create_unicode_buffer(128)
             self.user32.GetClassNameW(context.focus, name, len(name))
-            keyboard = name.value.casefold() != "richedit50w"
+            keyboard = not supports_native_edit(name.value)
         else:
             keyboard = False
         decision = suggest_live_early(self.engine, self.keys, context.language)

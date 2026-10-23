@@ -1,4 +1,4 @@
-"""Experimental opt-in range replacement for RichEdit50W fields.
+"""Experimental opt-in range replacement for Unicode RichEdit fields.
 
 No global hooks, clipboard, SendInput or focus changes. Uses the existing early
 transaction protocol. Physical-input and cross-application release gates are
@@ -9,6 +9,12 @@ from ctypes import wintypes as w
 from time import perf_counter
 
 MAX_UNITS = 32768
+
+
+def supports_native_edit(class_name):
+    # Unicode RichEdit implementations with the same selection/text protocol.
+    # D2DPT is used by current Notepad; this is a control capability, not an app rule.
+    return class_name.casefold() in ("richedit50w", "richeditd2dpt")
 
 
 def utf16_position(text, units):
@@ -65,7 +71,7 @@ class NativeEditBridge:
             raise ValueError('window-closed')
         name = ctypes.create_unicode_buffer(128)
         self.u.GetClassNameW(ctx.focus, name, len(name))
-        if name.value.casefold() != 'richedit50w':
+        if not supports_native_edit(name.value):
             raise ValueError('unsupported-field-capability')
         if ctx.focus != ctx.top and not self.u.IsChild(ctx.top, ctx.focus):
             raise ValueError('unrelated-field')
