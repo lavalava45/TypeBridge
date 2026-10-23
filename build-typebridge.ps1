@@ -4,6 +4,9 @@ $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot
 $oldPythonPath = $env:PYTHONPATH
 try {
+    if (Get-Process -Name TypeBridge -ErrorAction SilentlyContinue) {
+        throw 'Сначала закрой TypeBridge через «Выход» в трее. Сборка выполняется только в dist\TypeBridge.exe.'
+    }
     $deps = Join-Path $PSScriptRoot ".build-deps"
     $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($launcher) {
@@ -18,7 +21,7 @@ try {
         $env:PYTHONPATH = $deps
     }
     & $python -m PyInstaller --noconfirm --clean --onefile --windowed `
-        --name TypeBridge --add-data 'data;data' --add-data 'dictionary_packs;dictionary_packs' typebridge_app.py
+        --name TypeBridge --distpath (Join-Path $PSScriptRoot 'dist') --add-data 'data;data' --add-data 'dictionary_packs;dictionary_packs' typebridge_app.py
     if ($LASTEXITCODE -ne 0) { throw "TypeBridge EXE build failed" }
     Copy-Item -LiteralPath "typebridge-settings.json" `
         -Destination "dist\typebridge-settings.json" -Force
