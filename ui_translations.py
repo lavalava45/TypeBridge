@@ -1162,6 +1162,15 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                  'he': 'תכנות: Python / JavaScript / C++'}}
 
 CATALOG.update({
+    'Защита паролей: проверка поля; обработка временно пропускается': {
+        'en': 'Password protection: checking field; processing temporarily skipped',
+        'he': 'הגנת סיסמאות: בדיקת השדה; העיבוד מדולג זמנית'},
+    'Защита паролей: поле проверено, обработка разрешена': {
+        'en': 'Password protection: field checked, processing allowed',
+        'he': 'הגנת סיסמאות: השדה נבדק, העיבוד מותר'},
+    'Защита паролей: парольное поле, обработка пропускается': {
+        'en': 'Password protection: password field, processing skipped',
+        'he': 'הגנת סיסמאות: שדה סיסמה, העיבוד מדולג'},
     'Поиск отменён: настройки изменились': {'en': 'Search cancelled: settings changed', 'he': 'החיפוש בוטל: ההגדרות השתנו'},
     'TypeBridge — Подтверждение поиска': {'en': 'TypeBridge — Confirm search', 'he': 'TypeBridge — אישור חיפוש'},
     'Искать в браузере': {'en': 'Search in browser', 'he': 'חפש בדפדפן'},

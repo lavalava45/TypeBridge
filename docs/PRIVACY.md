@@ -55,6 +55,12 @@ late asynchronous copies and unexpected native failures cannot be ruled out.
 
 Known password-manager applications are excluded. Correction skips ordinary
 Win32 EDIT password fields; other features apply their own field/process checks.
+The source version additionally watches UI Automation `IsPassword` metadata in
+a separate hidden process. Password, unknown and stale states skip correction,
+snippets and manual conversion; word buffers are cleared. The keyboard hook
+stays installed. UIA events are asynchronous and provider reports can be wrong;
+this does not promise zero exposure during every focus transition. The watcher
+does not read field contents. This addition is not yet in the distributed EXE.
 **This is not universal password detection.** Custom browser controls, secrets
 inside ordinary text, private messages, tokens, seed phrases and cryptocurrency
 addresses may not be identifiable. Clipboard privacy flags are not supplied by
@@ -114,7 +120,14 @@ TypeBridge получает события клавиатуры Windows, что�
 
 Известные менеджеры паролей исключены; исправление пропускает стандартные
 парольные поля Win32 EDIT. У дополнительных функций свои проверки полей и
-процессов. **Универсального распознавания секретов нет:** браузерное поле может
+процессов. В исходниках добавлен отдельный скрытый наблюдатель метаданных
+UI Automation `IsPassword`: парольное, неизвестное и устаревшее состояния
+пропускают исправления, шаблоны и ручную конвертацию, очищают буферы слова.
+Hook остаётся установленным. События асинхронны, провайдер может ошибаться;
+нулевой доступ на каждом переходе фокуса не гарантируется. Наблюдатель не читает
+текст поля. В распространяемый EXE это дополнение пока не включено.
+
+**Универсального распознавания секретов нет:** браузерное поле может
 не сообщить о пароле, а переписка, ключ или криптоадрес могут выглядеть как обычный
 текст. Не все приложения ставят отметки приватности при копировании. Добавляй
 чувствительные приложения в исключения, отключай ненужные историю и дневник,
@@ -165,6 +178,11 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 - מילים אישיות, החרגות ותבניות נשמרות בקובצי JSON מקומיים ועשויות לכלול מידע אישי.
 
 מנהלי סיסמאות מוכרים מוחרגים. התיקון מדלג על שדות סיסמה רגילים מסוג Win32 EDIT;
+בקוד המקור נוסף תהליך נסתר ונפרד שבודק רק את המטא־נתון IsPassword של UI Automation.
+בשדה סיסמה, במצב לא ידוע או במידע שהתיישן, תיקונים, תבניות והמרה ידנית מדולגים
+ומאגרי המילים מתנקים. ה־hook נשאר פעיל. אירועי UIA אסינכרוניים והספק עלול לטעות;
+אין הבטחה להגנה מוחלטת בכל מעבר מיקוד. תוכן השדה אינו נקרא. התוספת טרם נכללה ב־EXE.
+
 לתכונות הנוספות בדיקות משלהן. **אין זיהוי אוניברסלי של סודות.** שדה בדפדפן עלול
 לא לדווח שהוא מכיל סיסמה, ומפתחות, התכתבויות וכתובות קריפטו עשויים להיראות כטקסט
 רגיל. לא כל יישום מסמן העתקה כפרטית. הוסף יישומים רגישים להחרגות והשבת היסטוריה

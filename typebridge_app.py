@@ -34,6 +34,7 @@ from word_cycle import CYCLE_KEYS, RecentWord, remember_word
 from incremental_recognition import prepare_early, build_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
 from early_native_edit import NativeEditBridge, supports_native_edit
+from password_fields import PasswordFieldGuard
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
@@ -60,6 +61,7 @@ WM_QUIT = 0x0012
 WM_TOGGLE_PAUSE = 0x8001
 WM_RELOAD_CONFIG = 0x8002
 WM_RELOAD_SNIPPETS = 0x8003
+WM_PASSWORD_STATE = 0x8004
 WM_INPUTLANGCHANGEREQUEST = 0x0050
 WM_LBUTTONDOWN = 0x0201
 WM_RBUTTONDOWN = 0x0204
@@ -168,6 +170,7 @@ class FocusContext:
     process_name: str
     title: str
     layout_window: int = 0
+    password_revision: int = 0
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -342,6 +345,14 @@ class LiveHook:
         self.pending_config = None
         self.snippets = SnippetMatcher(snippets or SnippetConfig())
         self.pending_snippets = None
+        self.password_guard = PasswordFieldGuard(self._password_state_changed)
+        self.protection_skipped_input = False
+        self.last_guard_revision = 0
+
+    def _password_state_changed(self):
+        if self.thread_id:
+            self.user32.PostThreadMessageW(self.thread_id, WM_PASSWORD_STATE,
+                                          self.password_guard.snapshot.revision, 0)
 
     def _declare_api(self) -> None:
         u, k = self.user32, self.kernel32
@@ -466,13 +477,17 @@ class LiveHook:
                 and self.user32.GetWindowLongPtrW(focus, GWL_STYLE)
                 & ES_PASSWORD):
             return None
+        guard = getattr(self, 'password_guard', None)
+        revision = guard.permit_revision(top, focus) if guard is not None else 0
+        if revision is None:
+            return None
         owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
         language_id = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFF
         language = next((name for name, code in LANGS.items()
                          if code == language_id), "")
         if not language:
             return None
-        return FocusContext(top, focus, owner_thread, language, process, title, owner)
+        return FocusContext(top, focus, owner_thread, language, process, title, owner, revision)
 
     def clear_token(self, *, preserve_snippets=False) -> None:
         self.keys.clear()
@@ -639,7 +654,7 @@ class LiveHook:
     @staticmethod
     def _word_scope(context: FocusContext) -> tuple:
         return (context.top, context.focus, context.thread_id, context.process_name,
-                context.layout_window)
+                context.layout_window, context.password_revision)
 
     def _remember(self, context, keys, text, language, suffix, *, whole=False):
         self.last_word = remember_word(keys, text, language, suffix,
@@ -850,6 +865,9 @@ class LiveHook:
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if message in (WM_KEYUP, WM_SYSKEYUP):
+            guard = getattr(self, 'password_guard', None)
+            if guard is not None and guard.snapshot.state != 'safe':
+                self.suppressed_keyups.clear()
             if vk in self.suppressed_keyups:
                 self.suppressed_keyups.discard(vk)
                 return 1
@@ -864,11 +882,16 @@ class LiveHook:
                 self.keyboard_hook, code, message, param)
         context = self.context()
         if context is None:
+            if getattr(self, 'password_guard', None) is not None and vk not in MODIFIER_VKS:
+                self.protection_skipped_input = True
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
+        if context.password_revision != getattr(self, 'last_guard_revision', 0):
+            self.clear_token()
+            self.last_guard_revision = context.password_revision
         if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
                 and self.pressed(VK_MENU)):
             # Key-repeat must not toggle the pause state more than once.
@@ -881,6 +904,14 @@ class LiveHook:
             self.clear_token()
         self.last_focus = context.focus
         self.last_language = context.language
+        if getattr(self, 'protection_skipped_input', False):
+            # Never treat the tail of input skipped during protection as a new word.
+            self.token_blocked = True
+        if vk == VK_TAB and getattr(self, 'password_guard', None) is not None:
+            self.password_guard.invalidate()
+            self.protection_skipped_input = False
+            self.clear_token()
+            return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
         if vk in MODIFIER_VKS:
             if vk in (VK_CONTROL, VK_MENU, 0xA2, 0xA3, 0xA4, 0xA5):
                 self.clear_token()
@@ -950,6 +981,7 @@ class LiveHook:
             return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
         boundary = self._boundary(vk, context.language, shift)
         if boundary is not None:
+            self.protection_skipped_input = False
             if self._correct(context, *boundary):
                 return 1
             return self.user32.CallNextHookEx(
@@ -976,6 +1008,10 @@ class LiveHook:
 
     def handle_mouse(self, code, message, param):
         if code >= 0 and int(message) in MOUSE_BOUNDARIES:
+            if int(message) in (WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, WM_XBUTTONDOWN):
+                guard = getattr(self, 'password_guard', None)
+                if guard is not None:
+                    guard.invalidate()
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
@@ -1036,8 +1072,21 @@ class LiveHook:
         self.emit("ready", "Автоисправление включено")
         message = wintypes.MSG()
         try:
+            self.emit("info", "Защита паролей: проверка поля; обработка временно пропускается")
+            self.password_guard.start()
             while self.user32.GetMessageW(
                     ctypes.byref(message), None, 0, 0) > 0:
+                if message.message == WM_PASSWORD_STATE:
+                    if int(message.wParam) > self.last_guard_revision:
+                        self.clear_token()
+                        self.last_guard_revision = int(message.wParam)
+                    state = self.password_guard.snapshot.state
+                    self.emit("info", {
+                        'safe': 'Защита паролей: поле проверено, обработка разрешена',
+                        'password': 'Защита паролей: парольное поле, обработка пропускается',
+                        'unknown': 'Защита паролей: проверка поля; обработка временно пропускается',
+                    }[state])
+                    continue
                 if message.message == WM_TOGGLE_PAUSE:
                     self.toggle_pause()
                     continue
@@ -1056,6 +1105,7 @@ class LiveHook:
                 self.user32.TranslateMessage(ctypes.byref(message))
                 self.user32.DispatchMessageW(ctypes.byref(message))
         finally:
+            self.password_guard.close()
             if self.mouse_hook:
                 self.user32.UnhookWindowsHookEx(self.mouse_hook)
             if self.keyboard_hook:
