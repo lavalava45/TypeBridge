@@ -1176,6 +1176,22 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                  'he': 'תכנות: Python / JavaScript / C++'}}
 
 CATALOG.update({
+    'Поиск отменён: настройки изменились': {'en': 'Search cancelled: settings changed', 'he': 'החיפוש בוטל: ההגדרות השתנו'},
+    'TypeBridge — Подтверждение поиска': {'en': 'TypeBridge — Confirm search', 'he': 'TypeBridge — אישור חיפוש'},
+    'Искать в браузере': {'en': 'Search in browser', 'he': 'חפש בדפדפן'},
+    'Приложение не отдало выделение через Windows API. Получен текст штатной командой копирования; проверь его перед отправкой. Некоторые редакторы без выделения копируют целую строку.': {'en': 'The app did not expose its selection through Windows API. Text was obtained using Copy; check it before sending. Some editors copy a whole line when nothing is selected.', 'he': 'היישום לא חשף את הסימון דרך Windows API. הטקסט התקבל באמצעות העתקה; בדוק אותו לפני השליחה. יש עורכים שמעתיקים שורה שלמה כשאין סימון.'},
+    'Выдели слово или фразу и нажми сочетание. Сначала используется Windows UI Automation; если поле не поддерживает чтение выделения — копирование с восстановлением буфера и предпросмотром перед поиском. Парольные и исключённые приложения пропускаются.': {'en': 'Select a word or phrase and press the shortcut. Windows UI Automation is tried first; if selection reading is unsupported, Copy is used with clipboard restoration and a preview before searching. Password fields and excluded apps are skipped.', 'he': 'סמן מילה או ביטוי ולחץ על קיצור המקשים. תחילה נעשה שימוש ב־Windows UI Automation; אם קריאת הסימון אינה נתמכת, נעשה שימוש בהעתקה עם שחזור הלוח ותצוגה מקדימה לפני החיפוש. שדות סיסמה ויישומים מוחרגים מדולגים.'},
+    'Поиск отменён: отпусти клавиши и повтори команду': {'en': 'Search cancelled: release the keys and try again', 'he': 'החיפוש בוטל: שחרר את המקשים ונסה שוב'},
+    'Поиск отменён: активное поле изменилось': {'en': 'Search cancelled: the active field changed', 'he': 'החיפוש בוטל: השדה הפעיל השתנה'},
+    'Поиск отменён: окно или буфер изменились': {'en': 'Search cancelled: the window or clipboard changed', 'he': 'החיפוש בוטל: החלון או הלוח השתנו'},
+    'Поиск отменён: буфер изменён другим приложением': {'en': 'Search cancelled: another app changed the clipboard', 'he': 'החיפוש בוטל: יישום אחר שינה את הלוח'},
+    'Приложение не предоставило текст по команде копирования': {'en': 'The app did not provide text on Copy', 'he': 'היישום לא סיפק טקסט בפקודת ההעתקה'},
+    'Поиск отменён: буфер изменился, восстановление не выполнено': {'en': 'Search cancelled: the clipboard changed and was not restored', 'he': 'החיפוש בוטל: הלוח השתנה ולא שוחזר'},
+    'Поиск отменён: этот формат буфера нельзя безопасно восстановить': {'en': 'Search cancelled: this clipboard format cannot be safely restored', 'he': 'החיפוש בוטל: לא ניתן לשחזר בבטחה את פורמט הלוח הזה'},
+    'Поиск отменён: буфер слишком большой для резервного копирования': {'en': 'Search cancelled: the clipboard is too large to back up', 'he': 'החיפוש בוטל: הלוח גדול מדי לגיבוי'},
+    'Копирование не подтверждено; автоматический повтор отменён': {'en': 'Copy was not confirmed; automatic retry cancelled', 'he': 'ההעתקה לא אושרה; ניסיון חוזר אוטומטי בוטל'},
+    'Поиск отменён: буфер занят другой командой': {'en': 'Search cancelled: another command is using the clipboard', 'he': 'החיפוש בוטל: פקודה אחרת משתמשת בלוח'},
+    'Буфер временно занят поиском': {'en': 'The clipboard is temporarily in use by search', 'he': 'הלוח נמצא זמנית בשימוש החיפוש'},
     'Есть несохранённые изменения': {'en': 'There are unsaved changes', 'he': 'יש שינויים שלא נשמרו'},
     'Сохранено: поиск включён': {'en': 'Saved: search enabled', 'he': 'נשמר: החיפוש מופעל'},
     'Сохранено: поиск выключен': {'en': 'Saved: search disabled', 'he': 'נשמר: החיפוש מושבת'},

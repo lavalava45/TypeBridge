@@ -28,8 +28,11 @@ text templates. It runs locally in the notification area.
 Current sources also include opt-in **Quick search**: open its settings window,
 enable it and select text, then press **Ctrl+Alt+G** (configurable). Google is
 provided; add other engines or dictionaries with an HTTP/HTTPS URL containing
-`{query}`. Search needs Windows UI Automation selection support and leaves the
-clipboard unchanged. Unsupported fields are skipped. These additions await the
+`{query}`. Search first uses Windows UI Automation. If the field does not expose
+a selection, a generic Copy fallback backs up/restores supported clipboard
+formats and shows a preview before sending. This works across applications,
+without editor-specific adapters; unsupported clipboard formats cause a visible
+refusal rather than data loss. These additions await the
 next combined EXE build; the existing alpha download has not been replaced.
 
 The **Privacy** settings tab explains keyboard access, optional recording and

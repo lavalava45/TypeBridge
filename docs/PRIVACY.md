@@ -38,10 +38,17 @@ session. Clipboard history is unencrypted process memory, not an encrypted vault
 Correction and journaling do not send text to a server. Quick search is an
 explicit exception: the query is part of a URL and may remain in browser history
 and the provider's records. Custom search URLs determine who receives it;
-HTTP URLs also lack transport encryption. Search does not simulate Copy and
-does not replace your clipboard. It requires an accessible, nonempty single
-selection (up to 2,000 characters) through Windows UI Automation; unsupported
-fields are skipped instead of reading the entire field or old clipboard text.
+HTTP URLs also lack transport encryption. Search first reads a nonempty single
+selection (up to 2,000 characters) through Windows UI Automation. If the pattern
+is unsupported, after the field/password checks it tries a generic Ctrl+C.
+Supported clipboard formats are backed up and restored; text-only backups are
+not used. Unsupported handle/owner formats or more than 8 MB / 64 formats abort
+before Copy. A later clipboard change is not overwritten. Other clipboard
+managers may observe the temporary Copy; TypeBridge's own history is paused.
+The fallback always shows a preview and requires a Search click, because some
+editors copy a whole line with no selection. Old clipboard text is never used
+as a query. Applications that do not implement ordinary Copy remain unsupported;
+late asynchronous copies and unexpected native failures cannot be ruled out.
 
 Known password-manager applications are excluded. Correction skips ordinary
 Win32 EDIT password fields; other features apply their own field/process checks.
@@ -88,9 +95,17 @@ TypeBridge получает события клавиатуры Windows, что�
 - Исправление и дневник не отправляют текст на сервер. Быстрый поиск отправляет
   выделение выбранному сервису через браузер **только по горячей клавише**.
   Запрос может сохраниться в истории браузера и у сервиса. Получатель определяется
-  URL; HTTP, в отличие от HTTPS, не шифрует передачу. Буфер при поиске не меняется.
-  Нужна поддержка Windows UI Automation: одно выделение длиной до 2000 символов.
-  При недоступном выделении поиск пропускается, весь документ не подставляется.
+  URL; HTTP, в отличие от HTTPS, не шифрует передачу. Сначала используется Windows
+  UI Automation: одно выделение до 2000 символов. При отсутствии TextPattern,
+  после проверки поля, есть общий резервный Ctrl+C. Поддерживаемые форматы буфера
+  сохраняются и восстанавливаются; при неизвестном формате с нативным handle или
+  объёме свыше 8 МБ / 64 форматов копирование не начинается. Более новое содержимое
+  не перезаписывается. История самого TypeBridge временно приостанавливается, но
+  другие менеджеры буфера могут увидеть временное копирование. Перед отправкой
+  резервного результата всегда показан предпросмотр: редактор мог скопировать
+  целую строку при отсутствии выделения. Старый буфер не используется как запрос.
+  Приложения без обычной команды копирования остаются неподдерживаемыми; нельзя
+  полностью исключить позднее асинхронное копирование или нативный сбой.
 - Личные слова, исключения и шаблоны хранятся в локальных JSON и тоже могут
   содержать личные сведения.
 
@@ -136,8 +151,14 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 - התיקון והיומן אינם שולחים טקסט לשרת. החיפוש המהיר שולח רק את הטקסט המסומן
   לשירות שבחרת דרך הדפדפן, ורק בלחיצה על קיצור המקשים. השאילתה עלולה להישמר
   בהיסטוריית הדפדפן ואצל הספק. כתובת החיפוש קובעת את הנמען; HTTP אינו מצפין
-  את התעבורה. הלוח אינו משתנה. נדרשת תמיכה בסימון של Windows UI Automation:
-  טווח יחיד של עד 2000 תווים. שדה לא נתמך מדולג, במקום לקרוא את כל המסמך.
+  את התעבורה. תחילה נקרא טווח יחיד של עד 2000 תווים דרך Windows UI Automation.
+  אם TextPattern אינו נתמך, לאחר בדיקת השדה נעשה ניסיון Ctrl+C כללי. פורמטי
+  הלוח הנתמכים מגובים ומשוחזרים; פורמטים לא נתמכים או יותר מ־8 מ״ב / 64 פורמטים
+  מבטלים את הפעולה לפני ההעתקה. תוכן חדש יותר אינו נדרס. היסטוריית TypeBridge
+  מושהית, אך מנהלי לוח אחרים עשויים לראות את ההעתקה הזמנית. תמיד מוצגת תצוגה
+  מקדימה לפני שליחת תוצאת הגיבוי, כי עורך עשוי להעתיק שורה שלמה כשאין סימון.
+  תוכן ישן של הלוח אינו נשלח כשאילתה. יישומים ללא פקודת העתקה רגילה אינם נתמכים;
+  אי אפשר לשלול העתקה אסינכרונית מאוחרת או תקלה בפעולה נייטיבית.
 - מילים אישיות, החרגות ותבניות נשמרות בקובצי JSON מקומיים ועשויות לכלול מידע אישי.
 
 מנהלי סיסמאות מוכרים מוחרגים. התיקון מדלג על שדות סיסמה רגילים מסוג Win32 EDIT;
@@ -161,5 +182,6 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 
 Selection reading uses Microsoft's read-only
 [TextPattern.GetSelection](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection)
-API, in a hidden, time-limited helper process. Unsupported or empty selections
-do not trigger clipboard copying or a search of previously copied text.
+API, in a hidden, time-limited helper process. An explicit unsupported-pattern
+result allows the Copy/preview fallback. Password, empty-selection and unknown
+failures do not activate it. Previously copied text is never searched.

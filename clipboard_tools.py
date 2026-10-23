@@ -7,6 +7,7 @@ import os
 import queue
 import threading
 import time
+from contextlib import contextmanager
 
 from direct_hotkeys import parse_chord
 from app_exclusions import effective_exclusions, target_allowed
@@ -112,6 +113,7 @@ class ClipboardTools:
         self.pending = False
         self.requests = queue.Queue()
         self.worker = None
+        self.history_paused = False
 
     def _start_reader(self):
         if self.worker is None:
@@ -165,7 +167,7 @@ class ClipboardTools:
                         continue
                     seq, text = self.native.read(self.allowed_pid)
                     self.notify(('prepared', generation, target, started, seq, text))
-                elif settings and settings.clipboard_history:
+                elif settings and settings.clipboard_history and not self.history_paused:
                     seq = self.native.sequence()
                     if seq != self.sequence:
                         actual, text = self.native.read(self.allowed_pid, history=True)
@@ -200,6 +202,8 @@ class ClipboardTools:
             self._paste_when_released(target, text, started, seq, self.generation)
 
     def request_plain(self, target):
+        if self.history_paused:
+            raise OSError('Буфер временно занят поиском')
         if self.closed or not self.settings.plain_paste or self.pending:
             return
         if not target:
@@ -211,6 +215,8 @@ class ClipboardTools:
     def paste_item(self, target, text, window):
         """Only called by an explicit Paste button/double click in our window."""
         import win32gui
+        if self.history_paused:
+            raise OSError('Буфер временно занят поиском')
         from tray_layouts import WindowsLayouts
         if self.pending:
             return
@@ -271,3 +277,19 @@ class ClipboardTools:
         self.generation += 1
         self.history.clear()
         self.requests.put(None)
+
+    @contextmanager
+    def selection_copy(self):
+        if self.pending or self.history_paused or self.closed:
+            from clipboard_selection import SelectionUnavailable
+            raise SelectionUnavailable('Поиск отменён: буфер занят другой командой')
+        self.history_paused = True
+        self.generation += 1  # Discard queued or in-flight history captures.
+        try:
+            yield
+        finally:
+            try:
+                self.sequence = self.native.sequence()
+            finally:
+                self.generation += 1
+                self.history_paused = False

@@ -984,7 +984,8 @@ class TypeBridgeGui:
         self.journal_window = None
         self.search_window = None
         self.search_settings = settings
-        self.quick_search = QuickSearch(lambda result: self.events.put(("quick-search-result", result)))
+        self.quick_search = QuickSearch(lambda result: self.events.put(("quick-search-result", result)),
+                                       copy_guard=lambda: self.clipboard_tools.selection_copy())
         self.journal_enabled = tk.BooleanVar(value=settings.journal_enabled)
         self.journal_days = tk.StringVar(value=str(settings.journal_days))
         self.journal_apps = tk.StringVar(value=", ".join(settings.journal_apps))
@@ -1520,8 +1521,14 @@ class TypeBridgeGui:
                 if kind == "quick-search-result":
                     if self.tray:
                         text = self.quick_search.receive(message, self.clipboard_tools.settings, self.tray.layouts, self.closing)
-                        if text:
+                        from clipboard_selection import SearchPreview
+                        if isinstance(text, SearchPreview):
+                            from quick_search_gui import show_search_preview
+                            show_search_preview(self.root, text, self)
+                        elif text:
                             self.status.set(text)
+                            if text != 'Поиск открыт в браузере':
+                                messagebox.showwarning('Быстрый поиск', text, parent=self.root)
                     continue
                 if kind == "journal":
                     generation, text = message
@@ -1647,6 +1654,7 @@ class TypeBridgeGui:
         if editor and editor.window.winfo_exists() and not editor.close():
             return
         self.closing = True
+        self.quick_search.configure()
         self.clipboard_tools.close()
         self.journal_service.close()
         if self.tray:

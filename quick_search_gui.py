@@ -6,6 +6,48 @@ from quick_search import validate_engines
 from ui_i18n import ChoiceVar, LocalizedStringVar, localize_window, messagebox
 
 
+def show_search_preview(root, preview, app):
+    old = getattr(app, 'search_preview_window', None)
+    if old is not None and old.winfo_exists():
+        old.destroy()
+    window = tk.Toplevel(root)
+    app.search_preview_window = window
+    window.title('TypeBridge — Подтверждение поиска')
+    window.geometry('660x300')
+    frame = ttk.Frame(window, padding=14)
+    frame.pack(fill='both', expand=True)
+    ttk.Label(frame, text='Приложение не отдало выделение через Windows API. Получен текст '
+              'штатной командой копирования; проверь его перед отправкой. Некоторые редакторы '
+              'без выделения копируют целую строку.', wraplength=620).pack(anchor='w')
+    text = tk.Text(frame, height=6, wrap='word')
+    text.insert('1.0', preview.text)
+    text.configure(state='disabled')
+    text.pack(fill='both', expand=True, pady=10)
+    settings = app.clipboard_tools.settings
+    generation = app.quick_search.generation
+
+    def confirm():
+        if app.closing or not app.clipboard_tools.settings.quick_search or generation != app.quick_search.generation:
+            window.destroy()
+            return
+        try:
+            if not app.quick_search.opener(preview.url):
+                raise OSError('Не удалось открыть браузер')
+        except Exception:
+            messagebox.showerror('Быстрый поиск', 'Не удалось открыть браузер', parent=window)
+            return
+        window.destroy()
+    row = ttk.Frame(frame)
+    row.pack(fill='x')
+    window.provider_name = tk.StringVar(value=settings.quick_search_engine)
+    ttk.Label(row, textvariable=window.provider_name).pack(side='left', padx=(0, 10))
+    ttk.Button(row, text='Искать в браузере', command=confirm).pack(side='left')
+    ttk.Button(row, text='Отмена', command=window.destroy).pack(side='right')
+    window.bind('<Escape>', lambda event: window.destroy())
+    localize_window(window)
+    return window
+
+
 class QuickSearchWindow:
     def __init__(self, root, app):
         self.app = app
@@ -44,9 +86,10 @@ class QuickSearchWindow:
         row.pack(fill='x', pady=8)
         for title, command in (('Добавить', self.upsert), ('Обновить выбранный', lambda: self.upsert(update=True)), ('Удалить', self.remove)):
             ttk.Button(row, text=title, command=command).pack(side='left', padx=(0, 8))
-        ttk.Label(frame, text='Выдели слово или фразу и нажми сочетание. Текст отправляется выбранному сервису '
-                  'только по этой команде. Буфер не меняется. Парольные и исключённые приложения пропускаются; '
-                  'нужна поддержка выделения Windows UI Automation.', wraplength=680).pack(anchor='w', pady=8)
+        ttk.Label(frame, text='Выдели слово или фразу и нажми сочетание. Сначала используется Windows UI Automation; '
+                  'если поле не поддерживает чтение выделения — копирование с восстановлением буфера и '
+                  'предпросмотром перед поиском. Парольные и исключённые приложения пропускаются.',
+                  wraplength=680).pack(anchor='w', pady=8)
         ttk.Button(frame, text='Сохранить настройки', command=self.save).pack(anchor='w')
         self.save_status = LocalizedStringVar(value='Сохранено: поиск включён' if settings.quick_search else 'Сохранено: поиск выключен')
         ttk.Label(frame, textvariable=self.save_status, wraplength=680).pack(anchor='w', pady=(8, 0))
