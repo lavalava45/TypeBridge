@@ -167,7 +167,7 @@ class ServiceTests(unittest.TestCase):
         api = Mock()
         api.SendInput.return_value = 4
         with (patch('tray_layouts.WindowsLayouts', return_value=layouts),
-              patch.object(tools, 'allowed_pid', return_value=True),
+              patch('clipboard_tools.target_allowed', return_value=True),
               patch('win32gui.GetWindowLong', return_value=0),
               patch('win32api.GetAsyncKeyState', return_value=0x8000)):
             tools._paste_when_released(target, 'שלום\r\nhello', time.monotonic(), 20, tools.generation)
@@ -195,7 +195,7 @@ class ServiceTests(unittest.TestCase):
         api = Mock()
         api.SendInput.return_value = 2
         with (patch('tray_layouts.WindowsLayouts', return_value=layouts),
-              patch.object(tools, 'allowed_pid', return_value=True),
+              patch('clipboard_tools.target_allowed', return_value=True),
               patch('win32gui.GetWindowLong', return_value=0),
               patch('win32api.GetAsyncKeyState', return_value=0),
               patch('ctypes.WinDLL', return_value=api)):
@@ -244,29 +244,29 @@ class HiddenGuiTests(unittest.TestCase):
 
 
 class TrayHotkeyTests(unittest.TestCase):
-    def test_registration_independent_of_correction_state_and_disable_unregisters(self):
+    def test_router_independent_of_correction_state_and_updates_on_disable(self):
         from tray_win32 import TrayController
         tray = TrayController(Mock())
         tray.hwnd = 123
-        tray.clipboard_settings = replace(Settings(), clipboard_history=True, plain_paste=True)
-        with (patch('win32gui.RegisterHotKey') as register,
-              patch('win32gui.UnregisterHotKey') as unregister):
+        enabled = replace(Settings(), clipboard_history=True, plain_paste=True)
+        with patch('clipboard_hotkeys.ClipboardHotkeys') as factory:
+            tray.clipboard_settings = enabled
             tray._register_clipboard_hotkeys()
-            self.assertEqual(register.call_count, 2)
+            factory.return_value.configure.assert_called_once_with(enabled)
             self.assertEqual(tray.run_state[0], 'stopped')
             tray.clipboard_settings = Settings()
             tray._register_clipboard_hotkeys()
-            self.assertEqual(unregister.call_count, 2)
-            self.assertEqual(tray.clipboard_hotkeys, {})
+            factory.assert_called_once()
+            factory.return_value.configure.assert_called_with(Settings())
 
-    def test_os_hotkey_collision_reports_failure(self):
+    def test_router_failure_is_reported(self):
         from tray_win32 import TrayController
         tray = TrayController(Mock())
         tray.hwnd = 123
         tray.clipboard_settings = replace(Settings(), plain_paste=True)
-        with patch('win32gui.RegisterHotKey', side_effect=OSError('occupied')):
+        with patch('clipboard_hotkeys.ClipboardHotkeys') as factory:
+            factory.return_value.configure.side_effect = OSError('unavailable')
             tray._register_clipboard_hotkeys()
-        self.assertFalse(tray.clipboard_hotkeys)
         self.assertEqual(tray.notify.call_args.args[0][0], 'tray-error')
 
 

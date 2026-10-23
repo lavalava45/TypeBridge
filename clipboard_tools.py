@@ -9,6 +9,7 @@ import threading
 import time
 
 from direct_hotkeys import parse_chord
+from app_exclusions import effective_exclusions, target_allowed
 
 MAX_TEXT = 100_000
 MAX_TOTAL = 1_000_000
@@ -142,7 +143,7 @@ class ClipboardTools:
             return True
         try:
             import psutil
-            return psutil.Process(pid).name().casefold() not in self.settings.excluded_processes
+            return psutil.Process(pid).name().casefold() not in effective_exclusions(self.settings)
         except Exception:
             return False
 
@@ -235,7 +236,7 @@ class ClipboardTools:
             layouts = WindowsLayouts()
             if not layouts.valid(target) or layouts.capture() != target:
                 raise OSError('Вставка отменена: поле ввода изменилось')
-            if not self.allowed_pid(target.pid) or win32gui.GetWindowLong(target.focus, -16) & 0x20:
+            if not target_allowed(target, self.settings) or win32gui.GetWindowLong(target.focus, -16) & 0x20:
                 raise OSError('Вставка в это поле отключена')
             if any(win32api.GetAsyncKeyState(vk) & 0x8000 for vk in
                    (0x10, 0x11, 0x12, 0x5B, 0x5C)):

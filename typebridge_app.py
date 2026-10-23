@@ -35,6 +35,7 @@ from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
 from app_paths import USER_DIR, migrate_user_data
+from app_exclusions import PASSWORD_PROCESSES, DEFAULT_CATEGORIES, CATEGORIES, effective_exclusions, validate_categories
 
 
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -140,10 +141,8 @@ class Settings:
     direct_ru: str = DEFAULTS["ru"]
     direct_en: str = DEFAULTS["en"]
     direct_he: str = DEFAULTS["he"]
-    excluded_processes: tuple[str, ...] = (
-        "1password.exe", "bitwarden.exe", "credentialuibroker.exe",
-        "keepass.exe", "keepassxc.exe", "logonui.exe",
-    )
+    excluded_categories: tuple[str, ...] = DEFAULT_CATEGORIES
+    excluded_processes: tuple[str, ...] = PASSWORD_PROCESSES
 
 
 @dataclass(frozen=True)
@@ -178,7 +177,8 @@ def load_settings(path: Path | None = None) -> Settings:
         raise ValueError("Выбери поддерживаемую клавишу переключения слова")
     if not isinstance(title, str):
         raise ValueError("only_window_title must be text")
-    settings = Settings(corrections_enabled=raw.get("corrections_enabled", False),
+    categories = validate_categories(raw.get("excluded_categories", list(DEFAULT_CATEGORIES)))
+    settings = Settings(excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
                     conservative=raw.get("conservative", True),
                     manual_f8=raw.get("manual_f8", True),
                     manual_key=raw.get("manual_key", "Scroll Lock"),
@@ -425,8 +425,8 @@ class LiveHook:
         process = self.process_name(focus_pid.value)
         host_process = self.process_name(pid.value)
         if (not process or not host_process
-                or process in self.settings.excluded_processes
-                or host_process in self.settings.excluded_processes):
+                or process in effective_exclusions(self.settings)
+                or host_process in effective_exclusions(self.settings)):
             return None
         title_buffer = ctypes.create_unicode_buffer(512)
         self.user32.GetWindowTextW(top, title_buffer, len(title_buffer))
@@ -729,13 +729,6 @@ class LiveHook:
         if message not in (WM_KEYDOWN, WM_SYSKEYDOWN):
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
-        if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
-                and self.pressed(VK_MENU)):
-            # Key-repeat must not toggle the pause state more than once.
-            if vk not in self.suppressed_keyups:
-                self.toggle_pause()
-                self.suppressed_keyups.add(vk)
-            return 1
         if self.stopping:
             self.clear_token()
             return self.user32.CallNextHookEx(
@@ -747,12 +740,21 @@ class LiveHook:
             self.last_language = ""
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
+        if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
+                and self.pressed(VK_MENU)):
+            # Key-repeat must not toggle the pause state more than once.
+            if vk not in self.suppressed_keyups:
+                self.toggle_pause()
+                self.suppressed_keyups.add(vk)
+            return 1
         if (context.focus != self.last_focus
                 or context.language != self.last_language):
             self.clear_token()
         self.last_focus = context.focus
         self.last_language = context.language
         if vk in MODIFIER_VKS:
+            if vk in (VK_CONTROL, VK_MENU, 0xA2, 0xA3, 0xA4, 0xA5):
+                self.clear_token()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if not (self.pressed(VK_LWIN) or self.pressed(VK_RWIN)):
@@ -977,7 +979,11 @@ class TypeBridgeGui:
         self.direct_keys = {lang: tk.StringVar(value=getattr(settings, f"direct_{lang}"))
                             for lang in LANGS}
         self.only_title = tk.StringVar(value=settings.only_window_title)
-        self.excluded = tk.StringVar(value=", ".join(settings.excluded_processes))
+        self.excluded = tk.StringVar(value=", ".join(
+            name for name in settings.excluded_processes if name not in PASSWORD_PROCESSES))
+        self.excluded_categories = {name: tk.BooleanVar(value=name in settings.excluded_categories)
+                                    for name in CATEGORIES}
+        self.exclusions_window = None
         self._build()
         root.after(100, self._drain)
         root.after(150, self._start_tray)
@@ -1025,11 +1031,10 @@ class TypeBridgeGui:
         ttk.Entry(title_row, textvariable=self.only_title).pack(
             side="left", fill="x", expand=True, padx=(10, 0))
         ttk.Label(frame, text="Оставь поле пустым для всех приложений. "
-                  "Парольные Win32-поля и процессы из settings исключаются.",
+                  "Исключения приложений настраиваются отдельно.",
                   foreground="#555").pack(anchor="w")
-        ttk.Label(frame, text="Исключённые приложения (имена .exe через запятую):").pack(
+        ttk.Button(frame, text="Исключения приложений…", command=self.open_exclusions).pack(
             anchor="w", pady=(10, 2))
-        ttk.Entry(frame, textvariable=self.excluded).pack(fill="x")
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=15)
         self.save_button = ttk.Button(buttons, text="Сохранить настройки", command=self.save)
@@ -1117,6 +1122,14 @@ class TypeBridgeGui:
             return
         self.show_caret_flag.set(enabled)
         self._apply_caret_indicator(enabled)
+
+    def open_exclusions(self):
+        from exclusions_gui import ExclusionsWindow
+        if self.exclusions_window and self.exclusions_window.window.winfo_exists():
+            self.exclusions_window.window.deiconify()
+            self.exclusions_window.window.lift()
+            return
+        self.exclusions_window = ExclusionsWindow(self.root, self)
 
     def open_snippets(self):
         from snippets_gui import SnippetsWindow
@@ -1224,6 +1237,7 @@ class TypeBridgeGui:
                         direct_en=self.direct_keys["en"].get().strip(),
                         direct_he=self.direct_keys["he"].get().strip(),
                         only_window_title=self.only_title.get().strip(),
+                        excluded_categories=tuple(name for name, var in self.excluded_categories.items() if var.get()),
                         excluded_processes=tuple(dict.fromkeys(
                             (*Settings.excluded_processes, *excluded))))
         compile_bindings(settings)

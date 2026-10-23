@@ -108,7 +108,7 @@ class TrayController:
         self.last_target = None
         self.caret_flag = False
         self.clipboard_settings = None
-        self.clipboard_hotkeys = {}
+        self.clipboard_hotkeys = None
 
     def configure_clipboard(self, settings):
         self.clipboard_settings = settings
@@ -119,22 +119,15 @@ class TrayController:
         self.caret_flag = bool(enabled)
 
     def _register_clipboard_hotkeys(self):
-        from clipboard_tools import clipboard_bindings
-        for identifier in self.clipboard_hotkeys:
-            win32gui.UnregisterHotKey(self.hwnd, identifier)
-        self.clipboard_hotkeys.clear()
+        from clipboard_hotkeys import ClipboardHotkeys
         if self.clipboard_settings is None:
             return
-        for identifier, (chord, action) in enumerate(clipboard_bindings(self.clipboard_settings).items(), 6100):
-            flags = 0x4000  # MOD_NOREPEAT
-            for key, flag in ((0x11, 2), (0x12, 1), (0x10, 4)):
-                if key in chord.modifiers:
-                    flags |= flag
-            try:
-                win32gui.RegisterHotKey(self.hwnd, identifier, flags, chord.vk)
-                self.clipboard_hotkeys[identifier] = action
-            except Exception:
-                self.notify(("tray-error", "Горячая клавиша буфера занята; выбери другое сочетание в настройках"))
+        if self.clipboard_hotkeys is None:
+            self.clipboard_hotkeys = ClipboardHotkeys(self.layouts, self.notify)
+        try:
+            self.clipboard_hotkeys.configure(self.clipboard_settings)
+        except OSError as error:
+            self.notify(("tray-error", str(error)))
 
     def start(self):
         if self.worker:
@@ -197,11 +190,6 @@ class TrayController:
         if message == WM_CLIPBOARD_CONFIG:
             self._register_clipboard_hotkeys()
             return 0
-        if message == win32con.WM_HOTKEY:
-            action = self.clipboard_hotkeys.get(wparam)
-            if action:
-                self.notify((action, self.layouts.capture()))
-            return 0
         if message == WM_TRAY:
             if lparam == win32con.WM_LBUTTONDBLCLK:
                 self.notify("open")
@@ -215,9 +203,8 @@ class TrayController:
             win32gui.DestroyWindow(hwnd)
             return 0
         if message == win32con.WM_DESTROY:
-            for identifier in self.clipboard_hotkeys:
-                win32gui.UnregisterHotKey(hwnd, identifier)
-            self.clipboard_hotkeys.clear()
+            if self.clipboard_hotkeys:
+                self.clipboard_hotkeys.close()
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
             win32gui.PostQuitMessage(0)
             return 0
@@ -315,6 +302,8 @@ class TrayController:
         except Exception as exc:
             self.notify(("tray-error", str(exc)))
         finally:
+            if self.clipboard_hotkeys:
+                self.clipboard_hotkeys.close()
             self.ready.clear()
             self.hwnd = None
             for icon in self.icons.values():
