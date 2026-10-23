@@ -42,6 +42,8 @@ def main():
     if any((source/'data').glob('*.txt')):
         raise ValueError('Source snapshot already contains dictionary text; refusing release build')
     run(sys.executable,source/'prepare_dictionaries.py',cwd=source)
+    # Fail visibly before freezing if the runner lacks the required layouts/data.
+    run(sys.executable,source/'typebridge_app.py','--self-test',cwd=source)
     package=out/'portable'/'TypeBridge'; package.mkdir(parents=True)
     licenses=package/'licenses'; licenses.mkdir()
     for filename in ('LICENSE','README.md','README-RU.md','README-HE.md','THIRD-PARTY.md','typebridge-settings.json'):
@@ -78,13 +80,18 @@ def main():
     with log.open('w',encoding='utf-8') as stream:
         subprocess.run(command,cwd=source,stdout=stream,stderr=subprocess.STDOUT,check=True)
     # A hidden self-test only; no GUI event loop, migration or keyboard hooks.
-    result=subprocess.run([str(package/'TypeBridge.exe'),'--self-test'],cwd=package,timeout=60,
+    report_path = out/'self-test.json'
+    result=subprocess.run([str(package/'TypeBridge.exe'),'--self-test',
+                           '--self-test-report',str(report_path)],cwd=package,timeout=60,
                           creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-    if result.returncode: raise ValueError('Frozen self-test failed')
+    report = json.loads(report_path.read_text(encoding='utf-8'))
+    if result.returncode or not report.get('ok'):
+        raise ValueError('Frozen self-test failed: '+json.dumps(report,ensure_ascii=False))
     manifest={'version':args.version,'source_commit':commit,'python':sys.version.split()[0],
               'packages':{n:metadata.version(n) for n in ('Pillow','psutil','pywin32','pyinstaller')},
               'dictionary_sources':json.loads((package/'data'/'SOURCES.json').read_text(encoding='utf-8')),
               'self_test_exit':result.returncode,
+              'self_test_report':report,
               'files':{p.relative_to(package).as_posix():sha(p) for p in sorted(package.rglob('*')) if p.is_file()}}
     (package/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     destination=out/f'TypeBridge-{args.version}-windows-x64.zip'

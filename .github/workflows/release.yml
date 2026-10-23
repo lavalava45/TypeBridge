@@ -35,6 +35,10 @@ jobs:
             requirements-build.txt
       - name: Install build dependencies
         run: python -m pip install -r requirements-build.txt
+      - name: Configure runner keyboard layouts for self-test
+        run: |
+          powershell.exe -NoProfile -NonInteractive -Command '$languages = New-WinUserLanguageList en-US; $languages.Add("ru-RU"); $languages.Add("he-IL"); Set-WinUserLanguageList $languages -Force'
+          if ($LASTEXITCODE -ne 0) { throw 'Runner language setup failed' }
       - name: Build and verify public package
         env:
           RELEASE_REF: ${{ github.ref }}
@@ -46,7 +50,7 @@ jobs:
             $version = $env:RELEASE_NAME.Substring(1)
           }
           $output = Join-Path $env:RUNNER_TEMP 'typebridge-release'
-          python build_public_release.py --output-dir $output --version $version
+          python -c "import ctypes, runpy; u=ctypes.WinDLL('user32'); u.LoadKeyboardLayoutW.argtypes=[ctypes.c_wchar_p,ctypes.c_uint]; u.LoadKeyboardLayoutW.restype=ctypes.c_void_p; handles=[u.LoadKeyboardLayoutW(k,0x80) for k in ('00000409','00000419','0000040D')]; assert all(handles), handles; runpy.run_path('build_public_release.py',run_name='__main__')" --output-dir $output --version $version
           if ($LASTEXITCODE -ne 0) { throw 'Public package build failed' }
       - name: Keep verified download files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -84,5 +88,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: TypeBridge-build-log
-          path: ${{ runner.temp }}/typebridge-release/pyinstaller.log
+          path: |
+            ${{ runner.temp }}/typebridge-release/pyinstaller.log
+            ${{ runner.temp }}/typebridge-release/self-test.json
           if-no-files-found: ignore

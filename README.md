@@ -35,8 +35,8 @@ provided; add other engines or dictionaries with an HTTP/HTTPS URL containing
 a selection, a generic Copy fallback backs up/restores supported clipboard
 formats and shows a preview before sending. This works across applications,
 without editor-specific adapters; unsupported clipboard formats cause a visible
-refusal rather than data loss. These additions await the
-next combined EXE build; the existing alpha download has not been replaced.
+refusal rather than data loss. These additions are included in builds from
+`v0.1.0-alpha.3` onward; the older `alpha.1` download predates them.
 
 The **Privacy** settings tab explains keyboard access, optional recording and
 their limits. Read [Privacy and input access](docs/PRIVACY.md) before enabling

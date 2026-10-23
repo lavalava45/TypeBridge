@@ -1898,6 +1898,8 @@ def self_test() -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--self-test-report", type=Path,
+                        help="write self-test JSON, including failures, without showing a dialog")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--autostart", action="store_true",
                         help="start in tray with autocorrection after Windows logon")
@@ -1907,8 +1909,15 @@ def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     if args.self_test:
-        report = self_test()
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        try:
+            report = self_test()
+        except Exception as error:
+            report = {"ok": False, "error": f"{type(error).__name__}: {error}"}
+        text = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.self_test_report:
+            args.self_test_report.write_text(text + "\n", encoding="utf-8")
+        if sys.stdout is not None:
+            print(text)
         return 0 if report["ok"] else 1
     if args.headless:
         migrate_user_data()

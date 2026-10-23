@@ -1,7 +1,7 @@
 # Portable Windows releases
 
 The `Windows portable release` GitHub Actions workflow builds on Windows x64
-with Python 3.12. Push a new version tag (for example `v0.1.0-alpha.2`) to build
+with Python 3.12. Push a new version tag (for example `v0.1.0-alpha.3`) to build
 and publish a release. Tags containing a hyphen are marked as prereleases.
 Manual **Run workflow** on `main` builds downloadable Actions artifacts without
 publishing a release. A published release is never overwritten by a rerun.
