@@ -43,7 +43,10 @@ selection (up to 2,000 characters) through Windows UI Automation. If the pattern
 is unsupported, after the field/password checks it tries a generic Ctrl+C.
 Supported clipboard formats are backed up and restored; text-only backups are
 not used. Unsupported handle/owner formats or more than 8 MB / 64 formats abort
-before Copy. A later clipboard change is not overwritten. Other clipboard
+before Copy. A later clipboard change is not overwritten.
+OLE transport/cache records (`DataObject`, `Ole Private Data`) are not copied
+back as stale owner pointers; the actual materialized data formats are preserved.
+Real embedded or linked OLE payloads still require separate support. Other clipboard
 managers may observe the temporary Copy; TypeBridge's own history is paused.
 The fallback always shows a preview and requires a Search click, because some
 editors copy a whole line with no selection. Old clipboard text is never used

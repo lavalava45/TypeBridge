@@ -11,6 +11,35 @@ from typebridge_app import Settings
 
 
 class TransactionTests(unittest.TestCase):
+    def test_ole_bookkeeping_does_not_block_materialized_image_formats(self):
+        from clipboard_selection import BitmapBackup
+        native = NativeCopy.__new__(NativeCopy)
+        native.hwnd = 123
+        native.cb = Mock()
+        native.cb.EnumClipboardFormats.side_effect = [49161, 2, 49522, 49171, 8, 17, 0]
+        native.cb.GetClipboardFormatName.side_effect = lambda fmt: {49161: 'DataObject', 49522: 'PNG', 49171: 'Ole Private Data'}[fmt]
+        native.cb.GetClipboardSequenceNumber.return_value = 22
+        native.global_bytes = Mock(return_value=b'fixture image bytes')
+        native.bitmap_backup = Mock(return_value=BitmapBackup(1234, 16))
+        rows, sequence = native.snapshot()
+        self.assertEqual([fmt for fmt, _ in rows], [2, 49522, 8, 17])
+        self.assertEqual(sequence, 22)
+        self.assertEqual([call.args[0] for call in native.global_bytes.call_args_list], [49522, 8, 17])
+        native.cb.EmptyClipboard.assert_not_called()
+        native.cb.CloseClipboard.assert_called_once()
+
+    def test_real_embedded_object_or_metadata_only_still_aborts_before_copy(self):
+        for name in ('Embedded Object', 'DataObject', 'FileGroupDescriptorW'):
+            native = NativeCopy.__new__(NativeCopy)
+            native.hwnd = 123
+            native.cb = Mock()
+            native.cb.EnumClipboardFormats.side_effect = [49161, 0]
+            native.cb.GetClipboardFormatName.return_value = name
+            with self.assertRaises(SelectionUnavailable):
+                native.snapshot()
+            native.cb.EmptyClipboard.assert_not_called()
+            native.cb.CloseClipboard.assert_called_once()
+
     def test_bitmap_backup_clones_native_handle_without_touching_clipboard(self):
         import ctypes
         from ctypes import wintypes as w

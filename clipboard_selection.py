@@ -12,6 +12,13 @@ class SelectionUnavailable(Exception):
     """Only fixed, safe-to-display messages, never document content."""
 
 
+# OLE bookkeeping is bound to the original owner, not a user payload to replay.
+# Preserve the actual offered formats; embedded/link/storage data is separate.
+OLE_BOOKKEEPING = frozenset(('dataobject', 'ole private data'))
+OWNER_DEPENDENT_DATA = frozenset(('embed source', 'embedded object', 'link source', 'filecontents',
+                                'filegroupdescriptor', 'filegroupdescriptorw'))
+
+
 @dataclass(frozen=True)
 class SearchPreview:
     text: str
@@ -120,15 +127,20 @@ class NativeCopy:
         cb = self.cb
         cb.OpenClipboard(self.hwnd)
         try:
-            rows, size, fmt = [], 0, 0
+            rows, size, fmt, skipped_ole = [], 0, 0, False
             while True:
                 fmt = cb.EnumClipboardFormats(fmt)
                 if not fmt:
+                    if skipped_ole and not rows:
+                        raise SelectionUnavailable('Поиск отменён: этот формат буфера нельзя безопасно восстановить')
                     return rows, self.sequence()
-                if fmt >= 0xC000 and cb.GetClipboardFormatName(fmt).casefold() in (
-                        'dataobject', 'ole private data', 'embed source', 'embedded object',
-                        'link source', 'filecontents'):
-                    raise SelectionUnavailable('Поиск отменён: этот формат буфера нельзя безопасно восстановить')
+                if fmt >= 0xC000:
+                    name = cb.GetClipboardFormatName(fmt).casefold()
+                    if name in OLE_BOOKKEEPING:
+                        skipped_ole = True
+                        continue
+                    if name in OWNER_DEPENDENT_DATA:
+                        raise SelectionUnavailable('Поиск отменён: этот формат буфера нельзя безопасно восстановить')
                 # Raw HGLOBAL bytes preserve Unicode, ANSI, HTML, RTF, DIB and file lists.
                 value = self.bitmap_backup(fmt, 8_000_000 - size) if fmt in (2, 0x82) else self.global_bytes(fmt, 8_000_000 - size)
                 size += value.size if isinstance(value, BitmapBackup) else len(value)
@@ -165,8 +177,12 @@ class NativeCopy:
         return saved
 
     def owned_by(self, target):
+        import ctypes
+        from ctypes import wintypes as w
         import win32process
-        owner = self.cb.GetClipboardOwner()
+        api = ctypes.WinDLL('user32', use_last_error=True)
+        api.GetClipboardOwner.argtypes, api.GetClipboardOwner.restype = [], w.HWND
+        owner = api.GetClipboardOwner()  # NULL is legal for a flushed OLE clipboard.
         return bool(owner and win32process.GetWindowThreadProcessId(owner)[1] in
                     {target.pid, target.host_pid or target.pid})
 
