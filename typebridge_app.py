@@ -982,7 +982,7 @@ class TypeBridgeGui:
         ttk.Checkbutton(
             frame, text="Осторожный режим: исправлять только уверенные совпадения",
             variable=self.conservative).pack(anchor="w")
-        ttk.Checkbutton(frame, text="Исправлять до пробела — Notepad++ (пробный режим)",
+        ttk.Checkbutton(frame, text="Исправлять до введения пробела",
                         variable=self.early_correction).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
