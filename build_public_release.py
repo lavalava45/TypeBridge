@@ -47,6 +47,7 @@ def main():
     for filename in ('LICENSE','README.md','README-RU.md','README-HE.md','THIRD-PARTY.md','typebridge-settings.json'):
         shutil.copy2(source/filename,package/filename)
     shutil.copytree(source/'data',package/'data')
+    shutil.copytree(source/'dictionary_packs',package/'dictionary_packs')
     (package/'TypeBridge-source.zip').write_bytes(archive)
     for name in ('Pillow','psutil','pywin32','pyinstaller'):
         dist=metadata.distribution(name)
@@ -73,7 +74,7 @@ def main():
     log=out/'pyinstaller.log'
     command=[sys.executable,'-m','PyInstaller','--noconfirm','--onefile','--windowed',
              '--name','TypeBridge','--distpath',str(package),'--workpath',str(out/'build'),
-             '--add-data','data;data','typebridge_app.py']
+             '--add-data','data;data','--add-data','dictionary_packs;dictionary_packs','typebridge_app.py']
     with log.open('w',encoding='utf-8') as stream:
         subprocess.run(command,cwd=source,stdout=stream,stderr=subprocess.STDOUT,check=True)
     # A hidden self-test only; no GUI event loop, migration or keyboard hooks.

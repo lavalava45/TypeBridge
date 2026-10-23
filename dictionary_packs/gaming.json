@@ -1,0 +1,223 @@
+{
+  "format": "typebridge-exclusions",
+  "version": 1,
+  "name": "Игровые термины",
+  "description": "Термины CSpell gaming-terms: aggro, matchmaking, speedrun и другие.",
+  "license": "MIT",
+  "upstream_commit": "6e294247ab8932b5e10573d44636e2ce5764fab3",
+  "sources": [
+    {
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/6e294247ab8932b5e10573d44636e2ce5764fab3/dictionaries/gaming-terms/src/gaming-terms.txt",
+      "sha256": "671df1abd29b3073233c875f9f7f7969864ddb61df0a263110478f35de332b8d",
+      "license_file": "CSpell-gaming-LICENSE.txt"
+    }
+  ],
+  "processing": "Only standalone English alphabetic words; case-folded and deduplicated. JS/TS limited to a curated keyword/basic API subset.",
+  "entries": [
+    {
+      "language": "en",
+      "word": "aggro",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "aimbot",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "boop",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "buff",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cutscene",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dbno",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "deathmatch",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "debuff",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "despawn",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "diggable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "faceroll",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gamebattles",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "glhf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "headshot",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "headshots",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hitpoint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hitscan",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "jrpg",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "knockback",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "konami",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "leaderboard",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mana",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "matchmaking",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "minecraft",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mmorpg",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "moba",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nerf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "noob",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "permadeath",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ragequit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "scrub",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sidequest",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "smurf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "speedrun",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "trickshot",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tryhard",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unban",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unranked",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "untimeout",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "wallhack",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "walling",
+      "sensitive": false
+    }
+  ]
+}

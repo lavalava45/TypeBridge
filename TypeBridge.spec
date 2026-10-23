@@ -5,7 +5,7 @@ a = Analysis(
     ['typebridge_app.py'],
     pathex=[],
     binaries=[],
-    datas=[('data', 'data')],
+    datas=[('data', 'data'), ('dictionary_packs', 'dictionary_packs')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

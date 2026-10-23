@@ -30,6 +30,15 @@ and as plain text in `data/`, with attribution, source hashes, the full CC BY-SA
 packages are built in an isolated directory using `build_public_release.py`;
 the private working dictionaries are never copied into that build.
 
+## Optional example exclusion packs
+
+`dictionary_packs/programming.json` and `gaming.json` are filtered adaptations
+of [CSpell dictionaries](https://github.com/streetsidesoftware/cspell-dicts)
+at commit `6e294247ab8932b5e10573d44636e2ce5764fab3`. Their upstream source
+snapshots, exact source URLs/hashes and per-package MIT copyright/license notices
+are included in `dictionary_packs/`. See its README for filtering details.
+These packs are opt-in and do not replace TypeBridge's main language dictionaries.
+
 ## Local research data
 
 Earlier private development used RU/EN dictionaries extracted from SwitchER.

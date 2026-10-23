@@ -1,0 +1,4268 @@
+{
+  "format": "typebridge-exclusions",
+  "version": 1,
+  "name": "Программирование: Python / JavaScript / C++",
+  "description": "Небольшой набор терминов и ключевых слов. Не является анализатором синтаксиса.",
+  "license": "MIT",
+  "upstream_commit": "6e294247ab8932b5e10573d44636e2ce5764fab3",
+  "sources": [
+    {
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/6e294247ab8932b5e10573d44636e2ce5764fab3/dictionaries/python/src/python/python.txt",
+      "sha256": "d561cb9740af844b3ba8d685041e25d3470e2b58e8182b1e76f7b6074b2d4b14",
+      "license_file": "CSpell-python-LICENSE.txt"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/6e294247ab8932b5e10573d44636e2ce5764fab3/dictionaries/typescript/src/typescript.txt",
+      "sha256": "11a73493bdad131c6ccdb5ae84f440c1bbbed07ef68049cfb351cd5ca38dfeef",
+      "license_file": "CSpell-javascript-LICENSE.txt"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/6e294247ab8932b5e10573d44636e2ce5764fab3/dictionaries/cpp/src/lang-keywords.txt",
+      "sha256": "b2e4083a79f5d1a879b60c9f21c02875e3faf9d94e57387a26807efda1e91268",
+      "license_file": "CSpell-cpp-LICENSE.txt"
+    }
+  ],
+  "processing": "Only standalone English alphabetic words; case-folded and deduplicated. JS/TS limited to a curated keyword/basic API subset.",
+  "entries": [
+    {
+      "language": "en",
+      "word": "abc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "abs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "abstract",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "accumulate",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "acos",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "acosh",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "add",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "addaudithook",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "aifc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "alignas",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "alignof",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "all",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "and",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "any",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "appdata",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "appdirs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "appendleft",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "approx",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "argcount",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "argparse",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "arithmeticerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "array",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "arraybuffer",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "as",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ascii",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asdict",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asgi",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asin",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asinh",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asm",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "assert",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "assertionerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ast",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "async",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asynchat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asyncio",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "asyncore",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "atan",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "atanh",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "atexit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "attributeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "audioop",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "autopep",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "autoreset",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "await",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bandit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "baseexception",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bcppcompiler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bdb",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bdist",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bigint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bin",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "binascii",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "binhex",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bisect",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bitand",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bitor",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "black",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "blockingioerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bool",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "boolean",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "break",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "brokenpipeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "buffererror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "build",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "builtin",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "builtins",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bytearray",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "bytes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "byteswarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "calendar",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "callable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "capitalize",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "case",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "casefold",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "catch",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ccompiler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ceil",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cellvars",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "center",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cgi",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cgitb",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "chain",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "charset",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "check",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "childprocesserror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "chmod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "chown",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "chr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "chunk",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "class",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "classmethod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "clean",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "clear",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "client",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cmath",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cmd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cmdline",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "code",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "codecs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "codeop",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "collect",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "collections",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "colorama",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "colorchooser",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "colorsys",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "comb",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "combinations",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "command",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "commitizen",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "commondialog",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "compile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "compileall",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "compl",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "complex",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "compress",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "concurrent",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "config",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "configparser",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "connection",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "connectionabortederror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "connectionerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "connectionrefusederror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "connectionreseterror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "console",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "const",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "consteval",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "constexpr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "constinit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "contentmanager",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "contextlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "contextvars",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "continue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cookiejar",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cookies",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "copy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "copyreg",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "copyright",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "copysign",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "core",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cos",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cosh",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "count",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cprofile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "credits",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "crypt",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "csv",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ctypes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "curses",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cycle",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "cygwinccompiler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dataclasses",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "datetime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dbm",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "debug",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "debugger",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "decimal",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "declare",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "decltype",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dedent",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "def",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "default",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "degrees",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "del",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "delattr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "delete",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "deprecationwarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "deque",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "deref",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dict",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "difference",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "difflib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dir",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dis",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "discard",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dist",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "distutils",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "divmod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dnd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "do",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "docformatter",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "doctest",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "document",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dom",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dropwhile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dumb",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "dummy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "e",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "elementtree",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "elif",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ellipsis",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "else",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "email",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "encode",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "encoders",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "encodings",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "endforeach",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "endfunction",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "endif",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "endswith",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "endwhile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ensurepip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "entities",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "enum",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "enumerate",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "environmenterror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "eoferror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "erf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "erfc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "errno",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "error",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "errors",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "etree",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "eval",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "except",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "exception",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "exceptiontable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "exec",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "exit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "exp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "expandtabs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "expanduser",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "expandvars",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "expat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "export",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "extendleft",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "extends",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "extension",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "extern",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fabs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "factorial",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fail",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fallthrough",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "false",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "faulthandler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fcntl",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fdel",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fdopen",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filecmp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filedata",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filedialog",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fileexistserror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fileinput",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filelist",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filenotfounderror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filter",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "filterfalse",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "finally",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "find",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "finditer",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "firstlineno",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fixture",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "float",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "floatingpointerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "floor",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fmod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fnmatch",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "font",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "for",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "format",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fractions",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "freevars",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "frexp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "from",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fromkeys",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "frozenset",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fsdecode",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fsencode",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fsum",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ftplib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "fullmatch",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "function",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "functools",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "futures",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "futurewarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gamma",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gcd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "generator",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "generatorexit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "get",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getatime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getattr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getcontext",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getctime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getcwd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getenv",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getframe",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getframemodulename",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getheader",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getheaders",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getopt",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "getpass",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gettext",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gjslint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "glob",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "global",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "globals",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "glvalue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gnu",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "goto",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "graphlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "groupby",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "grp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "gzip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "handler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "handlers",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hasattr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hash",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hashlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "header",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "headerregistry",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "headers",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "heapq",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "help",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hex",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hexversion",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hmac",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hookimpl",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hookspec",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hstack",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "html",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "http",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "httplib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "hypot",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "id",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "idna",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "if",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ifdef",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ifndef",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ignorecase",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "imaplib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "imghdr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "imp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "implements",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "import",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "importerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "importlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "importorskip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "importwarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "in",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "indentationerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "index",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "indexerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "inf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "infer",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "initialise",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "input",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "inspect",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "install",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "instanceof",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "int",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "interface",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "interruptederror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "intersection",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "io",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ioerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ipaddress",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "is",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isabs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isadirectoryerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isalnum",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isalpha",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isclose",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isdecimal",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isdigit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isdir",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isdisjoint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isfile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isfinite",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isidentifier",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isinf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isinstance",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "islice",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "islower",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ismount",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isnan",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isnumeric",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isoformat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isort",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isprintable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isqrt",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isspace",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "issubclass",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "issubset",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "issuperset",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "istitle",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "isupper",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "iter",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "iterable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "iterator",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "iterators",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "iteritems",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "iterkeys",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "itertools",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "itertree",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "itervalues",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "join",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "json",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "jsonify",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "keyboardinterrupt",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "keyerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "keyof",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "keyword",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "kwargs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "kwds",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "kwonlyargcount",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lambda",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lchmod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ldexp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "len",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "let",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "levelname",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "levelno",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lexists",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lgamma",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "libtmux",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "license",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "linecache",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "linetable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "list",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ljust",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lnotab",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "localcontext",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "locale",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "locals",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "log",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "logging",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lookuperror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lower",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lstat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lstrip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lvalue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "lzma",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "machinery",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "madvise",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mailbox",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mailcap",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "main",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "makedirs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "maketrans",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "managers",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "map",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mark",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "marshal",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "math",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "max",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "maxsplit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mbcs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mccabe",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "memoryerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "memoryview",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "meshgrid",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "message",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "messagebox",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "metadata",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "metavar",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mimetypes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "min",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "minidom",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mkdir",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mkstemp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mmap",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mock",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "model",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "modf",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "module",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "modulefinder",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "msilib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "msvccompiler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "msvcrt",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mtime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "multiprocessing",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "mypy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "namedtuple",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nameerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "namespace",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nan",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nargs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ndbm",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "netloc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "netrc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "never",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "new",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "next",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nis",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nlocals",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nntplib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nodiscard",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "noexcept",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "noinspection",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nolint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nolintbegin",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nolintend",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "none",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nonlocal",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "noqa",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "noreturn",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nosec",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "not",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "notadirectoryerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "notimplemented",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "notimplementederror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "null",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "nullptr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "number",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "numbers",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "numpy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "object",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "oct",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "open",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "openapi",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "operator",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "optparse",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "or",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ord",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "os",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "oserror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ossaudiodev",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "outfile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "overflowerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "package",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "panel",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "param",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "paramiko",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "parse",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "parsefloat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "parseint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "parser",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "parsers",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "partition",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pass",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "path",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pathlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pdb",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pdbpp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "peername",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pendingdeprecationwarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "perm",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "permissionerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "permutations",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pexpect",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pi",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pickle",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pickletools",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pipenv",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pipes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pipfile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pipx",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pkgutil",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "platform",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "plistlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "policy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pool",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pop",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "popleft",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "poplib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "posix",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "posonlyargcount",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pow",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pprint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pragma",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "prereleases",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "print",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "private",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "processlookuperror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "prod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "product",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "profile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "promise",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "property",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "prospector",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "protected",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "prototype",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "prvalue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pstats",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pty",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "public",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pulldom",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pwd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyclbr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pycodestyle",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pydoc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pydocstyle",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyenv",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyflakes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pygments",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pylama",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pylint",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pypi",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyproject",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pypy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyrefly",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyright",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pytest",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pythonhome",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pythonpath",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "pyyaml",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "queue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "quit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "quopri",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "radians",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "radon",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "raise",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "raises",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "random",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "range",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "re",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "readline",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "readonly",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "recursionerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "reduceat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "referenceerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "reflexpr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "regexp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "register",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "remainder",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "remove",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "repeat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "replace",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "repr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "representer",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "representers",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "reprlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "request",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "require",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "reraise",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "resource",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "resources",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "resourcewarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "response",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "return",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "reversed",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rfind",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rindex",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rjust",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rlcompleter",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rmdir",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rmtree",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "robotparser",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "round",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rpartition",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rsplit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rstrip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ruff",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "runpy",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "runtimeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "runtimewarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "rvalue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sax",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "saxutils",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sched",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "scrolledtext",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sdist",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "secrets",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "select",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "selectors",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "server",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "set",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "setattr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "setcontext",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "setdefault",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "setupterm",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sharedctypes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "shelve",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "shlex",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "shutil",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "signal",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "simpledialog",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sin",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sinh",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "site",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sizeof",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "skip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "slice",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "smtpd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "smtplib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sndhdr",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "socket",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "socketserver",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sockname",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sorted",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "spawn",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "split",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "splitext",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "splitlines",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "splitunc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "spwd",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sqrt",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ssl",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "stacksize",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "starmap",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "startswith",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "stat",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "static",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "staticmethod",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "statistics",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "stopasynciteration",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "stopiteration",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "str",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "strftime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "string",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "stringprep",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "strip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "strptime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "struct",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "structs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "subn",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "subprocess",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sum",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sunau",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "super",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "support",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "swapcase",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "switch",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "symbol",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "symtable",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "syntaxerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "syntaxwarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sys",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "sysconfig",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "syslog",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "systemerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "systemexit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "taberror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tabnanny",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "takewhile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tan",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tanh",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tarfile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tau",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tee",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "telnetlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tempfile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "termios",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "test",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "textpad",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "textwrap",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "this",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "threading",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "threadpool",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "throw",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tigetnum",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "time",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "timeit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "timeouterror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "title",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tix",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tkinter",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "token",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tokenize",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tomli",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tool",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "trace",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "traceback",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tracemalloc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "translate",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "trigraph",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "true",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "trunc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "try",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "ttk",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tty",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "tuple",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "turtle",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "turtledemo",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "type",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typedef",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typedefs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typeid",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typename",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typeof",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "types",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "typing",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "udls",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unboundlocalerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "undef",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "undefined",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unicodedata",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unicodedecodeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unicodeencodeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unicodeerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unicodetranslateerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unicodewarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unimported",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "union",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unittest",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unixccompiler",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "unknown",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "update",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "upper",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "urllib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "urlopen",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "urlparse",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "urlsplit",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "userwarning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "util",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "utils",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "utime",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "uu",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "uuid",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "validate",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "valueerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "var",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "varnames",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "vars",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "venv",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "venvs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "version",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "virtualenv",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "virtualenvs",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "void",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "warning",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "warnings",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "warns",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "wave",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "wchar",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "weakmap",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "weakref",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "weakset",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "webbrowser",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "while",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "window",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "windowserror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "winreg",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "winsound",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "with",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "writelines",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "wsgiref",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xdrlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xfail",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xml",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xmlreader",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xmlrpc",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xrange",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xvalue",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "xxsubtypes",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "yield",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zerodivisionerror",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zfill",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zip",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zipapp",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zipfile",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zipimport",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zlib",
+      "sensitive": false
+    },
+    {
+      "language": "en",
+      "word": "zoneinfo",
+      "sensitive": false
+    }
+  ]
+}

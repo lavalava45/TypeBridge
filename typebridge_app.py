@@ -954,6 +954,7 @@ class TypeBridgeGui:
         self.lexicon = load_user_lexicon()
         self.snippet_config = SnippetConfig.load(USER_DIR / 'snippets.json')
         self.snippets_editor = None
+        self.dictionary_import_window = None
         self.clipboard_window = None
         from clipboard_tools import ClipboardTools
         self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
@@ -1296,8 +1297,10 @@ class TypeBridgeGui:
         self.word_list.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.word_list.pack(fill="both", expand=True)
-        ttk.Button(frame, text="Удалить выбранное", command=self.remove_word).pack(
-            anchor="w", pady=10)
+        actions = ttk.Frame(frame)
+        actions.pack(fill="x", pady=10)
+        ttk.Button(actions, text="Удалить выбранное", command=self.remove_word).pack(side="left")
+        ttk.Button(actions, text="Импорт словарей…", command=self.open_dictionary_import).pack(side="left", padx=8)
         ttk.Label(frame, text="Слова и настройки хранятся в %LOCALAPPDATA%\\TypeBridge.",
                   foreground="#555").pack(anchor="w")
         self._refresh_words()
@@ -1314,6 +1317,28 @@ class TypeBridgeGui:
                             lang.upper(), "Слово" if kind == "words" else "Исключение", word,
                             "Точный" if mode == "sensitive" else "Любой"))
                         self.word_rows[item] = (kind, lang, word, mode == "sensitive")
+
+    def open_dictionary_import(self):
+        from dictionary_import_gui import DictionaryImportWindow
+        editor = self.dictionary_import_window
+        if editor and editor.window.winfo_exists():
+            editor.window.deiconify()
+            editor.window.lift()
+        else:
+            self.dictionary_import_window = DictionaryImportWindow(self.root, self)
+
+    def import_exclusion_preview(self, preview):
+        from dictionary_import import merge_exclusions
+        previous = load_user_lexicon()
+        lexicon, added, existing = merge_exclusions(previous, preview)
+        if added:
+            lexicon.save(USER_DIR.resolve())
+            self.lexicon = lexicon
+            if self.hook:
+                self.hook.request_config(self.hook.settings, lexicon)
+            self._refresh_words()
+        self.emit("info", f"Импорт исключений: добавлено {added}, уже были {existing}")
+        return added, existing
 
     def _edit_word(self, remove=False) -> None:
         try:

@@ -18,7 +18,7 @@ try {
         $env:PYTHONPATH = $deps
     }
     & $python -m PyInstaller --noconfirm --clean --onefile --windowed `
-        --name TypeBridge --add-data 'data;data' typebridge_app.py
+        --name TypeBridge --add-data 'data;data' --add-data 'dictionary_packs;dictionary_packs' typebridge_app.py
     if ($LASTEXITCODE -ne 0) { throw "TypeBridge EXE build failed" }
     Copy-Item -LiteralPath "typebridge-settings.json" `
         -Destination "dist\typebridge-settings.json" -Force

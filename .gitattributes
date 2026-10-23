@@ -1,0 +1,2 @@
+# Preserve upstream dictionary bytes for the recorded SHA-256 provenance.
+/dictionary_packs/upstream/* -text
