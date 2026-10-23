@@ -59,4 +59,10 @@ def compile_bindings(settings) -> dict[Chord, str]:
             if manual_vk and chord.vk == manual_vk:
                 raise ValueError("Клавиша занята словарным исправлением")
         bindings[chord] = lang
+    from clipboard_tools import clipboard_bindings
+    for chord in clipboard_bindings(settings):
+        if chord in bindings:
+            raise ValueError("Сочетание буфера уже назначено переключению языка")
+        if chord.vk == 0x13 and {0x11, 0x12} <= chord.modifiers:
+            raise ValueError("Ctrl+Alt+Pause уже занят")
     return bindings

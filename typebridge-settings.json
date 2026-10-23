@@ -19,5 +19,9 @@
     "keepass.exe",
     "keepassxc.exe",
     "logonui.exe"
-  ]
+  ],
+  "clipboard_history": false,
+  "clipboard_history_key": "Ctrl+Alt+H",
+  "plain_paste": false,
+  "plain_paste_key": "Ctrl+Shift+V"
 }

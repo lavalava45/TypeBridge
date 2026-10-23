@@ -19,8 +19,10 @@ from tray_layouts import WindowsLayouts, SHELL_CLASSES
 
 WM_TRAY = win32con.WM_APP + 52
 WM_SET_LANGUAGE = win32con.WM_APP + 53
+WM_CLIPBOARD_CONFIG = win32con.WM_APP + 54
 MENU_OPEN, MENU_ENABLE, MENU_EXIT = 4001, 4002, 4005
 MENU_SNIPPETS = 4006
+MENU_HISTORY = 4007
 MENU_LAYOUT_BASE = 5000
 ICON_LABELS = {"ru": "RU", "en": "EN", "he": "HE", "idle": "--"}
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
@@ -39,6 +41,7 @@ def menu_items(state: str, detail: str = ""):
         (MENU_ENABLE, "Автоисправление", not busy, state == "running"),
         (MENU_OPEN, "Открыть настройки", True, False),
         (MENU_SNIPPETS, "Автозамена и шаблоны…", True, False),
+        (MENU_HISTORY, "История буфера обмена…", True, False),
         (MENU_EXIT, "Выход", True, False),
     )
 
@@ -101,6 +104,31 @@ class TrayController:
         self.run_state = ("stopped", "")
         self.layouts = WindowsLayouts()
         self.last_target = None
+        self.clipboard_settings = None
+        self.clipboard_hotkeys = {}
+
+    def configure_clipboard(self, settings):
+        self.clipboard_settings = settings
+        if self.hwnd:
+            win32gui.PostMessage(self.hwnd, WM_CLIPBOARD_CONFIG, 0, 0)
+
+    def _register_clipboard_hotkeys(self):
+        from clipboard_tools import clipboard_bindings
+        for identifier in self.clipboard_hotkeys:
+            win32gui.UnregisterHotKey(self.hwnd, identifier)
+        self.clipboard_hotkeys.clear()
+        if self.clipboard_settings is None:
+            return
+        for identifier, (chord, action) in enumerate(clipboard_bindings(self.clipboard_settings).items(), 6100):
+            flags = 0x4000  # MOD_NOREPEAT
+            for key, flag in ((0x11, 2), (0x12, 1), (0x10, 4)):
+                if key in chord.modifiers:
+                    flags |= flag
+            try:
+                win32gui.RegisterHotKey(self.hwnd, identifier, flags, chord.vk)
+                self.clipboard_hotkeys[identifier] = action
+            except Exception:
+                self.notify(("tray-error", "Горячая клавиша буфера занята; выбери другое сочетание в настройках"))
 
     def start(self):
         if self.worker:
@@ -160,6 +188,14 @@ class TrayController:
                 f"TypeBridge — {status}"[:127])
 
     def _wndproc(self, hwnd, message, wparam, lparam):
+        if message == WM_CLIPBOARD_CONFIG:
+            self._register_clipboard_hotkeys()
+            return 0
+        if message == win32con.WM_HOTKEY:
+            action = self.clipboard_hotkeys.get(wparam)
+            if action:
+                self.notify((action, self.layouts.capture()))
+            return 0
         if message == WM_TRAY:
             if lparam == win32con.WM_LBUTTONDBLCLK:
                 self.notify("open")
@@ -173,6 +209,9 @@ class TrayController:
             win32gui.DestroyWindow(hwnd)
             return 0
         if message == win32con.WM_DESTROY:
+            for identifier in self.clipboard_hotkeys:
+                win32gui.UnregisterHotKey(hwnd, identifier)
+            self.clipboard_hotkeys.clear()
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
             win32gui.PostQuitMessage(0)
             return 0
@@ -227,6 +266,8 @@ class TrayController:
         finally:
             win32gui.DestroyMenu(menu)
         commands = {MENU_OPEN: "open", MENU_SNIPPETS: "snippets", MENU_ENABLE: "toggle", MENU_EXIT: "exit"}
+        if chosen == MENU_HISTORY:
+            self.notify(("history", target))
         if chosen in (0, MENU_ENABLE) and self.layouts.valid(target):
             try:
                 self._return_to_target(target)
@@ -259,6 +300,7 @@ class TrayController:
                     0, str(path), win32con.IMAGE_ICON, 32, 32,
                     win32con.LR_LOADFROMFILE)
             win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, self._icon_data())
+            self._register_clipboard_hotkeys()
             self.ready.set()
             if self.closing:
                 win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)

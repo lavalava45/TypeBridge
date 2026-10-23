@@ -128,6 +128,10 @@ class Settings:
     only_window_title: str = ""
     manual_f8: bool = True
     manual_key: str = "Scroll Lock"
+    clipboard_history: bool = False
+    clipboard_history_key: str = "Ctrl+Alt+H"
+    plain_paste: bool = False
+    plain_paste_key: str = "Ctrl+Shift+V"
     cycle_key: str = "Pause"
     early_correction: bool = False
     show_caret_flag: bool = False
@@ -165,7 +169,7 @@ def load_settings(path: Path | None = None) -> Settings:
     if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
         raise ValueError("excluded_processes must be a JSON array of names")
     for name in ("conservative", "manual_f8", "early_correction", "show_caret_flag",
-                 "fix_caps_lock", "autostart", "corrections_enabled"):
+                 "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste"):
         if name in raw and type(raw[name]) is not bool:
             raise ValueError(f"{name} must be true or false")
     title = raw.get("only_window_title", "")
@@ -178,6 +182,10 @@ def load_settings(path: Path | None = None) -> Settings:
                     conservative=raw.get("conservative", True),
                     manual_f8=raw.get("manual_f8", True),
                     manual_key=raw.get("manual_key", "Scroll Lock"),
+                    clipboard_history=raw.get("clipboard_history", False),
+                    clipboard_history_key=raw.get("clipboard_history_key", "Ctrl+Alt+H"),
+                    plain_paste=raw.get("plain_paste", False),
+                    plain_paste_key=raw.get("plain_paste_key", "Ctrl+Shift+V"),
                     cycle_key=cycle_key,
                     early_correction=raw.get("early_correction", False),
                     show_caret_flag=raw.get("show_caret_flag", False),
@@ -944,6 +952,10 @@ class TypeBridgeGui:
         self.lexicon = load_user_lexicon()
         self.snippet_config = SnippetConfig.load(USER_DIR / 'snippets.json')
         self.snippets_editor = None
+        self.clipboard_window = None
+        from clipboard_tools import ClipboardTools
+        self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
+        self.clipboard_tools.configure(settings)
         root.title("TypeBridge — RU / EN / HE")
         root.geometry("740x775")
         root.minsize(700, 735)
@@ -952,6 +964,10 @@ class TypeBridgeGui:
         self.conservative = tk.BooleanVar(value=settings.conservative)
         self.manual_f8 = tk.BooleanVar(value=settings.manual_f8)
         self.manual_key = tk.StringVar(value=settings.manual_key)
+        self.clipboard_history = tk.BooleanVar(value=settings.clipboard_history)
+        self.clipboard_history_key = tk.StringVar(value=settings.clipboard_history_key)
+        self.plain_paste = tk.BooleanVar(value=settings.plain_paste)
+        self.plain_paste_key = tk.StringVar(value=settings.plain_paste_key)
         self.cycle_key = tk.StringVar(value=settings.cycle_key)
         self.early_correction = tk.BooleanVar(value=settings.early_correction)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
@@ -1044,6 +1060,29 @@ class TypeBridgeGui:
                   "переключателе, в том числе когда автоисправление отключено.",
                   wraplength=620).pack(anchor="w", pady=14)
         ttk.Button(shortcuts, text="Сохранить настройки", command=self.save).pack(anchor="w")
+        clipboard = ttk.Frame(notebook, padding=18)
+        notebook.add(clipboard, text="Буфер обмена")
+        for text, enabled, hotkey in (
+            ("Сохранять историю буфера обмена", self.clipboard_history, self.clipboard_history_key),
+            ("Вставлять без форматирования", self.plain_paste, self.plain_paste_key),
+        ):
+            ttk.Checkbutton(clipboard, text=text, variable=enabled).pack(anchor="w", pady=(12, 4))
+            row = ttk.Frame(clipboard)
+            row.pack(anchor="w")
+            ttk.Label(row, text="Горячая клавиша:").pack(side="left")
+            ttk.Combobox(row, textvariable=hotkey, width=25,
+                         values=("Отключено", "Ctrl+Alt+H", "Ctrl+Shift+V",
+                                 *(key for key in SUGGESTIONS[1:] if not key.endswith("F12")))).pack(side="left", padx=10)
+        ttk.Label(clipboard, text="Функции буфера работают независимо от автоисправления.\n"
+                  "История: 30 текстовых фрагментов, до 100 000 символов каждый, только в памяти. "
+                  "Выключение истории и выход из приложения очищают список.\n"
+                  "Вставка без форматирования заменяет содержимое буфера чистым текстом. "
+                  "Исходные стили в буфере не сохраняются. Обычный Ctrl+V не изменяется.\n"
+                  "Не копируй секреты при включённой истории: не все приложения помечают их как приватные.",
+                  wraplength=620).pack(anchor="w", pady=16)
+        ttk.Button(clipboard, text="Открыть историю…", command=self.open_clipboard_history).pack(anchor="w", pady=6)
+        ttk.Button(clipboard, text="Очистить историю", command=self.clipboard_tools.clear_history).pack(anchor="w", pady=6)
+        ttk.Button(clipboard, text="Сохранить настройки", command=self.save).pack(anchor="w", pady=12)
         indication = ttk.Frame(notebook, padding=18)
         notebook.add(indication, text="Индикация")
         ttk.Checkbutton(indication, text="Показывать флажок раскладки рядом с текстовым курсором",
@@ -1085,6 +1124,7 @@ class TypeBridgeGui:
             from tray_win32 import TrayController
             self.tray = TrayController(lambda action: self.events.put(("tray", action)))
             self.tray.set_state(self.run_state, self.last_start_error)
+            self.tray.configure_clipboard(self.clipboard_tools.settings)
             self.tray.start()
         except Exception as error:
             self.emit("error", f"Трей недоступен: {error}")
@@ -1156,6 +1196,10 @@ class TypeBridgeGui:
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
                         manual_key=self.manual_key.get(),
+                        clipboard_history=self.clipboard_history.get(),
+                        clipboard_history_key=self.clipboard_history_key.get().strip(),
+                        plain_paste=self.plain_paste.get(),
+                        plain_paste_key=self.plain_paste_key.get().strip(),
                         cycle_key=self.cycle_key.get(),
                         early_correction=self.early_correction.get(),
                         show_caret_flag=self.show_caret_flag.get(),
@@ -1184,6 +1228,9 @@ class TypeBridgeGui:
             hook = self.hook
             if hook:
                 hook.request_config(settings, self.lexicon)
+            self.clipboard_tools.configure(settings)
+            if self.tray:
+                self.tray.configure_clipboard(settings)
             self._apply_caret_indicator(settings.show_caret_flag)
             self.emit("info", "Настройки сохранены и применены")
             return settings
@@ -1271,12 +1318,39 @@ class TypeBridgeGui:
     def emit(self, kind: str, message: str) -> None:
         self.events.put((kind, message))
 
+    def open_clipboard_history(self, target=None):
+        from clipboard_gui import ClipboardWindow
+        if target is None and self.tray:
+            target = self.tray.last_target
+        if target and target.pid == os.getpid():
+            target = None
+        if self.clipboard_window and self.clipboard_window.window.winfo_exists():
+            self.clipboard_window.show(target)
+        else:
+            self.clipboard_window = ClipboardWindow(self.root, self.clipboard_tools, target)
+
     def _drain(self) -> None:
         try:
             while True:
                 kind, message = self.events.get_nowait()
+                if kind == "clipboard":
+                    try:
+                        self.clipboard_tools.receive(message)
+                    except OSError as error:
+                        self.status.set(str(error))
+                        messagebox.showerror("Буфер обмена", str(error), parent=self.root)
+                    continue
                 if kind == "tray":
                     if isinstance(message, tuple):
+                        if message[0] in ("history", "plain-paste"):
+                            try:
+                                if message[0] == "history":
+                                    self.open_clipboard_history(message[1])
+                                else:
+                                    self.clipboard_tools.request_plain(message[1])
+                            except OSError as error:
+                                self.status.set(str(error))
+                            continue
                         if message[0] == "layout-changed":
                             kind, message = "info", f"Раскладка: {message[1]}"
                         else:
@@ -1371,6 +1445,7 @@ class TypeBridgeGui:
         if editor and editor.window.winfo_exists() and not editor.close():
             return
         self.closing = True
+        self.clipboard_tools.close()
         if self.tray:
             self.tray.stop()
         if self.caret_indicator:
