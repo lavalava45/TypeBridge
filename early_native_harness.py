@@ -18,7 +18,9 @@ from early_native_edit import NativeEditBridge, utf8_position
 from early_scintilla import replace_prefix
 
 
-def worker():
+def worker(field_class='RichEdit50W'):
+    if field_class not in ('EDIT', 'RichEdit50W'):
+        raise ValueError('unsupported-fixture-class')
     ready, result = threading.Event(), {}
     def windows():
         u = ctypes.WinDLL('user32', use_last_error=True)
@@ -47,7 +49,7 @@ def worker():
                 raise ctypes.WinError(ctypes.get_last_error())
             top = u.CreateWindowExW(0, 'STATIC', 'TypeBridge isolated test', 0,
                                     0, 0, 600, 300, None, None, None, None)
-            edit = u.CreateWindowExW(0, 'RichEdit50W', '', 0x40000000 | 0x4 | 0x1000,
+            edit = u.CreateWindowExW(0, field_class, '', 0x40000000 | 0x4 | 0x1000,
                                      0, 0, 500, 200, top, None, None, None)
             if not top or not edit:
                 raise ctypes.WinError(ctypes.get_last_error())
@@ -243,7 +245,7 @@ def self_test(*, include_runtime=False):
 if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
     if '--worker' in sys.argv:
-        worker()
+        worker('EDIT' if '--edit-fixture' in sys.argv else 'RichEdit50W')
     elif '--self-test' in sys.argv or '--runtime-self-test' in sys.argv:
         report = self_test(include_runtime='--runtime-self-test' in sys.argv)
         print(json.dumps(report, ensure_ascii=False, indent=2))

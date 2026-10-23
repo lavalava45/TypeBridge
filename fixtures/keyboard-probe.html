@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8">
+<title>TypeBridge — локальный стенд клавиатурного способа</title>
+<style>body{font:17px system-ui;max-width:850px;margin:35px auto}label{display:block;margin-top:18px}input,textarea,[contenteditable]{box-sizing:border-box;width:100%;font:22px system-ui;padding:10px;border:1px solid #888}textarea,[contenteditable]{min-height:100px}pre{white-space:pre-wrap;font-size:14px}</style>
+<h1>Поля для отдельной проверки SendInput</h1>
+<p>Этот файл не отправляет нажатия, не исправляет текст и не обращается к сети.
+Он только предоставляет тестовые поля и чтение результата. Открытие страницы
+не является успешной проверкой браузера.</p>
+<label>Обычное поле <input id="plain" type="text" autocomplete="off" dir="auto"></label>
+<label>Поле поиска <input id="search" type="search" autocomplete="off" dir="auto"></label>
+<label>Многострочное поле <textarea id="multiline" dir="auto"></textarea></label>
+<label>Редактируемый HTML <div id="editable" contenteditable="true" dir="auto"></div></label>
+<label>Контроль отказа: пароль <input id="secret" type="password" autocomplete="new-password"></label>
+<p>Наблюдение: <code>window.keyboardProbe.snapshot()</code>. Только чтение;
+содержимое парольного поля не возвращается.</p>
+<script>
+'use strict';
+window.keyboardProbe = Object.freeze({snapshot() {
+  const el = document.activeElement;
+  if (!el || !el.id) return {supported:false};
+  if (el.matches('input[type="password"]')) return {id:el.id,supported:false,sensitive:true};
+  if (el.disabled || el.readOnly) return {id:el.id,supported:false};
+  if (el.matches('input[type="text"],input[type="search"],textarea')) {
+    return {id:el.id,supported:true,text:el.value,start:el.selectionStart,end:el.selectionEnd};
+  }
+  if (el.isContentEditable) {
+    const selection = getSelection();
+    if (!selection.rangeCount) return {id:el.id,supported:false};
+    const range = selection.getRangeAt(0);
+    if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return {id:el.id,supported:false};
+    const before = range.cloneRange(); before.selectNodeContents(el);
+    before.setEnd(range.startContainer,range.startOffset);
+    const through = range.cloneRange(); through.selectNodeContents(el);
+    through.setEnd(range.endContainer,range.endOffset);
+    return {id:el.id,supported:true,text:el.textContent,start:before.toString().length,end:through.toString().length};
+  }
+  return {id:el.id,supported:false};
+}});
+</script></html>
