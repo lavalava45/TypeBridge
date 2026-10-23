@@ -1,0 +1,36 @@
+# Build products and local tool dependencies
+/dist/
+/build/
+/.build-deps/
+__pycache__/
+*.py[cod]
+*.exe
+*.dll
+*.lib
+*.exp
+*.obj
+*.iso
+
+# Local dictionaries remain available on disk; not licensed for redistribution.
+/data/*
+!/data/HEBREW-SOURCE.md
+
+# Diagnostics and private configuration
+/logs/
+*.log
+*.err
+*.tmp
+*.jsonl
+.env
+.venv/
+settings.json
+
+# Private development history and former-name compatibility files.
+/CURRENT-STATE.md
+/docs/reference/
+/docs/CLEANUP.md
+/docs/GIT-REVIEW.md
+/layoutswitch_app.py
+/START-LAYOUTSWITCH.cmd
+/snippets.json
+/user_lexicon.json

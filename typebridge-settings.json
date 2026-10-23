@@ -1,0 +1,22 @@
+{
+  "corrections_enabled": false,
+  "conservative": true,
+  "manual_f8": true,
+  "cycle_key": "Pause",
+  "early_correction": false,
+  "show_caret_flag": false,
+  "fix_caps_lock": false,
+  "autostart": false,
+  "direct_ru": "Ctrl+Shift+F1",
+  "direct_en": "Ctrl+Shift+F2",
+  "direct_he": "Ctrl+Shift+F3",
+  "only_window_title": "",
+  "excluded_processes": [
+    "1password.exe",
+    "bitwarden.exe",
+    "credentialuibroker.exe",
+    "keepass.exe",
+    "keepassxc.exe",
+    "logonui.exe"
+  ]
+}
