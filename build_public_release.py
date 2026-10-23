@@ -66,7 +66,8 @@ def main():
     for url,name in (
         ('https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/license.terms','Tcl-license.terms'),
         ('https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt','CC-BY-SA-4.0.txt')):
-        with urllib.request.urlopen(url,timeout=30) as stream: raw=stream.read()
+        request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 TypeBridge release builder'})
+        with urllib.request.urlopen(request,timeout=30) as stream: raw=stream.read()
         if len(raw)<1000: raise ValueError('Unexpectedly short license: '+name)
         (licenses/name).write_bytes(raw)
     log=out/'pyinstaller.log'
