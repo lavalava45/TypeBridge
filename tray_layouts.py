@@ -37,19 +37,13 @@ class LayoutTarget:
 
 def layout_owner(api, top: int, focus: int, top_thread: int,
                  focus_thread: int) -> tuple[int, int]:
-    """ApplicationFrameHost translates keys using its own thread's HKL.
+    """Use one foreground-window owner for both reading and switching HKL.
 
-    Its CoreWindow can report a different, stale layout. Ordinary editors
-    continue to use the focused child thread.
+    Hosted input fields may belong to a different thread with a stale HKL.
+    Keep their HWND for text operations, not for deciding the active language.
+    This policy is shared by correction, direct hotkeys and the tray.
     """
-    top_class = ctypes.create_unicode_buffer(128)
-    focus_class = ctypes.create_unicode_buffer(128)
-    api.GetClassNameW(top, top_class, len(top_class))
-    api.GetClassNameW(focus, focus_class, len(focus_class))
-    if (top_class.value == "ApplicationFrameWindow"
-            and focus_class.value == "Windows.UI.Core.CoreWindow"):
-        return top, top_thread
-    return focus, focus_thread
+    return top, top_thread
 
 
 SHELL_CLASSES = frozenset(("Shell_TrayWnd", "Shell_SecondaryTrayWnd",

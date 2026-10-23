@@ -3,7 +3,7 @@ import ctypes
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from engine import LanguageEngine, source_data_dir
 from typebridge_app import LiveHook, Settings
@@ -19,14 +19,20 @@ class RecognitionTests(unittest.TestCase):
         return [(ord(c.upper()), c.isupper()) for c in text]
 
     def test_russian_one_letter_words_on_word_boundary(self):
-        for physical, expected in (("f", "а"), ("b", "и"), ("F", "А"), ("B", "И")):
+        for physical, expected in (("f", "а"), ("b", "и"), ("z", "я"),
+                                   ("d", "в"), ("e", "у"), ("r", "к"),
+                                   ("c", "с"), ("j", "о"), ("F", "А"), ("Z", "Я")):
             result = self.engine.decide_token(self.keys(physical), "en")
             self.assertIsNotNone(result)
             self.assertEqual((result.language, result.replacement), ("ru", expected))
 
     def test_english_one_letter_words_and_unknown_abbreviations_preserved(self):
-        for physical in ("a", "i", "x", "z"):
+        for physical in ("a", "i", "x", "o"):
             self.assertIsNone(self.engine.decide_token(self.keys(physical), "en"))
+
+    def test_single_letter_ambiguity_is_not_hidden_by_confidence(self):
+        with patch.dict(self.engine.words, {"he": self.engine.words["he"] | {"ז"}}):
+            self.assertIsNone(self.engine.decide_token(self.keys("z"), "en"))
 
     def test_yo_variants_match_dictionary_without_rewriting_spelling(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -73,11 +79,12 @@ class HostedFocusTests(unittest.TestCase):
         self.assertEqual((context.focus, context.thread_id, context.process_name), (20, 11, "systemsettings.exe"))
         self.assertEqual((context.language, context.layout_window), ("ru", 10))
 
-    def test_normal_editor_still_uses_child_layout(self):
+    def test_unknown_cross_thread_editor_uses_same_foreground_owner(self):
         hook = self.fixture()
         hook.user32.GetClassNameW.side_effect = lambda hwnd, output, size: 0
         context = hook.context()
-        self.assertEqual((context.thread_id, context.language, context.layout_window), (22, "en", 20))
+        self.assertEqual((context.focus, context.thread_id, context.language,
+                          context.layout_window), (20, 11, "ru", 10))
 
     def test_correction_requests_host_and_observes_host_thread(self):
         from test_app_controls import make_hook

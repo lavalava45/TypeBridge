@@ -4,11 +4,17 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from tray_layouts import LayoutChoice, LayoutTarget, WindowsLayouts
+from tray_layouts import LayoutChoice, LayoutTarget, WindowsLayouts, layout_owner
 from tray_win32 import TrayController, menu_items, MENU_ENABLE
 
 
 class LayoutMenuTests(unittest.TestCase):
+    def test_layout_owner_does_not_depend_on_application_or_field_class(self):
+        api = Mock()
+        self.assertEqual(layout_owner(api, 10, 20, 11, 22), (10, 11))
+        self.assertEqual(layout_owner(api, 10, 20, 11, 11), (10, 11))
+        api.GetClassNameW.assert_not_called()
+
     def test_menu_has_one_correction_checkbox_and_no_pause_or_stop_command(self):
         for state in ("stopped", "running", "paused", "starting", "error"):
             rows = menu_items(state)

@@ -359,8 +359,6 @@ class LanguageEngine:
             if lang == current:
                 continue
             candidate = self.mapper.word(keys, lang)
-            if len(keys) == 1 and (lang != "ru" or candidate.casefold() not in ("а", "и")):
-                continue
             if (len(candidate) == len(keys) and _one_script_letters(candidate)
                     and self._known(lang, candidate)):
                 matches.append((lang, candidate))
@@ -370,7 +368,10 @@ class LanguageEngine:
         # Critically, rank/quality filtering comes AFTER broad ambiguity
         # detection: a weak valid candidate must not vanish and allow a
         # competing strong candidate to overwrite it.
-        if self.conservative and not allow_rare and not self._confident(lang, replacement):
+        # Frequency lists commonly omit standalone particles/pronouns. For a
+        # single letter, a unique dictionary word is enough; ambiguity and
+        # source-word/exclusion checks above still apply in every language.
+        if self.conservative and len(keys) > 1 and not allow_rare and not self._confident(lang, replacement):
             return None
         if self._excluded(lang, replacement):
             return None
