@@ -34,7 +34,7 @@ def utf8_position(text, byte_offset):
 class NativeEditBridge:
     def __init__(self, context, still_valid=lambda: False, *, pending_char=''):
         self.context, self.still_valid = context, still_valid
-        if pending_char and (len(pending_char) != 1 or not pending_char.isalpha() or ord(pending_char) > 0xFFFF):
+        if pending_char and (len(pending_char) != 1 or not pending_char.isprintable() or ord(pending_char) > 0xFFFF):
             raise ValueError('held-character-required')
         self.pending_char = pending_char
         self.timeout = self.budget_exceeded = self.write_started = False

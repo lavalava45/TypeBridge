@@ -7,7 +7,7 @@ The caller must independently prove token boundaries and safe replacement.
 from __future__ import annotations
 
 from bisect import bisect_left
-from engine import Decision, LANGS, _one_script_letters
+from engine import Decision, LANGS, _one_script_letters, _valid_typed
 
 
 MIN_EARLY_LENGTH = 5
@@ -50,7 +50,7 @@ def _suggest(engine, keys: list[tuple[int, bool]], current: str,
              *, unique_language: bool = False) -> Decision | None:
     """Suggest a unique high-confidence target prefix before a separator.
 
-    Refuses uncertain prefixes, upper case, nonletters, and competing scripts.
+    Refuses uncertain prefixes, upper case, unrelated symbols, and competing scripts.
     It cannot predict subsequent keys: a consuming caller must re-evaluate the
     evolving token and never assume a suggestion authorizes immediate writing.
     """
@@ -63,8 +63,8 @@ def _suggest(engine, keys: list[tuple[int, bool]], current: str,
     if index is None or any(language not in index for language in LANGS):
         return None  # Never initialize, sort or scan dictionaries on hook thread.
     typed = engine.mapper.word(keys, current)
-    if (len(typed) != len(keys) or not typed.isalpha() or typed != typed.lower()
-            or not _one_script_letters(typed)):
+    if (len(typed) != len(keys) or typed != typed.lower()
+            or not _valid_typed(keys, typed, current)):
         return None
     source = typed.casefold()
     excluded = getattr(engine, "_excluded", lambda lang, word: word.casefold() in engine.exclusions)

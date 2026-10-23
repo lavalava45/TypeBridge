@@ -125,6 +125,10 @@ class EarlyRuntimeTests(WordCycleTests):
 
 
 class KeyboardEarlyTests(unittest.TestCase):
+    def test_oem_punctuation_key_can_be_a_letter_in_the_target_word(self):
+        self.driver.type('ghj,ktvf')
+        self.assertEqual((self.driver.text, self.driver.language), ('проблема', 'ru'))
+
     @classmethod
     def setUpClass(cls):
         from engine import LanguageEngine, source_data_dir
