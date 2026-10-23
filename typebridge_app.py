@@ -986,7 +986,7 @@ class TypeBridgeGui:
                         variable=self.early_correction).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(frame, text="Запускать с Windows — в трей",
+        ttk.Checkbutton(frame, text="Автозапуск в трее",
                         variable=self.autostart).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="F8 — исправить набираемое слово до пробела",
                         variable=self.manual_f8).pack(anchor="w", pady=(6, 0))
