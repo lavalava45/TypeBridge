@@ -48,6 +48,12 @@ download the TypeBridge ZIP, extract all files and run `TypeBridge.exe`.
 Python and separate dictionary preparation are not required for the bundle.
 The first public package is an unsigned alpha with open frequency dictionaries.
 
+New version tags automatically build and publish a Windows x64 ZIP with open
+dictionaries, instructions in three languages, licenses and SHA-256 checksums.
+See [release automation](docs/RELEASING.md). No installation or administrator
+rights are needed for ordinary use. Settings remain in `%LOCALAPPDATA%\TypeBridge`,
+so they do not travel with a USB drive.
+
 ## Run from source
 
 Requires Windows x64, Python 3.12 with tkinter, and installed Russian, English

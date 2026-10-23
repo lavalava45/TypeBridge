@@ -1,0 +1,88 @@
+name: Windows portable release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Build and verify public package
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_NAME: ${{ github.ref_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          $version = "0.0.0-dev.$env:BUILD_NUMBER"
+          if ($env:RELEASE_REF.StartsWith('refs/tags/v')) {
+            $version = $env:RELEASE_NAME.Substring(1)
+          }
+          $output = Join-Path $env:RUNNER_TEMP 'typebridge-release'
+          python build_public_release.py --output-dir $output --version $version
+          if ($LASTEXITCODE -ne 0) { throw 'Public package build failed' }
+      - name: Keep verified download files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: TypeBridge-windows-x64
+          path: |
+            ${{ runner.temp }}/typebridge-release/TypeBridge-*-windows-x64.zip
+            ${{ runner.temp }}/typebridge-release/SHA256SUMS.txt
+            ${{ runner.temp }}/typebridge-release/BUILD-MANIFEST.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'typebridge-release'
+          $files = @(Get-ChildItem -LiteralPath $output -File | Where-Object {
+            $_.Name -like 'TypeBridge-*-windows-x64.zip' -or
+            $_.Name -in @('SHA256SUMS.txt', 'BUILD-MANIFEST.json')
+          } | ForEach-Object { $_.FullName })
+          if ($files.Count -ne 3) { throw 'Expected ZIP, checksums and manifest' }
+          $options = @('--verify-tag', '--title', "TypeBridge $env:RELEASE_TAG — Windows x64", '--generate-notes')
+          if ($env:RELEASE_TAG.Contains('-')) { $options += @('--prerelease', '--latest=false') }
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw 'Release already exists; refusing to overwrite published assets'
+          }
+          gh release create $env:RELEASE_TAG @files @options
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+      - name: Keep build failure log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: TypeBridge-build-log
+          path: ${{ runner.temp }}/typebridge-release/pyinstaller.log
+          if-no-files-found: ignore
