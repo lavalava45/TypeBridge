@@ -12,6 +12,9 @@ class PunctuationRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.engine = LanguageEngine(source_data_dir())
+        # Test OEM-key transport, not the frequency rank of this corpus word.
+        cls.engine.words['ru'].add('вьюга')
+        cls.engine.confident['ru'].add('вьюга')
         cls.physical = {}
         keys = [0x20, *range(0x30, 0x3A), *range(0x41, 0x5B),
                 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xDB, 0xDC, 0xDD, 0xDE]

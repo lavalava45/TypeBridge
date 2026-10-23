@@ -46,18 +46,24 @@ def prepare(output_dir):
         with urllib.request.urlopen(url,timeout=60) as stream: raw = stream.read()
         words = select_words(raw,language)
         confident = sorted(words,key=lambda word:(-words[word],word))[:LIMITS[language]]
-        output[f'{language}.txt'] = '\n'.join(sorted(words))+'\n'
+        # Frequency corpus filtering starts at two letters; retain ordinary RU
+        # function words without inventing frequency counts or relaxing ambiguity.
+        supplement = set('аивкосуя') if language == 'ru' else set()
+        vocabulary = set(words) | supplement
+        confident = set(confident) | supplement
+        output[f'{language}.txt'] = '\n'.join(sorted(vocabulary))+'\n'
         output[f'confident_{language}.txt'] = '\n'.join(sorted(confident))+'\n'
         manifest['sources'][language] = {'url':url,'sha256':hashlib.sha256(raw).hexdigest(),
-                                         'words':len(words),'confident':len(confident)}
-        print(f'{language}: {len(words)} words, {len(confident)} confidence entries',flush=True)
+                                         'words':len(vocabulary),'confident':len(confident),
+                                         'supplement':sorted(supplement)}
+        print(f'{language}: {len(vocabulary)} words, {len(confident)} confidence entries',flush=True)
     output['he_custom.txt'] = 'מחשב\n'
     output['exclude.txt'] = '# Optional local exclusions, one per line.\n'
     output['SOURCES.json'] = json.dumps(manifest,ensure_ascii=False,indent=2)+'\n'
     output['DATA-LICENSE.txt'] = ('Data: CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/\n'
                                 'Attribution: Hermit Dave / FrequencyWords; OpenSubtitles 2018 contributors.\n'
                                 'Sources and hashes: SOURCES.json.\n'
-                                'Modified: Unicode/script/length/frequency filtering; Hebrew final-form filtering; confidence ranking.\n')
+                                'Modified: Unicode/script/length/frequency filtering; Hebrew final-form filtering; confidence ranking; explicit Russian one-letter supplement.\n')
     output_dir.mkdir(parents=True,exist_ok=True)
     # Exclusive creation also prevents overwriting a file created during download.
     for name, text in output.items():

@@ -29,7 +29,10 @@ class HebrewCorpusTests(unittest.TestCase):
     def test_quarantined_forms_do_not_block_russian_da(self):
         self.assertNotIn("ךכ", self.hebrew)
         self.assertIn("כך", self.hebrew)
-        result = LanguageEngine(source_data_dir()).decide_token([(ord('L'), False), (ord('F'), False)], "en")
+        engine = LanguageEngine(source_data_dir())
+        # Isolate the Hebrew quarantine from the independent, valid EN "lf".
+        engine.words['en'].discard('lf')
+        result = engine.decide_token([(ord('L'), False), (ord('F'), False)], "en")
         self.assertEqual((result.language, result.replacement), ("ru", "да"))
 
     def test_normalizer_rejects_internal_final_forms(self):
