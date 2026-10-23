@@ -1043,7 +1043,7 @@ class TypeBridgeGui:
                   "Для отключения выбери «Отключено». Команды работают при запущенном\n"
                   "переключателе, в том числе когда автоисправление отключено.",
                   wraplength=620).pack(anchor="w", pady=14)
-        ttk.Button(shortcuts, text="Сохранить сочетания", command=self.save).pack(anchor="w")
+        ttk.Button(shortcuts, text="Сохранить настройки", command=self.save).pack(anchor="w")
         indication = ttk.Frame(notebook, padding=18)
         notebook.add(indication, text="Индикация")
         ttk.Checkbutton(indication, text="Показывать флажок раскладки рядом с текстовым курсором",
