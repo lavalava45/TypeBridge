@@ -24,6 +24,12 @@ length checks, frequency thresholds, removal of Hebrew internal final forms,
 and selection of high-frequency confidence lists. Frequency lists may still
 contain errors; they are not a verified orthographic dictionary.
 
+The portable public ZIP includes these open dictionaries both inside the EXE
+and as plain text in `data/`, with attribution, source hashes, the full CC BY-SA
+4.0 license, dependency notices and a matching source-code archive. Public
+packages are built in an isolated directory using `build_public_release.py`;
+the private working dictionaries are never copied into that build.
+
 ## Local research data
 
 Earlier private development used RU/EN dictionaries extracted from SwitchER.

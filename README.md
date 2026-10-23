@@ -2,7 +2,7 @@
 
 Automatic keyboard layout correction for **Russian, English and Hebrew** on Windows.
 
-[Русская инструкция](README-RU.md) · [Feature status](docs/FEATURE-STATUS.md) · [MIT license](LICENSE)
+[Русская инструкция](README-RU.md) · [הוראות בעברית](README-HE.md) · [Feature status](docs/FEATURE-STATUS.md) · [MIT license](LICENSE)
 
 TypeBridge corrects words typed in the wrong layout, offers manual last-word
 conversion and direct layout shortcuts, and expands abbreviations into literal
@@ -18,6 +18,13 @@ text templates. It runs locally in the notification area.
 - Optional current-layout flag beside the text caret.
 - Text expansion: for example `//email` → your address, with instant or separator-triggered rules.
 - Optional Windows startup and a saved correction enable/disable setting.
+
+## Download and run
+
+For the ready-to-run Windows x64 bundle, open [Releases](https://github.com/lavalava45/TypeBridge/releases),
+download the TypeBridge ZIP, extract all files and run `TypeBridge.exe`.
+Python and separate dictionary preparation are not required for the bundle.
+The first public package is an unsigned alpha with open frequency dictionaries.
 
 ## Run from source
 
