@@ -961,6 +961,8 @@ class LiveHook:
 class TypeBridgeGui:
     def __init__(self, root: tk.Tk):
         self.root = root
+        from ui_diagnostics import install_callback_reporting
+        install_callback_reporting(root, USER_DIR)
         self.events: queue.Queue[tuple[str, str]] = queue.Queue()
         self.hook: LiveHook | None = None
         self.worker: threading.Thread | None = None
@@ -1500,6 +1502,10 @@ class TypeBridgeGui:
                            quick_search_engine=engine, quick_search_engines=validate_engines(engines, engine))
         compile_bindings(settings)
         save_settings(settings)
+        persisted = load_settings(SETTINGS_PATH)
+        fields = ('quick_search', 'quick_search_key', 'quick_search_engine', 'quick_search_engines')
+        if any(getattr(persisted, name) != getattr(settings, name) for name in fields):
+            raise OSError('Не удалось подтвердить сохранение настроек поиска')
         self.search_settings = settings
         self.quick_search.configure()
         self.clipboard_tools.configure(settings)

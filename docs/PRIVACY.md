@@ -14,6 +14,9 @@ it does not create a persistent typing diary. Diagnostic messages show operation
 results, languages and character counts, rather than the corrected words.
 Early correction in Notepad++ also reads document text temporarily, up to 64 KB.
 This means access is broader than just individual key codes.
+Unexpected interface callback errors may create a bounded `ui-errors.log` in
+the personal data folder: exception types and code locations only, without
+exception arguments, variable values, document text or search queries.
 
 | Feature | Retention and transmission | Default |
 | --- | --- | --- |
@@ -69,6 +72,9 @@ TypeBridge получает события клавиатуры Windows, что�
 не создавая постоянный дневник ввода. Диагностика показывает результат операции,
 языки и число символов, а не исправляемые слова. Ранний режим Notepad++ также
 временно читает текст документа — до 64 КБ. Доступ не ограничивается кодами клавиш.
+При неожиданной ошибке интерфейса в личной папке может появиться ограниченный
+по размеру `ui-errors.log`: только тип исключения и строки кода, без аргументов
+ошибки, значений переменных, текста документов и поисковых запросов.
 
 - История буфера, дневник и быстрый поиск выключены по умолчанию и включаются
   отдельно. История — до 30 текстовых фрагментов в памяти, с очисткой при
@@ -115,6 +121,9 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 התיקון הרגיל מחזיק את המילה הנוכחית והאחרונה להחלפה ידנית בזיכרון, בלי יומן
 הקלדה קבוע. הודעות האבחון מציינות פעולות, שפות ומספר תווים ולא את המילים.
 התיקון המוקדם ב־Notepad++ גם קורא זמנית טקסט מהמסמך, עד 64 ק״ב.
+תקלה בלתי צפויה בממשק עשויה ליצור קובץ אבחון מוגבל בגודלו בשם `ui-errors.log`
+בתיקיית הנתונים האישיים. נשמרים רק סוג השגיאה ומיקומי קוד, בלי ערכי משתנים,
+ארגומנטים של החריגה, טקסט מסמכים או שאילתות חיפוש.
 
 - היסטוריית הלוח, היומן והחיפוש המהיר מושבתים כברירת מחדל ומופעלים בנפרד.
   ההיסטוריה שומרת עד 30 פריטי טקסט בזיכרון ונמחקת בכיבוי התכונה או ביציאה.

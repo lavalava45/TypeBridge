@@ -157,13 +157,31 @@ class SearchTests(unittest.TestCase):
         self.assertFalse(app.search_settings.quick_search)
         app.tray.configure_clipboard.assert_not_called()
         app.quick_search.configure.assert_not_called()
-        with patch('typebridge_app.load_settings', return_value=Settings()), patch('typebridge_app.save_settings'):
+        with patch('typebridge_app.load_settings', side_effect=[Settings(), replace(Settings(), quick_search=True)]), patch('typebridge_app.save_settings'):
             app.apply_search_settings(True, 'Ctrl+Alt+G', 'Google', DEFAULT_ENGINES)
         self.assertTrue(app.search_settings.quick_search)
         app.tray.configure_clipboard.assert_called_once()
 
 
 class HiddenSearchGuiTests(unittest.TestCase):
+    def test_actual_save_handler_roundtrip_in_temporary_profile(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'settings.json'
+            save_settings(replace(Settings(), only_window_title='preserve'), path)
+            app = TypeBridgeGui.__new__(TypeBridgeGui)
+            app.quick_search = Mock()
+            app.clipboard_tools = Mock()
+            app.tray = None
+            app.emit = Mock()
+            with (patch('typebridge_app.SETTINGS_PATH', path),
+                  patch('typebridge_app.save_settings', side_effect=lambda s: save_settings(s, path))):
+                app.apply_search_settings(True, 'Ctrl+Alt+G', 'Google', DEFAULT_ENGINES)
+                self.assertTrue(load_settings(path).quick_search)
+                self.assertTrue(app.clipboard_tools.configure.call_args.args[0].quick_search)
+                self.assertEqual(load_settings(path).only_window_title, 'preserve')
+                app.apply_search_settings(False, 'Ctrl+Alt+G', 'Google', DEFAULT_ENGINES)
+                self.assertFalse(load_settings(path).quick_search)
+
     def test_provider_editing_and_localization_without_focus_or_search(self):
         from quick_search_gui import QuickSearchWindow
         from ui_i18n import set_language, tr
@@ -190,9 +208,16 @@ class HiddenSearchGuiTests(unittest.TestCase):
                 self.assertEqual(window.selected.get(), 'New')
                 self.assertEqual(tuple(window.provider.cget('values')), ('Google', 'New'))
                 self.assertFalse(window.window.winfo_ismapped())
-                self.assertLessEqual(window.window.winfo_reqheight(), 580)
+                self.assertLessEqual(window.window.winfo_reqheight(), 640)
             window.save()
             app.apply_search_settings.assert_called_once()
+            self.assertEqual(window.save_status.source, 'Сохранено: поиск выключен')
+            window.enabled.set(True)
+            self.assertEqual(window.save_status.source, 'Есть несохранённые изменения')
+            app.apply_search_settings.side_effect = RuntimeError('secret text')
+            window.save()
+            self.assertEqual(window.save_status.source, 'Настройки поиска не сохранены')
+            app.root.report_callback_exception.assert_called_once()
             window.list.selection_set('1')
             window.remove()
             self.assertEqual(window.selected.get(), 'Google')

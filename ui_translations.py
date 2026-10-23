@@ -1176,6 +1176,12 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                  'he': 'תכנות: Python / JavaScript / C++'}}
 
 CATALOG.update({
+    'Есть несохранённые изменения': {'en': 'There are unsaved changes', 'he': 'יש שינויים שלא נשמרו'},
+    'Сохранено: поиск включён': {'en': 'Saved: search enabled', 'he': 'נשמר: החיפוש מופעל'},
+    'Сохранено: поиск выключен': {'en': 'Saved: search disabled', 'he': 'נשמר: החיפוש מושבת'},
+    'Настройки поиска не сохранены': {'en': 'Search settings were not saved', 'he': 'הגדרות החיפוש לא נשמרו'},
+    'Не удалось подтвердить сохранение настроек поиска': {'en': 'Could not verify that search settings were saved', 'he': 'לא ניתן לאמת שהגדרות החיפוש נשמרו'},
+    'Ошибка интерфейса: {v0}. Диагностика: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log': {'en': 'Interface error: {v0}. Diagnostics: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log', 'he': 'שגיאת ממשק: {v0}. אבחון: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log'},
     'Для поиска и команд буфера выбери сочетание с Ctrl/Alt/Shift, без F12': {'en': 'Search and clipboard shortcuts require Ctrl/Alt/Shift and cannot use F12', 'he': 'קיצורי חיפוש ולוח דורשים Ctrl/Alt/Shift ואינם יכולים להשתמש ב־F12'},
     'Одно сочетание назначено нескольким командам поиска или буфера': {'en': 'One shortcut is assigned to multiple search or clipboard commands', 'he': 'קיצור אחד הוקצה למספר פקודות חיפוש או לוח'},
     'Сочетание поиска или буфера уже назначено переключению языка': {'en': 'The search or clipboard shortcut is already assigned to a language switch', 'he': 'קיצור החיפוש או הלוח כבר הוקצה להחלפת שפה'},
