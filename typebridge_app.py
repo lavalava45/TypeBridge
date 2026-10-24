@@ -38,6 +38,7 @@ from password_fields import PasswordFieldGuard
 from word_recovery import recover_prefix
 from input_transport import send_with_remainder
 from windows_shortcuts import read_windows_shortcuts, open_windows_keyboard_settings
+from settings_widgets import ScrollablePage, Tooltip, fit_settings_window
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
 from snippets import SnippetConfig, SnippetMatcher
@@ -1235,8 +1236,6 @@ class TypeBridgeGui:
         self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
         self.clipboard_tools.configure(settings)
         root.title("TypeBridge — RU / EN / HE")
-        root.geometry("740x775")
-        root.minsize(700, 735)
         root.protocol("WM_DELETE_WINDOW", self.hide)
         self.status = LocalizedStringVar(value="Остановлен")
         self.conservative = tk.BooleanVar(value=settings.conservative)
@@ -1266,6 +1265,7 @@ class TypeBridgeGui:
         self._build()
         root._i18n_refresh = self._translate_word_rows
         localize_window(root)
+        fit_settings_window(root, self.settings_pages)
         self.refresh_windows_shortcuts()
         root.bind("<FocusIn>", self.refresh_windows_shortcuts, add="+")
         root.after(100, self._drain)
@@ -1287,6 +1287,13 @@ class TypeBridgeGui:
             messagebox.showerror("TypeBridge", f"{tr('Не удалось открыть настройки Windows')}: {exc}")
 
     def _build(self) -> None:
+        footer = ttk.Frame(self.root, padding=(12, 8))
+        footer.pack(side='bottom', fill='x')
+        self.save_button = ttk.Button(footer, text="Сохранить настройки", command=self.save)
+        self.save_button.pack(side='left')
+        ttk.Button(footer, text="Свернуть в трей", command=self.hide).pack(side="left", padx=8)
+        ttk.Button(footer, text="Автозамена и шаблоны…", command=self.open_snippets).pack(side="left")
+        ttk.Button(footer, text="Выход", command=self.close).pack(side="right")
         language_bar = ttk.Frame(self.root)
         language_bar.pack(fill="x", padx=14, pady=(10, 0))
         ttk.Label(language_bar, text="Язык интерфейса:").pack(side="left")
@@ -1296,8 +1303,13 @@ class TypeBridgeGui:
         language_picker.bind("<<ComboboxSelected>>", self.change_ui_language)
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=12, pady=12)
-        frame = ttk.Frame(notebook, padding=18)
-        notebook.add(frame, text="Переключатель")
+        self.settings_pages = []
+        def page(title):
+            tab = ScrollablePage(notebook)
+            self.settings_pages.append(tab)
+            notebook.add(tab, text=title)
+            return tab.body
+        frame = page("Переключатель")
         ttk.Label(frame, text="Автопереключатель RU / EN / HE",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
         ttk.Label(frame, textvariable=self.status,
@@ -1311,10 +1323,16 @@ class TypeBridgeGui:
             variable=self.conservative).pack(anchor="w")
         ttk.Checkbutton(frame, text="Исправлять до введения пробела",
                         variable=self.early_correction).pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(frame, text="Раннее исправление в других приложениях (эксперимент)",
-                        variable=self.early_native).pack(anchor="w", pady=(6, 0))
-        ttk.Label(frame, text="Для остальных полей используется обычная клавиатурная замена.",
-                  wraplength=620).pack(anchor="w")
+        early_row = ttk.Frame(frame)
+        early_row.pack(fill='x', pady=(6, 0))
+        early_option = ttk.Checkbutton(early_row, text="Раннее исправление в других приложениях (эксперимент)",
+                                      variable=self.early_native)
+        early_option.pack(side='left')
+        help_icon = ttk.Label(early_row, text='ⓘ', cursor='question_arrow', takefocus=True)
+        help_icon.pack(side='left', padx=6)
+        help_text = "Для остальных полей используется обычная клавиатурная замена."
+        Tooltip(early_option, help_text)
+        Tooltip(help_icon, help_text)
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
@@ -1333,34 +1351,22 @@ class TypeBridgeGui:
         title_row = ttk.Frame(frame)
         title_row.pack(fill="x", pady=(12, 4))
         ttk.Label(title_row, text="Переключать только в окнах с заголовками:").pack(side="left")
-        ttk.Entry(title_row, textvariable=self.only_title).pack(
-            side="left", fill="x", expand=True, padx=(10, 0))
-        ttk.Label(frame, text="Укажи один заголовок или его часть — правило действует во всех совпавших окнах. "
-                  "Пустое поле — все приложения. Исключения настраиваются отдельно.",
-                  wraplength=650, justify="left", foreground="#555").pack(anchor="w")
+        title_entry = ttk.Entry(title_row, textvariable=self.only_title)
+        title_entry.pack(side="left", fill="x", expand=True, padx=(10, 0))
+        Tooltip(title_entry, "Укажи один заголовок или его часть — правило действует во всех совпавших окнах. "
+                "Пустое поле — все приложения. Исключения настраиваются отдельно.")
         tools = ttk.Frame(frame)
         tools.pack(fill="x", pady=(10, 2))
         ttk.Button(tools, text="Исключения приложений…", command=self.open_exclusions).pack(side="left")
         ttk.Button(tools, text="Дневник ввода…", command=self.open_journal).pack(side="left", padx=8)
         ttk.Button(tools, text="Быстрый поиск…", command=self.open_search).pack(side="left")
         ttk.Label(frame, textvariable=self.journal_status, foreground="#a12b20").pack(anchor="w")
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill="x", pady=15)
-        self.save_button = ttk.Button(buttons, text="Сохранить настройки", command=self.save)
-        self.save_button.pack(side="left")
         ttk.Label(frame, text="События (слова не записываются):").pack(anchor="w")
         self.log = tk.Text(frame, height=6, state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, pady=(5, 0))
-        footer = ttk.Frame(frame)
-        footer.pack(fill="x", pady=(12, 0))
-        ttk.Button(footer, text="Свернуть в трей", command=self.hide).pack(side="left")
-        ttk.Button(footer, text="Автозамена и шаблоны…", command=self.open_snippets).pack(side="left", padx=8)
-        ttk.Button(footer, text="Выход", command=self.close).pack(side="right")
-        dictionary = ttk.Frame(notebook, padding=18)
-        notebook.add(dictionary, text="Мои слова и исключения")
+        dictionary = page("Мои слова и исключения")
         self._build_dictionary(dictionary)
-        shortcuts = ttk.Frame(notebook, padding=18)
-        notebook.add(shortcuts, text="Горячие клавиши")
+        shortcuts = page("Горячие клавиши")
         ttk.Label(shortcuts, text="Установить раскладку без изменения текста",
                   font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 14))
         for lang, title in (("ru", "Русский"), ("en", "Английский"), ("he", "Иврит")):
@@ -1373,7 +1379,6 @@ class TypeBridgeGui:
                   "Для отключения выбери «Отключено». Команды работают при запущенном\n"
                   "переключателе, в том числе когда автоисправление отключено.",
                   wraplength=620).pack(anchor="w", pady=14)
-        ttk.Button(shortcuts, text="Сохранить настройки", command=self.save).pack(anchor="w")
         system_keys = ttk.LabelFrame(shortcuts, text="Системные сочетания Windows", padding=12)
         system_keys.pack(fill="x", pady=(20, 0))
         for title, variable in (
@@ -1388,8 +1393,7 @@ class TypeBridgeGui:
                    command=self.open_windows_shortcuts).pack(anchor="w", pady=(8, 4))
         ttk.Label(system_keys, text="В Windows: дополнительные параметры клавиатуры → сочетания клавиш для языков ввода.",
                   wraplength=580).pack(anchor="w")
-        clipboard = ttk.Frame(notebook, padding=18)
-        notebook.add(clipboard, text="Буфер обмена")
+        clipboard = page("Буфер обмена")
         for text, enabled, hotkey in (
             ("Сохранять историю буфера обмена", self.clipboard_history, self.clipboard_history_key),
             ("Вставлять без форматирования", self.plain_paste, self.plain_paste_key),
@@ -1410,18 +1414,15 @@ class TypeBridgeGui:
                   wraplength=620).pack(anchor="w", pady=16)
         ttk.Button(clipboard, text="Открыть историю…", command=self.open_clipboard_history).pack(anchor="w", pady=6)
         from privacy_ui import build_privacy_tab
-        build_privacy_tab(notebook)
+        build_privacy_tab(notebook, frame=page("Приватность"))
         ttk.Button(clipboard, text="Очистить историю", command=self.clipboard_tools.clear_history).pack(anchor="w", pady=6)
-        ttk.Button(clipboard, text="Сохранить настройки", command=self.save).pack(anchor="w", pady=12)
-        indication = ttk.Frame(notebook, padding=18)
-        notebook.add(indication, text="Индикация")
+        indication = page("Индикация")
         ttk.Checkbutton(indication, text="Показывать флажок раскладки рядом с текстовым курсором",
                         variable=self.show_caret_flag).pack(anchor="w", pady=(0, 12))
         ttk.Label(indication, text="Флажок показывает RU / EN / HE в активном поле ввода.\n"
                   "Не забирает фокус и пропускает клики. Работает независимо\n"
                   "от автоисправления. Если поле не сообщает положение каретки,\n"
                   "индикатор скрывается.", wraplength=620).pack(anchor="w", pady=(0, 14))
-        ttk.Button(indication, text="Сохранить настройки", command=self.save).pack(anchor="w")
 
     def change_ui_language(self, event=None):
         selected = next((code for code, name in LANGUAGES.items() if name == self.ui_language.get()), None)

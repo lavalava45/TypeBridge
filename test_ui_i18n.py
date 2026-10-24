@@ -103,6 +103,9 @@ class HiddenWindowTests(unittest.TestCase):
                   patch('clipboard_tools.ClipboardTools', return_value=clipboard),
                   patch('typebridge_app.save_settings') as save):
                 app = TypeBridgeGui(self.root)
+                self.assertEqual(len(app.settings_pages), 6)
+                self.assertIs(app.save_button.master.master, self.root)
+                self.assertTrue(all(page.body.master is page.canvas for page in app.settings_pages))
                 app.open_snippets(); app.snippets_editor.window.withdraw()
                 app.open_exclusions(); app.exclusions_window.window.withdraw()
                 app.open_dictionary_import(); app.dictionary_import_window.window.withdraw()

@@ -24,8 +24,9 @@ PRIVACY_TEXT = (
 )
 
 
-def build_privacy_tab(notebook):
-    frame = ttk.Frame(notebook, padding=18)
-    notebook.add(frame, text='Приватность')
+def build_privacy_tab(notebook, frame=None):
+    if frame is None:
+        frame = ttk.Frame(notebook, padding=18)
+        notebook.add(frame, text='Приватность')
     for text in PRIVACY_TEXT:
         ttk.Label(frame, text=text, wraplength=610, justify='left').pack(anchor='w', fill='x', pady=(0, 12))
