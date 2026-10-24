@@ -71,7 +71,9 @@ class NativeClipboard:
         try:
             owner = cb.GetClipboardOwner()
             pid = win32process.GetWindowThreadProcessId(owner)[1] if owner else None
-            if not allowed(pid):
+            # Automatic retention needs an identifiable source. Explicit plain
+            # paste may still use ownerless text at the user's request.
+            if (history and not pid) or not allowed(pid):
                 return self.sequence(), None
             if history:
                 if any(cb.IsClipboardFormatAvailable(fmt) for fmt in self.private_formats):

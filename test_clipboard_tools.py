@@ -65,7 +65,8 @@ class NativeClipboardTests(unittest.TestCase):
         native.cb = Mock()
         native.private_formats = [100, 101]
         native.history_format = 102
-        native.cb.GetClipboardOwner.return_value = 0
+        native.cb.GetClipboardOwner.return_value = 321
+        self.enterContext(patch('win32process.GetWindowThreadProcessId', return_value=(1, 42)))
         native.cb.GetClipboardSequenceNumber.return_value = 7
         native.cb.IsClipboardFormatAvailable.side_effect = lambda fmt: fmt == 13
         native.cb.GetClipboardData.return_value = 'שלום\r\nпривет'
@@ -84,6 +85,44 @@ class NativeClipboardTests(unittest.TestCase):
             native.cb.IsClipboardFormatAvailable.side_effect = lambda fmt: fmt in (100, 13)
             self.assertIsNone(native.read(lambda pid: private, history=True)[1])
             native.cb.GetClipboardData.assert_not_called()
+
+    def test_ownerless_history_does_not_read_text_even_with_permissive_policy(self):
+        native = self.fixture()
+        native.cb.GetClipboardOwner.return_value = 0
+        allowed = Mock(return_value=True)
+        self.assertEqual(native.read(allowed, history=True), (7, None))
+        allowed.assert_not_called()
+        native.cb.GetClipboardData.assert_not_called()
+        native.cb.CloseClipboard.assert_called_once()
+
+    def test_unresolved_owner_pid_does_not_enter_history(self):
+        native = self.fixture()
+        with patch('win32process.GetWindowThreadProcessId', return_value=(1, 0)):
+            self.assertEqual(native.read(lambda pid: True, history=True), (7, None))
+        native.cb.GetClipboardData.assert_not_called()
+
+    def test_explicit_plain_read_keeps_ownerless_clipboard_supported(self):
+        native = self.fixture()
+        native.cb.GetClipboardOwner.return_value = 0
+        tools = ClipboardTools(Mock(), Mock(), native=native)
+        tools.settings = Settings()
+        self.assertEqual(native.read(tools.allowed_pid), (7, 'שלום\r\nпривет'))
+        native.cb.GetClipboardData.assert_called_once_with(13)
+
+    def test_known_owner_resolution_failure_or_exclusion_blocks_read(self):
+        for name in ('keepass.exe', None):
+            with self.subTest(name=name):
+                native = self.fixture()
+                tools = ClipboardTools(Mock(), Mock(), native=native)
+                tools.settings = Settings()
+                with patch('psutil.Process') as process:
+                    if name is None:
+                        process.side_effect = OSError('process unavailable')
+                    else:
+                        process.return_value.name.return_value = name
+                    for history in (False, True):
+                        self.assertEqual(native.read(tools.allowed_pid, history=history), (7, None))
+                native.cb.GetClipboardData.assert_not_called()
 
     def test_history_optout_and_image_only_are_ignored(self):
         for formats in ((102, 13), (2,)):

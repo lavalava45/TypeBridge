@@ -13,6 +13,12 @@ uses owner-process exclusions and clipboard privacy flags; it cannot reliably
 recognize every copied secret, including text copied from a browser. Leave it
 disabled if that retention is unacceptable.
 
+Automatic clipboard history skips content whose owner is absent or whose owner
+process cannot be resolved or is excluded. Explicit plain-text paste still
+accepts ownerless text when requested by the user; known excluded or inaccessible
+owner processes remain blocked. The currently focused field does not establish
+the origin or sensitivity of clipboard content.
+
 TypeBridge receives Windows keyboard events to detect words entered in the
 wrong layout. Interception is a capability shared with keyloggers; the important
 questions are what is processed, retained and sent elsewhere. Ordinary correction
@@ -67,7 +73,8 @@ a separate hidden process. Password, unknown and stale states skip correction,
 snippets and manual conversion; word buffers are cleared. The keyboard hook
 stays installed. UIA events are asynchronous and provider reports can be wrong;
 this does not promise zero exposure during every focus transition. The watcher
-does not read field contents. This addition is not yet in the distributed EXE.
+does not read field contents. It is included in the current local build and
+public v0.1.0-alpha.5; this does not extend it to the separate journal/history.
 **This is not universal password detection.** Custom browser controls, secrets
 inside ordinary text, private messages, tokens, seed phrases and cryptocurrency
 addresses may not be identifiable. Clipboard privacy flags are not supplied by
@@ -93,6 +100,12 @@ using the actual file and its origin; do not blindly disable security software.
 проверкой парольного стиля. История учитывает исключённые процессы и признаки
 приватного буфера, но не распознаёт все скопированные секреты, в том числе из
 браузера. Если такое хранение неприемлемо, оставь историю выключенной.
+
+Автоматическая история пропускает буфер без владельца, с неопределяемым либо
+исключённым процессом-владельцем. Явная команда чистой вставки по-прежнему
+допускает текст без владельца по запросу пользователя; известные исключённые
+и недоступные процессы блокируются. Текущее поле ввода не доказывает происхождение
+и безопасность содержимого буфера.
 
 TypeBridge получает события клавиатуры Windows, чтобы находить слова в неверной
 раскладке. Такая техническая возможность есть и у кейлоггеров. Поэтому важно
@@ -138,7 +151,8 @@ UI Automation `IsPassword`: парольное, неизвестное и уст
 пропускают исправления, шаблоны и ручную конвертацию, очищают буферы слова.
 Hook остаётся установленным. События асинхронны, провайдер может ошибаться;
 нулевой доступ на каждом переходе фокуса не гарантируется. Наблюдатель не читает
-текст поля. В распространяемый EXE это дополнение пока не включено.
+текст поля. Защита включена в текущую локальную сборку и публичную alpha.5;
+это не распространяет её автоматически на отдельные дневник и историю буфера.
 
 **Универсального распознавания секретов нет:** браузерное поле может
 не сообщить о пароле, а переписка, ключ или криптоадрес могут выглядеть как обычный
@@ -194,7 +208,8 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 בקוד המקור נוסף תהליך נסתר ונפרד שבודק רק את המטא־נתון IsPassword של UI Automation.
 בשדה סיסמה, במצב לא ידוע או במידע שהתיישן, תיקונים, תבניות והמרה ידנית מדולגים
 ומאגרי המילים מתנקים. ה־hook נשאר פעיל. אירועי UIA אסינכרוניים והספק עלול לטעות;
-אין הבטחה להגנה מוחלטת בכל מעבר מיקוד. תוכן השדה אינו נקרא. התוספת טרם נכללה ב־EXE.
+אין הבטחה להגנה מוחלטת בכל מעבר מיקוד. תוכן השדה אינו נקרא. ההגנה כלולה בגרסה
+המקומית הנוכחית וב־alpha.5 הציבורית; היא אינה מכסה אוטומטית את היומן והיסטוריית הלוח.
 
 לתכונות הנוספות בדיקות משלהן. **אין זיהוי אוניברסלי של סודות.** שדה בדפדפן עלול
 לא לדווח שהוא מכיל סיסמה, ומפתחות, התכתבויות וכתובות קריפטו עשויים להיראות כטקסט
@@ -221,3 +236,8 @@ result allows the Copy/preview fallback. Password, empty-selection and unknown
 failures do not activate it. Previously copied text is never searched.
 
 הגנת הסיסמאות של UIA שייכת לתיקון הפריסה; היא אינה מגינה אוטומטית על היסטוריית הלוח או היומן. היומן מוגבל לפקדי עורכים מוכרים ובודק את סגנון הסיסמה. היסטוריית הלוח אינה יכולה לזהות כל סוד שהועתק, לרבות מדפדפן; השאר אותה כבויה אם שמירה כזו אינה מקובלת.
+
+היסטוריית הלוח האוטומטית מדלגת על תוכן ללא בעלים, על תהליך שלא ניתן לזהות
+ועל תהליך מוחרג. הדבקה מפורשת כטקסט פשוט עדיין מאפשרת טקסט ללא בעלים לפי
+בקשת המשתמש; תהליך מוחרג או בלתי נגיש נשאר חסום. השדה שבמיקוד כעת אינו
+מוכיח מהו מקור תוכן הלוח או אם הוא רגיש.
