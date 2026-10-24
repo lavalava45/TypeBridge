@@ -1,5 +1,6 @@
 # Build products and local tool dependencies
 /dist/
+/TypeBridge-data/
 /build/
 /.build-deps/
 __pycache__/

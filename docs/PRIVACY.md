@@ -77,7 +77,7 @@ exactly unchanged. Renamed executables can require additional exclusions.
 
 Disabling autocorrection does **not** disable independently enabled clipboard
 history, journal or search. **Exit** in the tray ends all app functions. Personal
-files live in `%LOCALAPPDATA%\TypeBridge`, including settings, user words,
+files live in `TypeBridge-data`, including settings, user words,
 templates and `journal\journal.sqlite3`. Backups and an older migrated
 `%LOCALAPPDATA%\LayoutSwitch` folder may retain separate copies. Deleting data
 inside TypeBridge does not erase external backups or browser/provider history.
@@ -149,7 +149,7 @@ Hook остаётся установленным. События асинхро�
 
 Выключение автоисправления не выключает отдельно включённые историю, дневник и
 поиск. Полностью завершает программу «Выход» в трее. Данные находятся в
-`%LOCALAPPDATA%\TypeBridge`, дневник — в `journal\journal.sqlite3`. Резервные
+`TypeBridge-data`, дневник — в `journal\journal.sqlite3`. Резервные
 копии и старая папка `%LOCALAPPDATA%\LayoutSwitch` могут хранить свои экземпляры.
 Очистка в приложении не удаляет внешние резервные копии и историю браузера/сервиса.
 
@@ -204,7 +204,7 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 
 כיבוי התיקון האוטומטי אינו מכבה היסטוריה, יומן או חיפוש שהופעלו בנפרד. בחירת
 יציאה במגש המערכת מסיימת את כל התכונות. הקבצים האישיים נמצאים בתיקייה
-`%LOCALAPPDATA%\TypeBridge`, והיומן ב־`journal\journal.sqlite3`. גיבויים ותיקיית
+`TypeBridge-data`, והיומן ב־`journal\journal.sqlite3`. גיבויים ותיקיית
 `%LOCALAPPDATA%\LayoutSwitch` ישנה עשויים להכיל עותקים נוספים. ניקוי בתוכנה אינו
 מוחק גיבויים חיצוניים או היסטוריית דפדפן וספק חיפוש.
 

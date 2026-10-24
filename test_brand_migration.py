@@ -4,11 +4,54 @@ import unittest
 from unittest.mock import patch
 
 from app_paths import migrate_user_data
+import app_paths
 from prepare_dictionaries import prepare, select_words
 import startup_registration as startup
 
 
 class BrandMigrationTests(unittest.TestCase):
+    def test_default_migration_prefers_current_profile_and_runs_only_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); current = base/'current'; legacy = base/'old'; portable = base/'portable'
+            current.mkdir(); legacy.mkdir()
+            (current/'settings.json').write_bytes(b'current')
+            (legacy/'settings.json').write_bytes(b'old')
+            (legacy/'snippets.json').write_bytes(b'templates')
+            with patch.object(app_paths, 'PREVIOUS_USER_DIR', current), patch.object(app_paths, 'LEGACY_USER_DIR', legacy):
+                migrate_user_data(portable)
+                self.assertEqual((portable/'settings.json').read_bytes(), b'current')
+                self.assertEqual((portable/'snippets.json').read_bytes(), b'templates')
+                (portable/'settings.json').unlink()
+                self.assertEqual(migrate_user_data(portable), [])
+                self.assertFalse((portable/'settings.json').exists())
+                self.assertEqual((current/'settings.json').read_bytes(), b'current')
+
+    def test_existing_portable_profile_does_not_import_another_computers_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); old = base/'old'; portable = base/'portable'
+            old.mkdir(); portable.mkdir()
+            (old/'snippets.json').write_bytes(b'other computer')
+            (portable/'settings.json').write_bytes(b'USB profile')
+            with patch.object(app_paths, 'PREVIOUS_USER_DIR', old), patch.object(app_paths, 'LEGACY_USER_DIR', old):
+                self.assertEqual(migrate_user_data(portable), [])
+                self.assertFalse((portable/'snippets.json').exists())
+
+    def test_interrupted_migration_resumes_without_overwriting_already_copied_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); old = base/'old'; portable = base/'portable'
+            old.mkdir()
+            (old/'settings.json').write_bytes(b'original settings')
+            (old/'snippets.json').write_bytes(b'templates')
+            def interrupted(destination, source):
+                (destination/'settings.json').write_bytes(b'copied settings')
+                raise OSError('disk full')
+            with patch.object(app_paths, 'PREVIOUS_USER_DIR', old), patch.object(app_paths, 'LEGACY_USER_DIR', old):
+                with patch.object(app_paths, '_copy_missing', side_effect=interrupted):
+                    with self.assertRaises(OSError): migrate_user_data(portable)
+                migrate_user_data(portable)
+                self.assertEqual((portable/'settings.json').read_bytes(), b'copied settings')
+                self.assertEqual((portable/'snippets.json').read_bytes(), b'templates')
+
     def test_personal_files_copied_verbatim_without_overwriting_new_or_old(self):
         with tempfile.TemporaryDirectory() as folder:
             old=Path(folder)/'LayoutSwitch'; new=Path(folder)/'TypeBridge'

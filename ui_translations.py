@@ -173,8 +173,8 @@ CATALOG = {'30 последних фрагментов, только до вых
  'Активное окно изменилось; повтори выбор': {'en': 'The active window changed; select again',
                                              'he': 'החלון הפעיל השתנה; בחר שוב'},
  'Английский': {'en': 'English', 'he': 'אנגלית'},
- 'База: %LOCALAPPDATA%\\TypeBridge\\journal\\journal.sqlite3. Не более 50 МБ зашифрованных данных / 20 000 снимков.': {'en': 'Database: '
-                                                                                                                             '%LOCALAPPDATA%\\TypeBridge\\journal\\journal.sqlite3. '
+ 'База: TypeBridge-data\\journal\\journal.sqlite3. Не более 50 МБ зашифрованных данных / 20 000 снимков.': {'en': 'Database: '
+                                                                                                                             'TypeBridge-data\\journal\\journal.sqlite3. '
                                                                                                                              'Up '
                                                                                                                              'to '
                                                                                                                              '50 '
@@ -187,7 +187,7 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                                                                                              'snapshots.',
                                                                                                                        'he': 'מסד '
                                                                                                                              'נתונים: '
-                                                                                                                             '%LOCALAPPDATA%\\TypeBridge\\journal\\journal.sqlite3. '
+                                                                                                                             'TypeBridge-data\\journal\\journal.sqlite3. '
                                                                                                                              'עד '
                                                                                                                              '50 '
                                                                                                                              'MB '
@@ -724,10 +724,10 @@ CATALOG = {'30 последних фрагментов, только до вых
  'Свой словарь: TXT или JSON': {'en': 'Your dictionary: TXT or JSON', 'he': 'מילון משלך: TXT או JSON'},
  'Слишком длинный путь для автозагрузки Windows': {'en': 'The Windows startup path is too long',
                                                    'he': 'נתיב ההפעלה האוטומטית של Windows ארוך מדי'},
- 'Слова и настройки хранятся в %LOCALAPPDATA%\\TypeBridge.': {'en': 'Words and settings are stored in '
-                                                                    '%LOCALAPPDATA%\\TypeBridge.',
+ 'Слова и настройки хранятся в TypeBridge-data.': {'en': 'Words and settings are stored in '
+                                                                    'TypeBridge-data.',
                                                               'he': 'מילים והגדרות נשמרות '
-                                                                    'ב־%LOCALAPPDATA%\\TypeBridge.'},
+                                                                    'ב־TypeBridge-data.'},
  'Словари TXT / JSON': {'en': 'TXT / JSON dictionaries', 'he': 'מילוני TXT / JSON'},
  'Словарь больше 2 МБ': {'en': 'Dictionary exceeds 2 MB', 'he': 'גודל המילון עולה על 2 MB'},
  'Словарь исключений': {'en': 'Exclusion dictionary', 'he': 'מילון החרגות'},
@@ -1192,7 +1192,7 @@ CATALOG.update({
     'Сохранено: поиск выключен': {'en': 'Saved: search disabled', 'he': 'נשמר: החיפוש מושבת'},
     'Настройки поиска не сохранены': {'en': 'Search settings were not saved', 'he': 'הגדרות החיפוש לא נשמרו'},
     'Не удалось подтвердить сохранение настроек поиска': {'en': 'Could not verify that search settings were saved', 'he': 'לא ניתן לאמת שהגדרות החיפוש נשמרו'},
-    'Ошибка интерфейса: {v0}. Диагностика: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log': {'en': 'Interface error: {v0}. Diagnostics: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log', 'he': 'שגיאת ממשק: {v0}. אבחון: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log'},
+    'Ошибка интерфейса: {v0}. Диагностика: TypeBridge-data\\ui-errors.log': {'en': 'Interface error: {v0}. Diagnostics: TypeBridge-data\\ui-errors.log', 'he': 'שגיאת ממשק: {v0}. אבחון: TypeBridge-data\\ui-errors.log'},
     'Для поиска и команд буфера выбери сочетание с Ctrl/Alt/Shift, без F12': {'en': 'Search and clipboard shortcuts require Ctrl/Alt/Shift and cannot use F12', 'he': 'קיצורי חיפוש ולוח דורשים Ctrl/Alt/Shift ואינם יכולים להשתמש ב־F12'},
     'Одно сочетание назначено нескольким командам поиска или буфера': {'en': 'One shortcut is assigned to multiple search or clipboard commands', 'he': 'קיצור אחד הוקצה למספר פקודות חיפוש או לוח'},
     'Сочетание поиска или буфера уже назначено переключению языка': {'en': 'The search or clipboard shortcut is already assigned to a language switch', 'he': 'קיצור החיפוש או הלוח כבר הוקצה להחלפת שפה'},
@@ -1230,13 +1230,13 @@ for source, en, he in zip(PRIVACY_TEXT, (
     'Clipboard history and the journal are separate opt-in features, disabled by default. History keeps up to 30 items in memory and clears them when disabled or on exit. Copied secrets may enter history. The journal saves snapshots from allowed editors to disk, encrypted by Windows for the current user, with automatic expiry. Disabling it does not delete old entries.',
     'Known password managers and ordinary password fields are skipped. Protection is not absolute: browsers and custom fields may not identify secret text. Messages, keys and crypto addresses cannot be reliably recognized by their content. Exclude sensitive apps; disable history and the journal when not needed.',
     'Layout correction runs locally, without sending typed text. Quick search sends the selection to your chosen service through the browser only on its shortcut. Queries may remain in browser history and with the search provider. Disabling autocorrection does not disable separately enabled history, journal or search.',
-    'Source code is public. This enables inspection; it is not proof of an independent audit or absence of bugs. To end all features, choose Exit in the tray. Personal files: %LOCALAPPDATA%\\TypeBridge. Clear journal entries in its separate window.',
+    'Source code is public. This enables inspection; it is not proof of an independent audit or absence of bugs. To end all features, choose Exit in the tray. Personal files: TypeBridge-data. Clear journal entries in its separate window.',
 ), (
     'כדי לתקן פריסות, TypeBridge מקבל אירועי מקלדת מ־Windows. המילה המעובדת והמילה האחרונה להחלפה ידנית נשמרות בזיכרון; במצב רגיל לא נשמר יומן של הטקסט המוקלד.',
     'היסטוריית הלוח והיומן מופעלים בנפרד ומושבתים כברירת מחדל. ההיסטוריה מחזיקה עד 30 פריטים בזיכרון ונמחקת בכיבוי התכונה או ביציאה. סודות שהועתקו עלולים להישמר בהיסטוריה. היומן שומר צילומי טקסט מעורכים מורשים בדיסק, עם הצפנת Windows למשתמש הנוכחי ומחיקה אוטומטית לפי גיל. כיבוי היומן אינו מוחק רשומות ישנות.',
     'מנהלי סיסמאות מוכרים ושדות סיסמה רגילים מדולגים. ההגנה אינה מוחלטת: דפדפנים ושדות מותאמים עלולים לא לזהות טקסט סודי. אי אפשר לזהות באופן אמין התכתבויות, מפתחות וכתובות קריפטו לפי התוכן. הוסף יישומים רגישים להחרגות; השבת היסטוריה ויומן כשאין בהם צורך.',
     'תיקון הפריסה מתבצע מקומית ללא שליחת הטקסט המוקלד. חיפוש מהיר שולח את הטקסט המסומן לשירות שבחרת דרך הדפדפן רק בלחיצה על קיצור המקשים. השאילתה עלולה להישמר בהיסטוריית הדפדפן ואצל ספק החיפוש. כיבוי התיקון האוטומטי אינו מכבה היסטוריה, יומן או חיפוש שהופעלו בנפרד.',
-    'קוד המקור פתוח לבדיקה. זו אינה הוכחה לביקורת עצמאית או להיעדר תקלות. לסיום כל התכונות בחר יציאה במגש המערכת. קבצים אישיים: %LOCALAPPDATA%\\TypeBridge. ניתן למחוק את רשומות היומן בחלון שלו.',
+    'קוד המקור פתוח לבדיקה. זו אינה הוכחה לביקורת עצמאית או להיעדר תקלות. לסיום כל התכונות בחר יציאה במגש המערכת. קבצים אישיים: TypeBridge-data. ניתן למחוק את רשומות היומן בחלון שלו.',
 )):
     CATALOG[source] = {'en': en, 'he': he}
 

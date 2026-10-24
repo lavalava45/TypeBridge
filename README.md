@@ -51,8 +51,8 @@ The first public package is an unsigned alpha with open frequency dictionaries.
 New version tags automatically build and publish a Windows x64 ZIP with open
 dictionaries, instructions in three languages, licenses and SHA-256 checksums.
 See [release automation](docs/RELEASING.md). No installation or administrator
-rights are needed for ordinary use. Settings remain in `%LOCALAPPDATA%\TypeBridge`,
-so they do not travel with a USB drive.
+rights are needed for ordinary use. Settings, words and templates travel with the `TypeBridge-data` folder beside the EXE.
+Use a writable folder; old AppData configuration is copied once without deleting it.
 
 ## Run from source
 
@@ -100,7 +100,7 @@ of Settings. The choice is saved and applied immediately to settings, tray and
 tool windows. Hebrew uses right-to-left alignment/layout. It does not change
 keyboard layouts, personal words or template content. Pending the next binary build.
 
-Settings, personal dictionaries and templates live in `%LOCALAPPDATA%\TypeBridge`.
+Settings, personal dictionaries and templates live in `TypeBridge-data`.
 The previous LayoutSwitch data files are copied on first launch without deleting
 the old files or overwriting existing TypeBridge files. Typed words and template
 contents are not written to the event log. The app has no cloud correction service.

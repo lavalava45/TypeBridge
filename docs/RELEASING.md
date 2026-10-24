@@ -26,8 +26,9 @@ typing compatibility in every editor. The executable is currently unsigned.
 
 Users extract the entire ZIP and run `TypeBridge.exe`. Neither Python,
 administrator rights nor an installer are needed for ordinary use. Settings
-are stored in `%LOCALAPPDATA%\TypeBridge`, not beside the EXE: this is an
-installation-free bundle, not a USB-isolated settings mode. Autostart is optional
+are stored in `TypeBridge-data` beside the EXE and move with it. The containing
+folder must be writable. Old AppData settings are copied once; originals remain.
+The encrypted journal is bound to its Windows user and is not portable between PCs. Autostart is optional
 and refers to the executable's current location. Installed RU/EN/HE Windows
 keyboard layouts are still required.
 

@@ -89,13 +89,13 @@ class HookTests(unittest.TestCase):
         self.f.type(' //email')
         self.assertTrue(self.f.text.endswith('//email'))
 
-    def test_partial_send_swallows_last_key_without_retry(self):
+    def test_persistent_partial_send_stops_after_one_suffix_attempt(self):
         self.f.type('//emai')
         self.hook.user32.SendInput.side_effect=lambda count,*args: 1
         self.assertEqual(key(self.hook,ord('L')),1)
         self.assertIn(ord('L'),self.hook.suppressed_keyups)
         self.assertTrue(self.hook.token_blocked)
-        self.assertEqual(self.hook.user32.SendInput.call_count,1)
+        self.assertEqual(self.hook.user32.SendInput.call_count,2)
         self.assertIsNone(self.hook.last_word)
 
     def test_changed_focus_before_write_cannot_expand(self):

@@ -72,7 +72,7 @@ class CapsTests(unittest.TestCase):
         self.assertTrue(hook._correct(context, VK_SPACE, ''))  # Uncertain edit swallows boundary.
         self.assertTrue(hook.token_blocked)
         self.assertIsNone(hook.last_word)
-        self.assertEqual(hook.user32.SendInput.call_count, 2)  # Batch + release only.
+        self.assertEqual(hook.user32.SendInput.call_count, 3)  # Batch + suffix attempt + release.
 
 
 class StartupTests(unittest.TestCase):

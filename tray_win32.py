@@ -57,7 +57,8 @@ def _icon_files() -> dict[str, Path]:
     """Create our own flag artwork under the user's app data, not in Windows."""
     from PIL import Image, ImageDraw
 
-    base = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "TypeBridge" / "icons"
+    from app_paths import USER_DIR
+    base = USER_DIR / 'icons'
     base.mkdir(parents=True, exist_ok=True)
     result = {}
     for language in ICON_LABELS:

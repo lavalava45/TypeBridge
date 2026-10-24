@@ -35,6 +35,6 @@ def install_callback_reporting(root, folder):
             pass
         # Do not display exception arguments: they can contain clipboard or document text.
         messagebox.showerror('TypeBridge',
-                             f'Ошибка интерфейса: {exception_type.__name__}. Диагностика: %LOCALAPPDATA%\\TypeBridge\\ui-errors.log',
+                             f'Ошибка интерфейса: {exception_type.__name__}. Диагностика: TypeBridge-data\\ui-errors.log',
                              parent=root)
     root.report_callback_exception = report

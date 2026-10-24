@@ -51,7 +51,7 @@ class JournalWindow:
         for title, action in (('Обновить', self.refresh), ('Показать ещё', self.more),
                               ('Копировать текст', self.copy), ('Удалить все записи', self.clear)):
             ttk.Button(row, text=title, command=action).pack(side='left', padx=(0, 5))
-        ttk.Label(frame, text='База: %LOCALAPPDATA%\\TypeBridge\\journal\\journal.sqlite3. '
+        ttk.Label(frame, text='База: TypeBridge-data\\journal\\journal.sqlite3. '
                   'Не более 50 МБ зашифрованных данных / 20 000 снимков.', wraplength=750).pack(anchor='w', pady=(8, 0))
         self.refresh()
         localize_window(self.window)

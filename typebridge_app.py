@@ -35,6 +35,8 @@ from incremental_recognition import prepare_early, build_early_index, suggest_li
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
 from early_native_edit import NativeEditBridge, supports_native_edit
 from password_fields import PasswordFieldGuard
+from word_recovery import recover_prefix
+from input_transport import send_with_remainder
 from windows_shortcuts import read_windows_shortcuts, open_windows_keyboard_settings
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
@@ -497,6 +499,23 @@ class LiveHook:
         if not preserve_snippets and getattr(self, "snippets", None):
             self.snippets.reset()
 
+    def _send_events(self, events, context):
+        def send(part):
+            batch = (Input * len(part))(*part)
+            return self.user32.SendInput(len(part), batch, ctypes.sizeof(Input))
+        def valid():
+            current = self.context()
+            return (current is not None and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language
+                    and not any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)))
+        sent = send_with_remainder(events, send, valid)
+        if 0 < sent < len(events) and sent % 2:
+            # Applies to ordinary correction, early correction, templates and cycling.
+            last = events[sent - 1].u.ki
+            release = input_key(last.wVk, last.dwFlags | KEYEVENTF_KEYUP, last.wScan)
+            self.user32.SendInput(1, ctypes.byref(release), ctypes.sizeof(Input))
+        return sent
+
     def _try_snippet(self, context, vk, shift):
         matcher = getattr(self, "snippets", None)
         if matcher is None:
@@ -528,8 +547,7 @@ class LiveHook:
         self.clear_token()
         matcher.invalidate()
         self.token_blocked = True
-        batch = (Input * len(events))(*events)
-        sent = int(self.user32.SendInput(len(events), batch, ctypes.sizeof(Input)))
+        sent = self._send_events(events, context)
         if sent == 0:
             self.emit('error', 'Автозамена не отправлена')
             return False, False
@@ -606,21 +624,15 @@ class LiveHook:
         if not valid():
             return False
         events = correction_inputs(len(self.keys) - 1, decision.replacement, None, "")
-        batch = (Input * len(events))(*events)
         if not valid():
             return False
-        sent = int(self.user32.SendInput(len(events), batch, ctypes.sizeof(Input)))
+        sent = self._send_events(events, context)
         if sent != len(events):
             self.emit("error", f"SendInput: отправлено {sent}/{len(events)}")
             if sent == 0:
                 self.token_blocked = True
                 return False  # Nothing inserted: deliver the held physical key normally.
             self.native_early_disabled = True
-            if 0 < sent < len(events) and sent % 2:
-                # Release the last accepted down event; never repeat its edit.
-                last = events[sent - 1].u.ki
-                release = input_key(last.wVk, last.dwFlags | KEYEVENTF_KEYUP, last.wScan)
-                self.user32.SendInput(1, ctypes.byref(release), ctypes.sizeof(Input))
             self.suppressed_keyups.add(self.keys[-1][0])
             self.clear_token()
             self.token_blocked = True
@@ -694,13 +706,12 @@ class LiveHook:
             return
         events = correction_inputs(len(word.text + word.suffix),
                                    replacement + word.suffix, None, "")
-        batch = (Input * len(events))(*events)
         current = self.context()
         if (current is None or self._word_scope(current) != self._word_scope(context)
                 or current.language != context.language):
             self.clear_token()
             return
-        sent = int(self.user32.SendInput(len(events), batch, ctypes.sizeof(Input)))
+        sent = self._send_events(events, context)
         if sent != len(events):
             self.clear_token()
             self.token_blocked = True
@@ -780,23 +791,17 @@ class LiveHook:
             events = [input_key(VK_CAPITAL), input_key(VK_CAPITAL, KEYEVENTF_KEYUP)] + events
             # Last-word cycling must preserve the corrected case with CapsLock off.
             keys = [(vk, not shift if 0x41 <= vk <= 0x5A else shift) for vk, shift in keys]
-        batch = (Input * len(events))(*events)
         current = self.context()
         if (current is None or self._word_scope(current) != self._word_scope(context)
                 or current.language != context.language):
             self.token_blocked = True
             return False
         ctypes.set_last_error(0)
-        sent = int(self.user32.SendInput(
-            len(events), batch, ctypes.sizeof(Input)))
+        sent = self._send_events(events, context)
         if sent != len(events):
             self.token_blocked = True
             self.emit("error", f"SendInput: отправлено {sent}/{len(events)}")
             if sent > 0:
-                if sent % 2:
-                    last = events[sent - 1].u.ki
-                    release = input_key(last.wVk, last.dwFlags | KEYEVENTF_KEYUP, last.wScan)
-                    self.user32.SendInput(1, ctypes.byref(release), ctypes.sizeof(Input))
                 if boundary_vk is not None:
                     self.suppressed_keyups.add(boundary_vk)
                 return True  # Uncertain edit: never replay the held boundary.
@@ -904,9 +909,17 @@ class LiveHook:
             if vk in (VK_SPACE, VK_RETURN, VK_TAB):
                 self.protection_skipped_input = False
                 self.skipped_input_scope = None
+                self.skipped_prefix_length = 0
             elif scope is not None and (0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2):
                 self.protection_skipped_input = True
                 self.skipped_input_scope = scope
+                count = getattr(self, 'skipped_prefix_length', 0)
+                self.skipped_prefix_length = min(41, count + 1) if count >= 0 else -1
+                if any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)):
+                    self.skipped_prefix_length = -1
+            elif scope is not None and vk == VK_BACK:
+                count = getattr(self, 'skipped_prefix_length', 0)
+                self.skipped_prefix_length = max(0, count - 1) if count >= 0 else -1
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
@@ -931,9 +944,25 @@ class LiveHook:
             scope = getattr(self, 'skipped_input_scope', None)
             if scope is not None and scope != (context.top, context.focus):
                 self.protection_skipped_input = False
+                self.skipped_prefix_length = 0
             # Never treat the tail of input skipped during protection as a new word.
             else:
                 self.token_blocked = True
+                def recovery_valid():
+                    current = self.context()
+                    return (current is not None and self._word_scope(current) == self._word_scope(context)
+                            and current.language == context.language
+                            and not any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)))
+                recovered = recover_prefix(context, self.engine.mapper,
+                                           getattr(self, 'skipped_prefix_length', 0), recovery_valid)
+                if recovered is not None:
+                    self.keys = recovered
+                    self.token_blocked = False
+                    self.protection_skipped_input = False
+                    self.skipped_prefix_length = 0
+                elif 0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2:
+                    count = getattr(self, 'skipped_prefix_length', 0)
+                    self.skipped_prefix_length = min(41, count + 1) if count >= 0 else -1
         if vk == VK_TAB and getattr(self, 'password_guard', None) is not None:
             self.password_guard.invalidate()
             self.protection_skipped_input = False
@@ -1041,6 +1070,7 @@ class LiveHook:
                     guard.invalidate()
                 self.protection_skipped_input = False
                 self.skipped_input_scope = None
+                self.skipped_prefix_length = 0
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
@@ -1640,7 +1670,7 @@ class TypeBridgeGui:
         actions.pack(fill="x", pady=10)
         ttk.Button(actions, text="Удалить выбранное", command=self.remove_word).pack(side="left")
         ttk.Button(actions, text="Импорт словарей…", command=self.open_dictionary_import).pack(side="left", padx=8)
-        ttk.Label(frame, text="Слова и настройки хранятся в %LOCALAPPDATA%\\TypeBridge.",
+        ttk.Label(frame, text="Слова и настройки хранятся в TypeBridge-data.",
                   foreground="#555").pack(anchor="w")
         self._refresh_words()
 
@@ -1977,11 +2007,11 @@ def main(argv=None) -> int:
                      accept_injected=args.accept_injected,
                      snippets=SnippetConfig.load(USER_DIR / 'snippets.json')).run()
         return 0
-    migrate_user_data()
     root = tk.Tk()
     if args.autostart:
         root.withdraw()
     try:
+        migrate_user_data()
         gui = TypeBridgeGui(root)
     except (ValueError, OSError) as error:
         root.withdraw()
