@@ -1,3 +1,5 @@
+![TypeBridge: keyboard layout correction across Russian, English and Hebrew](docs/images/typebridge-banner.png)
+
 # TypeBridge
 
 Automatic keyboard layout correction for **Russian, English and Hebrew** on Windows.
