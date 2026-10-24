@@ -42,10 +42,51 @@ public static class PasswordMetadata {
     public static readonly AutoResetEvent Wake = new AutoResetEvent(false);
     public static long Version;
     static AutomationElement watched;
-    static readonly AutomationFocusChangedEventHandler FocusHandler = (s,e) => Invalidate();
+    static AutomationElement verified;
+    static bool lastSafe;
+    static long lastSafeTop, lastSafeFocus, lastSafeTicks;
+    static readonly AutomationFocusChangedEventHandler FocusHandler = (s,e) => FocusChanged(s);
     static readonly AutomationPropertyChangedEventHandler PropertyHandler = (s,e) => Invalidate();
+    public static bool FocusNeedsRecheck(bool freshSafe, bool sameElement, bool sameScope,
+                                          bool knownPasswordFlag, bool password) {
+        return !(freshSafe && sameElement && sameScope && knownPasswordFlag && !password);
+    }
+    static bool AncestorsUnprotected(AutomationElement element) {
+        for (int i = 0; i < 64; i++) {
+            if (element == null) return true;
+            object flag = element.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, true);
+            if (flag is bool && (bool)flag) return false;
+            element = TreeWalker.RawViewWalker.GetParent(element);
+        }
+        return false;
+    }
+    static void FocusChanged(object sender) {
+        bool recheck = true;
+        try {
+            AutomationElement element = sender as AutomationElement;
+            long[] scope = Scope();
+            lock (Sync) {
+                long age = DateTime.UtcNow.Ticks - lastSafeTicks;
+                bool same = element != null && verified != null && element.Equals(verified)
+                            && element.Equals(AutomationElement.FocusedElement);
+                object flag = same ? element.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, true) : null;
+                recheck = FocusNeedsRecheck(lastSafe && age >= 0 && age <= TimeSpan.TicksPerMillisecond * 500,
+                    same, scope != null && scope[0] == lastSafeTop && scope[1] == lastSafeFocus,
+                    flag is bool, flag is bool && (bool)flag);
+                if (!recheck) {
+                    bool unprotected = AncestorsUnprotected(element);
+                    long[] after = Scope();
+                    recheck = !unprotected || after == null
+                        || after[0] != scope[0] || after[1] != scope[1]
+                        || !element.Equals(AutomationElement.FocusedElement);
+                }
+            }
+        } catch { recheck = true; }
+        if (recheck) Invalidate();
+        else Wake.Set(); // Duplicate focus notification: refresh without discarding the word.
+    }
     public static void Invalidate() {
-        lock (Sync) { Version++; Console.WriteLine("0|0|unknown|" + DateTime.UtcNow.Ticks + "|focus-change"); Console.Out.Flush(); }
+        lock (Sync) { lastSafe = false; Version++; Console.WriteLine("0|0|unknown|" + DateTime.UtcNow.Ticks + "|focus-change"); Console.Out.Flush(); }
         Wake.Set();
     }
     static long[] Scope() {
@@ -64,6 +105,7 @@ public static class PasswordMetadata {
         long started = DateTime.UtcNow.Ticks;
         long version; lock(Sync) { version = Version; }
         long[] scope = null; string state = "unknown"; string reason = "unsupported-field";
+        AutomationElement checkedElement = null;
         try {
             scope = Scope(); AutomationElement element = AutomationElement.FocusedElement;
             if (scope != null && element != null) {
@@ -92,11 +134,14 @@ public static class PasswordMetadata {
                     long[] after = Scope();
                     if (inScope && reachedRoot && after != null && scope[0] == after[0]
                         && scope[1] == after[1] && element.Equals(AutomationElement.FocusedElement))
-                        { state = blocked ? "password" : "safe"; reason = "checked"; }
+                        { state = blocked ? "password" : "safe"; reason = "checked"; checkedElement = element; }
                 }
             }
         } catch { state = "unknown"; reason = "provider-error"; }
         lock(Sync) {
+            lastSafe = version == Version && scope != null && state == "safe";
+            verified = lastSafe ? checkedElement : null;
+            if (lastSafe) { lastSafeTop = scope[0]; lastSafeFocus = scope[1]; lastSafeTicks = started; }
             if (version != Version || scope == null) Console.WriteLine("0|0|unknown|" + started + "|focus-change");
             else Console.WriteLine(scope[0] + "|" + scope[1] + "|" + state + "|" + started + "|" + reason);
             Console.Out.Flush();

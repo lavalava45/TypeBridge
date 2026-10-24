@@ -911,6 +911,8 @@ class LiveHook:
                 self.skipped_input_scope = None
                 self.skipped_prefix_length = 0
             elif scope is not None and (0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2):
+                if not getattr(self, 'protection_skipped_input', False):
+                    self.emit('diagnostic', 'input-refused:password-recheck')
                 self.protection_skipped_input = True
                 self.skipped_input_scope = scope
                 count = getattr(self, 'skipped_prefix_length', 0)
@@ -926,6 +928,8 @@ class LiveHook:
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if context.password_revision != getattr(self, 'last_guard_revision', 0):
+            if self.keys:
+                self.emit('diagnostic', 'input-reset:password-revision')
             self.clear_token()
             self.last_guard_revision = context.password_revision
         if (vk == VK_PAUSE and self.pressed(VK_CONTROL)

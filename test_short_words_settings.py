@@ -30,6 +30,18 @@ class RecognitionTests(unittest.TestCase):
         for physical in ("a", "i", "x", "o"):
             self.assertIsNone(self.engine.decide_token(self.keys(physical), "en"))
 
+    def test_hebrew_layout_ne_is_a_unique_confident_russian_word(self):
+        result = self.engine.decide_token(self.keys('yt'), 'he')
+        self.assertEqual((result.typed, result.language, result.replacement), ('טא', 'ru', 'не'))
+
+    def test_hebrew_ne_corrects_at_space_after_manual_layout_change(self):
+        import test_word_cycle as models
+        model = models.WordCycleTests(); model.setUpClass(); model.setUp()
+        model.type('hello ')
+        model.language = 'he'
+        model.type('yt ')
+        self.assertEqual(model.text, 'hello не ')
+
     def test_single_letter_ambiguity_is_not_hidden_by_confidence(self):
         with patch.dict(self.engine.words, {"he": self.engine.words["he"] | {"ז"}}):
             self.assertIsNone(self.engine.decide_token(self.keys("z"), "en"))

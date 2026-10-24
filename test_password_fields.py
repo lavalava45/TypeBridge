@@ -3,14 +3,39 @@ import unittest
 from unittest.mock import Mock, patch
 import os
 import queue
+import base64
+import json
+from pathlib import Path
+import subprocess
 
-from password_fields import PasswordFieldGuard
+from password_fields import PasswordFieldGuard, WATCH_SCRIPT
 from test_app_controls import make_hook, key
 import test_short_words_settings as settings_tests
 import test_word_cycle as cycle_tests
 
 
 class MetadataTests(unittest.TestCase):
+    def test_compiled_helper_keeps_only_verified_duplicate_focus(self):
+        # Compile the actual C# helper; do not register UIA events or read any field.
+        script = WATCH_SCRIPT.split('try {\n    [PasswordMetadata]::Start()')[0]
+        script += '''
+@(
+ [PasswordMetadata]::FocusNeedsRecheck($true,$true,$true,$true,$false)
+ [PasswordMetadata]::FocusNeedsRecheck($false,$true,$true,$true,$false)
+ [PasswordMetadata]::FocusNeedsRecheck($true,$false,$true,$true,$false)
+ [PasswordMetadata]::FocusNeedsRecheck($true,$true,$false,$true,$false)
+ [PasswordMetadata]::FocusNeedsRecheck($true,$true,$true,$false,$false)
+ [PasswordMetadata]::FocusNeedsRecheck($true,$true,$true,$true,$true)
+) | ConvertTo-Json -Compress
+'''
+        executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        result = subprocess.run([str(executable), '-NoProfile', '-NonInteractive', '-EncodedCommand',
+                                 base64.b64encode(script.encode('utf-16-le')).decode('ascii')],
+                                capture_output=True, timeout=15, creationflags=0x08000000)
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+        output = result.stdout.decode('utf-8-sig').strip().splitlines()[-1]
+        self.assertEqual(json.loads(output), [False, True, True, True, True, True])
+
     def setUp(self):
         self.now = 10.0
         self.changed = Mock()
