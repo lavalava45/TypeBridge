@@ -68,11 +68,49 @@ Personal dictionaries, templates, logs and historical research artifacts are
 also excluded. Hspell was evaluated separately; its AGPL data and checker are
 not bundled with TypeBridge.
 
-The upstream authorship of the extracted RU/EN files has not been established.
+The upstream source of the extracted Russian list has not been established.
+The English list has a near-exact International Ispell reconstruction described
+below; its small set of differences still needs separate treatment before
+redistributing the extracted file as a whole.
 This does not mean that every word or any possible upstream dictionary is
 proprietary. If their original open source is established, its actual license
 must be considered. Similar words, or overlap with another dictionary, do not
 establish provenance of the entire extracted list.
+
+### English provenance: near-exact International Ispell reconstruction
+
+On 24 October 2026, a rare local entry led to the older International Ispell
+English data mirrored in MiBench at commit
+`0f3cbcf6b3d589a2b0753cfb9289ddf40b6b9ed8`. The comparison used the actual
+word lists and affix rules, rather than a few common dictionary words:
+
+- Input: `english.0` through `english.3`, `american.0` through `american.2`,
+  `british.0` through `british.2`, and `altamer.0` through `altamer.2` in
+  [the pinned English source directory](https://github.com/embecosm/mibench/tree/0f3cbcf6b3d589a2b0753cfb9289ddf40b6b9ed8/office/ispell/languages/english).
+- Processing: expand the prefix/suffix flags using the supplied `english.aff`,
+  including allowed cross-products, casefold, retain ASCII-letter-only tokens,
+  and deduplicate. No application, keyboard hook or original program was run.
+- Reconstructed set: **134,477** words. Local set: **134,485** words.
+  Intersection: **134,461**, or **99.982% of the local English list**.
+  There are 24 local-only entries and 16 reconstructed-only entries.
+- This is strong evidence for the underlying Ispell word-list family. It does
+  not establish the intermediary copy/version used by the third-party
+  application or authorship of the 24 extra local entries.
+
+The historical
+[affix-file copyright and redistribution notice](https://raw.githubusercontent.com/embecosm/mibench/0f3cbcf6b3d589a2b0753cfb9289ddf40b6b9ed8/office/ispell/languages/english/english.aff)
+names Geoff Kuenning and contributors. It permits redistribution and
+modification subject to retaining notices/disclaimer, marking modifications,
+an advertising acknowledgment, and no implied endorsement. Do not relabel
+this historical version MIT or assume the newer SCOWL notice is its license.
+[Ispell's Contributors file](https://github.com/embecosm/mibench/blob/0f3cbcf6b3d589a2b0753cfb9289ddf40b6b9ed8/office/ispell/Contributors)
+records the history and contributors, including the origin of `english.1` and
+`english.2` in dictionaries supplied by Bob Devine.
+
+A future public Ispell-based English list should be regenerated independently
+from these pinned inputs, retain the applicable notices, and explicitly review
+the differences. This investigation does not replace the currently distributed
+FrequencyWords English data or the local working file.
 
 ### Verified orthographic alternatives, not currently bundled
 
