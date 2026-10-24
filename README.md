@@ -2,7 +2,7 @@
 
 Automatic keyboard layout correction for **Russian, English and Hebrew** on Windows.
 
-[Русская инструкция](README-RU.md) · [הוראות בעברית](README-HE.md) · [Feature status](docs/FEATURE-STATUS.md) · [MIT license](LICENSE)
+[Русская инструкция](README-RU.md) · [הוראות בעברית](README-HE.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
 
 TypeBridge corrects words typed in the wrong layout, offers manual last-word
 conversion and direct layout shortcuts, and expands abbreviations into literal
@@ -112,7 +112,7 @@ It has a visible enabled indicator, configurable 1–365 day retention (default 
 recovery/copy and manual deletion. Text is protected with Windows user-scoped DPAPI.
 Unknown/password fields are skipped; browsers are not supported. Disabling stops
 capture and saving, but existing records remain until cleared or expired after
-re-enabling. See [feature status](docs/FEATURE-STATUS.md) for limits.
+re-enabling. See [roadmap and limitations](ROADMAP.md) for limits.
 
 No binaries containing the private research dictionaries are distributed here.
 The source and the open-data preparation path are available for local builds.

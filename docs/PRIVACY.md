@@ -1,7 +1,7 @@
 # TypeBridge: privacy and input access
 
 This describes the current source version. The published alpha EXE may contain
-fewer features; see [feature status](FEATURE-STATUS.md). This is a description
+fewer features; see [roadmap and limitations](../ROADMAP.md). This is a description
 of behavior and limitations, not a claim of independent security certification.
 
 ## English
