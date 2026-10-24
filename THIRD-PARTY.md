@@ -30,6 +30,26 @@ and as plain text in `data/`, with attribution, source hashes, the full CC BY-SA
 packages are built in an isolated directory using `build_public_release.py`;
 the private working dictionaries are never copied into that build.
 
+### Three-language distribution verified on 24 October 2026
+
+The downloaded public `v0.1.0-alpha.5` ZIP already includes all three language
+lists; users do not need to download dictionaries separately:
+
+| File | Entries in alpha.5 | Data license |
+| --- | ---: | --- |
+| `data/ru.txt` | 212,414 | CC BY-SA 4.0 |
+| `data/en.txt` | 176,155 | CC BY-SA 4.0 |
+| `data/he.txt` | 185,358 | CC BY-SA 4.0 |
+
+All three are independently prepared from the pinned FrequencyWords sources,
+not copied from the local research RU/EN lists. The ZIP contains
+`data/SOURCES.json`, `data/DATA-LICENSE.txt`, the full license in
+`licenses/CC-BY-SA-4.0.txt`, and this attribution document. Its SHA-256 and all
+53 manifest file hashes were checked. These are frequency-derived lists, not
+Hunspell orthographic dictionaries; their correction decisions can differ
+from the local research build. The executable and text copies carry the same
+prepared data. TypeBridge's own source code remains separately MIT-licensed.
+
 ## Optional example exclusion packs
 
 `dictionary_packs/programming.json` and `gaming.json` are filtered adaptations
@@ -47,6 +67,29 @@ containing them are excluded from this repository and public releases.
 Personal dictionaries, templates, logs and historical research artifacts are
 also excluded. Hspell was evaluated separately; its AGPL data and checker are
 not bundled with TypeBridge.
+
+The upstream authorship of the extracted RU/EN files has not been established.
+This does not mean that every word or any possible upstream dictionary is
+proprietary. If their original open source is established, its actual license
+must be considered. Similar words, or overlap with another dictionary, do not
+establish provenance of the entire extracted list.
+
+### Verified orthographic alternatives, not currently bundled
+
+Hspell and Hunspell are different projects. Hspell supplies Hebrew linguistic
+data; Hunspell supports dictionaries for many languages. Dictionary licenses
+must be checked individually, separately from the checker library's license.
+
+| Language | Verified upstream | Redistribution terms |
+| --- | --- | --- |
+| Russian | Alexander I. Lebedev dictionary, distributed by LibreOffice and wooorm/dictionaries | Permissive notice permits source/binary redistribution and modification; retain copyright, conditions and disclaimer, mark modifications, and do not imply author endorsement. [Full upstream notice](https://raw.githubusercontent.com/wooorm/dictionaries/8cfea406b505e4d7df52d5a19bce525df98c54ab/dictionaries/ru/license) |
+| English | SCOWL-derived en_US Hunspell dictionary, distributed by wooorm/dictionaries | Upstream permits redistribution with the applicable SCOWL/Ispell and constituent-source notices. Preserve the full composite notice rather than relabeling the data MIT. [Full upstream notice](https://raw.githubusercontent.com/wooorm/dictionaries/8cfea406b505e4d7df52d5a19bce525df98c54ab/dictionaries/en/license) |
+| Hebrew | Hspell | Its README explicitly applies AGPLv3 to dictionary files and generated word lists as well as code. It is not the source of our current Hebrew list and has not been substituted for it. [Upstream README](https://github.com/ivrix/hspell/blob/master/README) |
+
+Comparison with normalized RU/EN Hunspell base entries from the pinned wooorm
+snapshot did not establish identical lists. That comparison did not expand
+affix rules and cannot prove or disprove historical derivation. No local
+dictionary, confidence filter or public data source was replaced by this review.
 
 ## Dependencies
 
