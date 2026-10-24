@@ -41,7 +41,7 @@ These packs are opt-in and do not replace TypeBridge's main language dictionarie
 
 ## Local research data
 
-Earlier private development used RU/EN dictionaries extracted from SwitchER.
+Earlier private development used RU/EN dictionaries extracted from a third-party application.
 Redistribution rights have not been established, so those lists and binaries
 containing them are excluded from this repository and public releases.
 Personal dictionaries, templates, logs and historical research artifacts are
