@@ -23,7 +23,7 @@ def plain_paste_release_inputs(events, accepted):
     The caller still must confirm that Windows accepted the cleanup packet.
     """
     from input_transport import unmatched_keydowns
-    from typebridge_app import Input, KeyInput, OWN_INPUT_MARKER
+    from win32_input import Input, KeyInput, OWN_INPUT_MARKER
     dangling = unmatched_keydowns(events, accepted)
     release = (Input * len(dangling))()
     for dest, (vk, scan, flags) in zip(release, reversed(dangling)):
@@ -75,6 +75,7 @@ class NativeClipboard:
         self.private_formats = [cb.RegisterClipboardFormat(name) for name in (
             'ExcludeClipboardContentFromMonitorProcessing', 'Clipboard Viewer Ignore')]
         self.history_format = cb.RegisterClipboardFormat('CanIncludeInClipboardHistory')
+        self.cloud_format = cb.RegisterClipboardFormat('CanUploadToCloudClipboard')
 
     def sequence(self):
         return self.cb.GetClipboardSequenceNumber()
@@ -91,13 +92,12 @@ class NativeClipboard:
             # paste may still use ownerless text at the user's request.
             if (history and not pid) or not allowed(pid):
                 return self.sequence(), None
-            if history:
-                if any(cb.IsClipboardFormatAvailable(fmt) for fmt in self.private_formats):
+            try:
+                self._require_public_content()
+            except OSError:
+                if history:
                     return self.sequence(), None
-                if cb.IsClipboardFormatAvailable(self.history_format):
-                    value = cb.GetClipboardData(self.history_format)
-                    if value in (0, b'\0\0\0\0', b'\0'):
-                        return self.sequence(), None
+                raise
             if not cb.IsClipboardFormatAvailable(13):  # CF_UNICODETEXT only.
                 return self.sequence(), None
             text = cb.GetClipboardData(13)
@@ -107,12 +107,31 @@ class NativeClipboard:
         finally:
             cb.CloseClipboard()
 
+    def _require_public_content(self):
+        """Called with the clipboard open, before reading OR discarding formats."""
+        cb = self.cb
+        if any(cb.IsClipboardFormatAvailable(fmt) for fmt in self.private_formats):
+            raise OSError('Приватный буфер: вставка без форматирования и история отключены; используй обычный Ctrl+V')
+        for fmt in (self.history_format, self.cloud_format):
+            if cb.IsClipboardFormatAvailable(fmt):
+                value = cb.GetClipboardData(fmt)
+                if isinstance(value, (bytes, bytearray, memoryview)):
+                    value = bytes(value)
+                    if len(value) != 4:
+                        raise OSError('Не удалось проверить признаки приватности буфера')
+                    value = int.from_bytes(value, 'little')
+                if type(value) is not int or value not in (0, 1):
+                    raise OSError('Не удалось проверить признаки приватности буфера')
+                if value == 0:
+                    raise OSError('Приватный буфер: вставка без форматирования и история отключены; используй обычный Ctrl+V')
+
     def write_plain(self, text, hwnd, expected_sequence=None):
         cb = self.cb
         cb.OpenClipboard(hwnd)
         try:
             if expected_sequence is not None and self.sequence() != expected_sequence:
                 raise OSError('Буфер изменился; повтори команду')
+            self._require_public_content()
             cb.EmptyClipboard()
             cb.SetClipboardData(13, text)
             return self.sequence()
@@ -254,7 +273,7 @@ class ClipboardTools:
         import win32api
         import win32gui
         from tray_layouts import WindowsLayouts
-        from typebridge_app import Input, KeyInput, OWN_INPUT_MARKER
+        from win32_input import Input, KeyInput, OWN_INPUT_MARKER
         try:
             if self.closed or generation != self.generation or time.monotonic() - started > 2:
                 raise OSError('Вставка отменена: клавиши не отпущены вовремя')

@@ -65,6 +65,7 @@ class NativeClipboardTests(unittest.TestCase):
         native.cb = Mock()
         native.private_formats = [100, 101]
         native.history_format = 102
+        native.cloud_format = 103
         native.cb.GetClipboardOwner.return_value = 321
         self.enterContext(patch('win32process.GetWindowThreadProcessId', return_value=(1, 42)))
         native.cb.GetClipboardSequenceNumber.return_value = 7
@@ -142,6 +143,39 @@ class NativeClipboardTests(unittest.TestCase):
             native.write_plain('hello', 123, 8)
         native.cb.EmptyClipboard.assert_not_called()
         native.cb.CloseClipboard.assert_called_once()
+
+    def test_plain_private_read_and_write_never_discard_protection(self):
+        for fmt, value in ((100, None), (101, None), (102, 0),
+                           (103, b'\0\0\0\0'), (103, b'invalid')):
+            with self.subTest(fmt=fmt, value=value):
+                native = self.fixture()
+                native.cb.IsClipboardFormatAvailable.side_effect = lambda f: f in (13, fmt)
+                native.cb.GetClipboardData.side_effect = lambda f: value if f == fmt else 'private'
+                self.assertIsNone(native.read(lambda pid: True, history=True)[1])
+                with self.assertRaises(OSError):
+                    native.read(lambda pid: True)
+                with self.assertRaises(OSError):
+                    native.write_plain('private', 123, 7)
+                native.cb.EmptyClipboard.assert_not_called()
+                native.cb.SetClipboardData.assert_not_called()
+                self.assertNotIn(unittest.mock.call(13), native.cb.GetClipboardData.call_args_list)
+
+    def test_plain_write_rechecks_privacy_if_metadata_changes(self):
+        native = self.fixture()
+        self.assertEqual(native.read(lambda pid: True)[1], 'שלום\r\nпривет')
+        native.cb.IsClipboardFormatAvailable.side_effect = lambda f: f in (13, 103)
+        native.cb.GetClipboardData.return_value = 0
+        with self.assertRaises(OSError):
+            native.write_plain('text', 123, 7)
+        native.cb.EmptyClipboard.assert_not_called()
+
+    def test_explicit_allow_metadata_permits_plain_text(self):
+        native = self.fixture()
+        native.cb.IsClipboardFormatAvailable.side_effect = lambda f: f in (13, 102, 103)
+        native.cb.GetClipboardData.side_effect = lambda f: 'hello' if f == 13 else b'\1\0\0\0'
+        self.assertEqual(native.read(lambda pid: True)[1], 'hello')
+        native.write_plain('hello', 123, 7)
+        native.cb.EmptyClipboard.assert_called_once()
 
 
 class ServiceTests(unittest.TestCase):

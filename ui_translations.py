@@ -1371,3 +1371,79 @@ CATALOG.update({
     "he": "תיקון מילים שהוקלדו בפריסת מקלדת שגויה. הזיהוי מתבצע אחרי רווח או סימן מפריד אחר."
   }
 })
+
+# Clipboard privacy and bounded journal recovery (2026-10-27).
+CATALOG.update({
+  "Приватный буфер: вставка без форматирования и история отключены; используй обычный Ctrl+V": {
+    "en": "Private clipboard: plain paste and history are blocked; use ordinary Ctrl+V",
+    "he": "לוח פרטי: הדבקה ללא עיצוב והיסטוריה חסומות; יש להשתמש ב־Ctrl+V רגיל"
+  },
+  "Не удалось проверить признаки приватности буфера": {
+    "en": "Unable to verify clipboard privacy metadata",
+    "he": "לא ניתן לבדוק את סימוני הפרטיות בלוח"
+  },
+  "Дневник: документ больше 64 КБ UTF-8; снимок пропущен": {
+    "en": "Journal: document exceeds 64 KiB UTF-8; snapshot skipped",
+    "he": "יומן: המסמך גדול מ־64 ק״ב UTF-8; הצילום דולג"
+  },
+  "Дневник: чтение поля остановлено после 3 таймаутов; выключи и включи дневник для повтора": {
+    "en": "Journal: field reading paused after 3 timeouts; switch journaling off and on to retry",
+    "he": "יומן: קריאת השדה הופסקה אחרי 3 פסקי זמן; יש לכבות ולהפעיל את היומן כדי לנסות שוב"
+  },
+  "Дневник: достигнут предел карантина; выключи и включи дневник для повтора": {
+    "en": "Journal: quarantine limit reached; switch journaling off and on to retry",
+    "he": "יומן: הגעת למגבלת ההסגר; יש לכבות ולהפעיל את היומן כדי לנסות שוב"
+  },
+  "Дневник: этот тип поля не поддерживается": {
+    "en": "Journal: this field type is unsupported",
+    "he": "יומן: סוג השדה הזה אינו נתמך"
+  },
+  "Дневник: выделение или состояние редактора не поддерживается": {
+    "en": "Journal: selection or editor state is unsupported",
+    "he": "יומן: הבחירה או מצב העורך אינם נתמכים"
+  },
+  "Дневник: парольное поле пропущено": {
+    "en": "Journal: password field skipped",
+    "he": "יומן: שדה סיסמה דולג"
+  },
+  "Дневник: приложение не входит в разрешённый список": {
+    "en": "Journal: application is not on the allowed list",
+    "he": "יומן: היישום אינו ברשימת היישומים המורשים"
+  },
+  "Дневник: нет разрешённого активного поля": {
+    "en": "Journal: no permitted active field",
+    "he": "יומן: אין שדה פעיל מורשה"
+  },
+  "Дневник: поле или документ изменились во время чтения; снимок пропущен": {
+    "en": "Journal: field or document changed during reading; snapshot skipped",
+    "he": "יומן: השדה או המסמך השתנו במהלך הקריאה; הצילום דולג"
+  },
+  "Дневник: не удалось прочитать поле; следующий опрос через 2 секунды": {
+    "en": "Journal: unable to read field; next check in 2 seconds",
+    "he": "יומן: לא ניתן לקרוא את השדה; הבדיקה הבאה בעוד 2 שניות"
+  },
+  "Дневник: таймаут чтения; проверка ответа редактора через {v0} с": {
+    "en": "Journal: read timed out; editor response check in {v0} s",
+    "he": "יומן: הקריאה חרגה מהזמן; תגובת העורך תיבדק בעוד {v0} שניות"
+  },
+  "Ошибка автоочистки дневника: повтор через 5 минут": {
+    "en": "Journal cleanup failed: retry in 5 minutes",
+    "he": "ניקוי היומן נכשל: ניסיון נוסף בעוד 5 דקות"
+  },
+  "Дневник: база занята; повтор записи через 2 секунды": {
+    "en": "Journal: database busy; retry saving in 2 seconds",
+    "he": "יומן: מסד הנתונים תפוס; ניסיון שמירה נוסף בעוד 2 שניות"
+  },
+  "{v0} · Автоочистка не выполнена; повтор через 5 минут": {
+    "en": "{v0} · Cleanup failed; retry in 5 minutes",
+    "he": "{v0} · הניקוי נכשל; ניסיון נוסף בעוד 5 דקות"
+  },
+  "Хранение локальное, с шифрованием для текущего пользователя Windows. Последний ввод между снимками может не сохраниться. Это история снимков, а не точная копия документа с оформлением. Отключение полностью останавливает чтение и добавление снимков; автоочистка старых записей продолжает работать.": {
+    "en": "Stored locally, encrypted for the current Windows user. Input between snapshots may be lost. Snapshots do not preserve formatting. Disabling stops editor reads and new snapshots; expiry cleanup continues.",
+    "he": "המידע נשמר מקומית ומוצפן למשתמש Windows הנוכחי. טקסט שבין צילומים עלול ללכת לאיבוד. העיצוב אינו נשמר. כיבוי עוצר קריאת עורכים וצילומים חדשים; ניקוי רשומות ישנות ממשיך."
+  },
+  "База: TypeBridge-data\\journal\\journal.sqlite3. До 50 МБ зашифрованных данных / 20 000 снимков. Срок в днях — верхняя граница; при достижении объёма или количества старые снимки удаляются раньше.": {
+    "en": "Database: TypeBridge-data\\journal\\journal.sqlite3. Up to 50 MB encrypted payload / 20,000 snapshots. Days specify a maximum age; storage limits can remove old snapshots sooner.",
+    "he": "מסד הנתונים: TypeBridge-data\\journal\\journal.sqlite3. עד 50 מ״ב נתונים מוצפנים או 20,000 צילומים. מספר הימים הוא גיל מרבי; מגבלות האחסון עשויות למחוק צילומים מוקדם יותר."
+  }
+})

@@ -37,7 +37,7 @@ class JournalWindow:
         ttk.Label(frame, text='Хранение локальное, с шифрованием для текущего пользователя Windows. '
                   'Последний ввод между снимками может не сохраниться. Это история снимков, '
                   'а не точная копия документа с оформлением. Отключение полностью останавливает '
-                  'чтение и запись; старые записи остаются до очистки.', wraplength=750).pack(anchor='w')
+                  'чтение и добавление снимков; автоочистка старых записей продолжает работать.', wraplength=750).pack(anchor='w')
         ttk.Button(frame, text='Сохранить настройки', command=self.save).pack(anchor='w', pady=8)
         self.list = ttk.Treeview(frame, columns=('time', 'app'), show='headings', height=6, selectmode='browse')
         self.list.heading('time', text='Время снимка')
@@ -52,7 +52,8 @@ class JournalWindow:
                               ('Копировать текст', self.copy), ('Удалить все записи', self.clear)):
             ttk.Button(row, text=title, command=action).pack(side='left', padx=(0, 5))
         ttk.Label(frame, text='База: TypeBridge-data\\journal\\journal.sqlite3. '
-                  'Не более 50 МБ зашифрованных данных / 20 000 снимков.', wraplength=750).pack(anchor='w', pady=(8, 0))
+                  'До 50 МБ зашифрованных данных / 20 000 снимков. Срок в днях — верхняя граница; '
+                  'при достижении объёма или количества старые снимки удаляются раньше.', wraplength=750).pack(anchor='w', pady=(8, 0))
         self.refresh()
         localize_window(self.window)
 

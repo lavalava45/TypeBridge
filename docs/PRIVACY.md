@@ -56,9 +56,11 @@ exception arguments, variable values, document text or search queries.
 | Personal words, exclusions and templates | Local JSON files; may contain personal data | Saved only when configured |
 
 Journal defaults allow Notepad and Notepad++ only. Retention is configurable
-from 1 to 365 days (default 7); cleanup runs while journaling is enabled.
-Disabling journaling stops reading and writing, but does not erase previous
-entries. Use its **Delete all entries** button to clear them. The encrypted
+from 1 to 365 days (default 7). While TypeBridge runs, expiry cleanup also
+runs with recording disabled if a database already exists. Disabling recording
+stops editor reads and new snapshots, but does not immediately erase previous
+entries. Age is an upper bound: the oldest entries are also evicted at 20,000
+snapshots or 50 MB of encrypted payload (not total SQLite file size). Use its **Delete all entries** button to clear them. The encrypted
 payload does not hide timestamps or application names. DPAPI is not protection
 against malware already running as you, or against access through your logged-in
 session. Clipboard history is unencrypted process memory, not an encrypted vault.
@@ -147,9 +149,11 @@ TypeBridge получает события клавиатуры Windows, что�
   отключении или выходе. Это не зашифрованное хранилище секретов.
 - Дневник сохраняет снимки разрешённых редакторов на диск с Windows DPAPI для
   текущего пользователя. По умолчанию разрешены только Блокнот и Notepad++.
-  Срок хранения — 1–365 дней, исходно 7; автоочистка работает при включённом
-  дневнике. Отключение останавливает чтение и запись, но старые записи остаются:
-  для удаления есть кнопка «Удалить все записи». Время и имя приложения не
+  Срок хранения — 1–365 дней, исходно 7; пока TypeBridge работает, автоочистка
+  существующей базы выполняется и при выключенной записи. Отключение останавливает
+  чтение редакторов и добавление снимков. Возраст — верхняя граница: при достижении
+  20 000 снимков или 50 МБ зашифрованных данных старые записи удаляются раньше
+  (это не предел размера всего файла SQLite). Для немедленного удаления есть кнопка «Удалить все записи». Время и имя приложения не
   зашифрованы. DPAPI не защищает от программы, уже работающей от твоего имени.
 - Исправление и дневник не отправляют текст на сервер. Быстрый поиск отправляет
   выделение выбранному сервису через браузер **только по горячей клавише**.
@@ -222,8 +226,10 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
   היא אינה כספת מוצפנת.
 - היומן שומר צילומי טקסט מעורכים מורשים בדיסק, עם Windows DPAPI למשתמש
   הנוכחי. כברירת מחדל מורשים רק פנקס הרשימות ו־Notepad++. זמן השמירה הוא
-  1–365 ימים, כברירת מחדל 7. הניקוי האוטומטי פועל כשהיומן מופעל. כיבויו אינו
-  מוחק רשומות ישנות; ניתן למחוק אותן בחלון היומן. זמן הצילום ושם היישום אינם
+  1–365 ימים, כברירת מחדל 7. כל עוד TypeBridge פועל, ניקוי מסד קיים ממשיך גם
+  כשההקלטה כבויה, ללא קריאת עורכים או הוספת צילומים. זהו גיל מרבי: רשומות
+  ישנות נמחקות גם בהגעה ל־20,000 צילומים או 50 מ״ב של נתונים מוצפנים
+  (לא הגודל הכולל של קובץ SQLite). כיבוי אינו מוחק מיד רשומות ישנות; ניתן למחוק אותן בחלון היומן. זמן הצילום ושם היישום אינם
   מוצפנים. DPAPI אינו מגן מפני תוכנה שכבר פועלת בשם המשתמש שלך.
 - התיקון והיומן אינם שולחים טקסט לשרת. החיפוש המהיר שולח רק את הטקסט המסומן
   לשירות שבחרת דרך הדפדפן, ורק בלחיצה על קיצור המקשים. השאילתה עלולה להישמר
@@ -273,3 +279,33 @@ failures do not activate it. Previously copied text is never searched.
 ועל תהליך מוחרג. הדבקה מפורשת כטקסט פשוט עדיין מאפשרת טקסט ללא בעלים לפי
 בקשת המשתמש; תהליך מוחרג או בלתי נגיש נשאר חסום. השדה שבמיקוד כעת אינו
 מוכיח מהו מקור תוכן הלוח או אם הוא רגיש.
+
+
+### Clipboard privacy metadata / Признаки приватности буфера / פרטיות הלוח
+
+Plain-text paste and history refuse clipboard content marked as excluded from
+monitoring, history or cloud sync, including malformed permission metadata.
+Plain paste rechecks under the clipboard lock before clearing any formats.
+On refusal nothing is rewritten; ordinary Ctrl+V remains available.
+
+Вставка без форматирования и история пропускают буфер с признаками запрета
+наблюдения, истории или облачной синхронизации, а также с некорректными
+признаками разрешения. Перед очисткой форматов выполняется повторная проверка.
+При отказе буфер не изменяется; можно использовать обычный Ctrl+V.
+
+הדבקה כטקסט פשוט והיסטוריה מסרבות לתוכן המסומן כפרטי או כאסור להיסטוריה,
+לניטור או לסנכרון ענן. הסימונים נבדקים שוב לפני מחיקת הפורמטים. בסירוב
+הלוח אינו משתנה; אפשר להשתמש בהדבקה רגילה באמצעות Ctrl+V.
+
+Journal reads remain limited to 64 KiB of UTF-8 text. A timeout starts a bounded
+quarantine: a buffer-free editor response probe precedes retries after 30 and
+60 seconds; after three timed-out attempts in one process/control lifetime,
+that field stays paused until the journal is switched off and back on. Reasons
+for skipping snapshots are displayed without document contents. Scintilla remote
+buffers retained after a timeout are not freed unsafely; retries are bounded.
+
+Дневник читает не более 64 КБ текста UTF-8. После таймаута повторы ограничены:
+через 30, затем 60 секунд редактор сначала проверяется сообщением без буферов.
+После трёх таймаутов поле приостанавливается до выключения и включения дневника.
+Причина пропуска снимка показывается без содержимого документа. Память Scintilla,
+оставшаяся после таймаута, не освобождается небезопасным способом.

@@ -116,7 +116,7 @@ SMTO_BLOCK = 0x0001
 SMTO_ABORTIFHUNG = 0x0002
 GWL_STYLE = -16
 ES_PASSWORD = 0x0020
-OWN_INPUT_MARKER = 0x4C53574954434831  # "LSWITCH1"
+from win32_input import Input, InputUnion, KeyInput, OWN_INPUT_MARKER
 BOUNDARY_VKS = frozenset((VK_SPACE, VK_RETURN, VK_TAB))
 PUNCTUATION_BOUNDARIES = frozenset(".!?;:…")
 MOUSE_BOUNDARIES = frozenset((WM_LBUTTONDOWN, WM_RBUTTONDOWN,
@@ -128,21 +128,6 @@ class KbdHook(ctypes.Structure):
     _fields_ = (("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD),
                 ("flags", wintypes.DWORD), ("time", wintypes.DWORD),
                 ("dwExtraInfo", ctypes.c_size_t))
-
-
-class KeyInput(ctypes.Structure):
-    _fields_ = (("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
-                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
-                ("dwExtraInfo", ctypes.c_size_t))
-
-
-class InputUnion(ctypes.Union):
-    # Win64 INPUT is 40 bytes because MOUSEINPUT makes the union 32 bytes.
-    _fields_ = (("ki", KeyInput), ("reserved", ctypes.c_ubyte * 32))
-
-
-class Input(ctypes.Structure):
-    _fields_ = (("type", wintypes.DWORD), ("u", InputUnion))
 
 
 class GuiThreadInfo(ctypes.Structure):

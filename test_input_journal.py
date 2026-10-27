@@ -69,6 +69,7 @@ class StoreTests(unittest.TestCase):
 class ServiceTests(unittest.TestCase):
     def fixture(self):
         store = Mock()
+        store.exists.return_value = False
         reader = Mock()
         reader.read.return_value = Snapshot((1, 2, 3), 'notepad.exe', 'synthetic')
         service = JournalService(store, Mock(), reader_factory=lambda: reader)
@@ -77,12 +78,12 @@ class ServiceTests(unittest.TestCase):
         service.configure(Settings())
         return service, store, reader
 
-    def test_disabled_does_not_read_write_or_cleanup(self):
+    def test_disabled_maintains_retention_without_reading_or_appending(self):
         service, store, reader = self.fixture()
         service.poll()
         reader.read.assert_not_called()
         store.append.assert_not_called()
-        store.cleanup.assert_not_called()
+        store.cleanup.assert_called_once_with(7)
 
     def test_only_changes_saved_and_manual_clear_does_not_readd_unchanged_text(self):
         service, store, reader = self.fixture()
@@ -125,7 +126,10 @@ class ServiceTests(unittest.TestCase):
 class NativeReaderTests(unittest.TestCase):
     def fixture(self):
         reader = NativeJournalReader.__new__(NativeJournalReader)
-        reader.blocked = set()
+        reader.blocked = {}
+        reader.clock = lambda: 0
+        reader.status = "waiting"
+        reader.retry_after = 0
         reader.layouts = Mock()
         target = SimpleNamespace(pid=1, host_pid=1, top=2, focus=3)
         reader.layouts.capture.return_value = target
@@ -141,6 +145,7 @@ class NativeReaderTests(unittest.TestCase):
               patch('early_scintilla.ScintillaEarlyBridge') as factory):
             process.return_value.name.return_value = 'notepad++.exe'
             bridge = factory.return_value.__enter__.return_value
+            bridge.msg.return_value = 0
             bridge.snapshot.return_value = ('привет שלום'.encode(), 0)
             snapshot = reader.read(Settings())
             self.assertEqual(snapshot.text, 'привет שלום')
