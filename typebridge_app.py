@@ -952,6 +952,7 @@ class LiveHook:
                         self.emit('error', 'Задержанные клавиши не полностью доставлены: ' + reason)
                     else:
                         undelivered.clear()
+                        self._observe_snippet_replay(held)
                 else:
                     undelivered.clear()
                 if had_following_input and not cleared_token:
@@ -1141,6 +1142,27 @@ class LiveHook:
                 or current.language != context.language):
             self.clear_token()
             return False, False
+        revision = getattr(self, '_browser_field_revision', 0)
+        # Feed the trigger exactly once. The worker receives the immutable
+        # expansion, not a second attempt to recognize the same physical key.
+        self.clear_token()
+        matcher.invalidate()
+        self.token_blocked = True
+        if (getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            started = self._schedule_keyboard(
+                context,
+                lambda: self._expand_snippet(context, expansion, vk, matcher, revision),
+                trigger=self._last_physical_event)
+            if not started:
+                self.emit('diagnostic', 'snippet-worker-unavailable')
+            return started, False  # Failure forwards the original key; no inline fallback.
+        return self._expand_snippet(context, expansion, vk, matcher, revision), False
+
+    def _expand_snippet(self, context, expansion, vk, matcher, revision):
+        """Build and submit the packet off-hook; never re-feed the trigger."""
+        if self._native_is_off_hook():
+            self._native_worker_tls.snippet_matcher = matcher
         events = correction_inputs(expansion.delete, '', None, '')
         # Text is injected as Unicode packets, not physical VK_RETURN/VK_TAB.
         # This is NOT a guarantee against app actions: a host may interpret
@@ -1152,26 +1174,48 @@ class LiveHook:
             events.extend((input_key(code), input_key(code, KEYEVENTF_KEYUP)))
         else:
             events.extend(unicode_inputs(expansion.separator))
-        self.clear_token()
-        matcher.invalidate()
-        self.token_blocked = True
         def still_valid():
             current = self.context()
+            gate = getattr(self, 'native_queue', None)
             return (not self.stopping and not self.paused and current is not None
                     and self._word_scope(current) == self._word_scope(context)
-                    and current.language == context.language)
+                    and current.language == context.language
+                    and getattr(self, '_browser_field_revision', 0) == revision
+                    and self.snippets is matcher and matcher.config.enabled
+                    and not (gate is not None and gate.busy and gate.aborted_reason))
 
-        sent, reason = self._send_guarded_inputs(events, still_valid)
+        sent, reason = self._send_guarded_inputs(
+            events, still_valid, before_send=self._mark_keyboard_trigger_mutation)
+        self._confirm_keyboard_trigger_acceptance(sent)
         if sent == 0:
             self.emit('diagnostic' if reason == 'context-changed-before-send' else 'error',
                       'snippet-refused:' + reason)
-            return False, False
+            return False
         self.suppressed_keyups.add(vk)
         if sent != len(events):
             self.emit('error', f'Неполная автозамена: отправлено {sent}/{len(events)}; повтор не выполняется')
         else:
             self.emit('ok', 'Шаблон вставлен')
-        return True, False
+        return True
+
+    def _observe_snippet_replay(self, held):
+        """Retain known whitespace boundaries, without guessing replayed text.
+
+        Replayed OWN_INPUT events bypass recognition. An already delivered
+        space must nevertheless allow the *next* physical template to start.
+        Unknown queued text stays blocked; never expand it a second time.
+        """
+        matcher = getattr(getattr(self, '_native_worker_tls', None), 'snippet_matcher', None)
+        if matcher is None or matcher is not getattr(self, 'snippets', None):
+            return
+        downs = [event.vk for event in held if not event.trigger
+                 and event.message in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                 and event.vk not in MODIFIER_VKS]
+        if downs:
+            if downs[-1] in (VK_SPACE, VK_RETURN):
+                matcher.reset()
+            else:
+                matcher.invalidate()
 
     def _try_early(self, context: FocusContext, *, await_native_keyup=False,
                    key_delivered=False) -> bool:
