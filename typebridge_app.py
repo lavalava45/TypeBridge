@@ -1438,6 +1438,21 @@ class LiveHook:
                 return
             self._cycle_edit_word(context, word, language, replacement, native=native)
             return
+        if (getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            # The generic path also performs SendInput and may wait up to
+            # 180 ms for the target HKL. Never run either operation inside
+            # WH_KEYBOARD_LL. The released-callback worker validates the
+            # original focus and drops this command hotkey exactly once.
+            trigger = getattr(self, '_last_physical_event', None)
+            if self._schedule_keyboard(
+                    context,
+                    lambda: self._cycle_word(context),
+                    trigger=trigger, drop_always=True):
+                return
+            # Scheduling failed: do NOT fall back to blocking the hook.
+            self.emit('diagnostic', 'manual-cycle-keyboard-worker-unavailable')
+            return
         events = correction_inputs(len(word.text + word.suffix),
                                    replacement + word.suffix, None, "")
         def still_valid():
