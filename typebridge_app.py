@@ -525,7 +525,21 @@ class LiveHook:
             return None
         class_buffer = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(focus, class_buffer, len(class_buffer))
-        if (class_buffer.value.casefold() == "edit"
+        focus_class = class_buffer.value.casefold()
+        # These are navigation/list surfaces, not text editors. Their
+        # type-ahead may look like a word to the hook, but injecting Backspace
+        # can navigate folders, move selection or trigger other commands.
+        # Keep actual EDIT/RichEdit/Scintilla and browser content widgets
+        # eligible; this is a targeted exclusion, NOT a universal text-field
+        # detector for arbitrary custom controls.
+        if (focus_class in ('syslistview32', 'systreeview32', 'shelldll_defview',
+                            'directuihwnd', 'toolbarwindow32')
+                or (process == 'explorer.exe' and focus_class in
+                    ('cabinetwclass', 'explorewclass', 'shell_traywnd',
+                     'progman', 'workerw'))):
+            emit_pipeline(self, 'context-rejected', reason='non-text-navigation-control', interval=4)
+            return None
+        if (focus_class == "edit"
                 and self.user32.GetWindowLongPtrW(focus, GWL_STYLE)
                 & ES_PASSWORD):
             emit_pipeline(self, 'context-rejected', reason='protected-edit', interval=4)
