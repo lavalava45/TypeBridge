@@ -273,5 +273,107 @@ class EarlyRecognitionTests(unittest.TestCase):
         self.assertIsNone(suggest_early(engine, keys + [(70, False)], "ru"))
 
 
+class LiveEarlyPolicyCharacterizationTests(unittest.TestCase):
+    """Freeze observed LIVE decisions, not an approval of their safety.
+
+    The older suggest_early/evaluate_unique_language tests do not establish
+    what suggest_live_early actually returns. In particular, the live caller
+    uses relaxed four-letter and multiple-completion rules. These synthetic
+    dictionary tests cannot prove password-field safety or editor delivery.
+    """
+
+    @staticmethod
+    def live_case(representations, source, target, completion, *, competitors=()):
+        engine, keys = fixture(representations, source, target, completion,
+                               competitors=competitors)
+        engine.conservative = True
+        # The production LanguageEngine exposes this method; the lightweight
+        # dictionary fixture otherwise lacks it and never reaches the live gate.
+        engine._confident = lambda language, word: word.casefold() in engine.confident[language]
+        return engine, keys
+
+    def test_live_four_letter_confident_exact_is_allowed_before_space(self):
+        engine, keys = self.live_case({'en': 'akuo', 'ru': 'флгщ', 'he': 'שלום'},
+                                      'en', 'he', 'שלום')
+        self.assertIsNone(suggest_live_early(engine, keys[:3], 'en'))
+        self.assertIsNone(suggest_early(engine, keys, 'en'))
+        choice = suggest_live_early(engine, keys, 'en')
+        self.assertIsNotNone(choice)
+        self.assertEqual((choice.typed, choice.replacement, choice.language,
+                          choice.reason), ('akuo', 'שלום', 'he', 'confident early prefix'))
+
+    def test_live_four_letter_unknown_word_is_refused_even_with_rare_mode(self):
+        engine, keys = self.live_case({'en': 'akuo', 'ru': 'флгщ', 'he': 'שלום'},
+                                      'en', 'he', 'שלום')
+        engine.confident['he'].clear()
+        for rare_enabled in (False, True):
+            with self.subTest(rare_enabled=rare_enabled):
+                engine.conservative = not rare_enabled
+                self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+
+    def test_live_five_letter_confident_exact_allows_multiple_same_language_completions(self):
+        engine, keys = self.live_case({'ru': 'руддщ', 'en': 'hello', 'he': 'אקךךם'},
+                                      'ru', 'en', 'hello')
+        engine.words['en'].update(('hellos', 'helloy'))
+        prepare_early(engine)
+        self.assertIsNone(suggest_early(engine, keys, 'ru'))
+        choice = suggest_live_early(engine, keys, 'ru')
+        self.assertIsNotNone(choice)
+        self.assertEqual((choice.replacement, choice.language, choice.reason),
+                         ('hello', 'en', 'confident early prefix'))
+
+    def test_live_multiple_completions_without_confident_exact_are_refused(self):
+        engine, keys = self.live_case({'ru': 'руддщ', 'en': 'hello', 'he': 'אקךךם'},
+                                      'ru', 'en', 'hellos',
+                                      competitors=[('en', 'helloy')])
+        engine.confident['en'].add('helloy')
+        self.assertIsNone(suggest_early(engine, keys, 'ru'))
+        self.assertIsNone(suggest_live_early(engine, keys, 'ru'))
+
+    def test_live_unique_unfinished_prefix_uses_strict_fallback(self):
+        engine, keys = self.live_case({'ru': 'руддщ', 'en': 'hello', 'he': 'אקךךם'},
+                                      'ru', 'en', 'hellos')
+        self.assertNotIn('hello', engine.confident['en'])
+        self.assertIsNotNone(suggest_early(engine, keys, 'ru'))
+        choice = suggest_live_early(engine, keys, 'ru')
+        self.assertIsNotNone(choice)
+        self.assertEqual((choice.replacement, choice.language), ('hello', 'en'))
+
+    def test_live_competing_language_prefix_vetoes_confident_four_letter_candidate(self):
+        engine, keys = self.live_case({'en': 'akuo', 'ru': 'флгщ', 'he': 'שלום'},
+                                      'en', 'he', 'שלום',
+                                      competitors=[('ru', 'флгщина')])
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+
+    def test_live_competing_exact_language_requires_explicit_resolution(self):
+        engine, keys = self.live_case({'en': 'akuo', 'ru': 'флгщ', 'he': 'שלום'},
+                                      'en', 'he', 'שלום',
+                                      competitors=[('ru', 'флгщ')])
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+        engine.resolve_ambiguity = lambda matches, current: next(
+            (match for match in matches if match[0] == 'he'), None)
+        choice = suggest_live_early(engine, keys, 'en')
+        self.assertIsNotNone(choice)
+        self.assertEqual((choice.replacement, choice.language), ('שלום', 'he'))
+
+    def test_live_known_source_prefix_and_excluded_destination_block_relaxed_path(self):
+        engine, keys = self.live_case({'en': 'akuo', 'ru': 'флгщ', 'he': 'שלום'},
+                                      'en', 'he', 'שלום')
+        engine.words['en'].add('akuotest')
+        prepare_early(engine)
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+        engine.words['en'].clear()
+        engine.exclusions.add('שלום')
+        prepare_early(engine)
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+
+    def test_live_shifted_input_and_missing_index_do_not_offer_four_letter_conversion(self):
+        engine, keys = self.live_case({'en': 'akuo', 'ru': 'флгщ', 'he': 'שלום'},
+                                      'en', 'he', 'שלום')
+        self.assertIsNone(suggest_live_early(engine, keys[:-1] + [(79, True)], 'en'))
+        del engine._early_prefix_index
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+
+
 if __name__ == "__main__":
     unittest.main()
