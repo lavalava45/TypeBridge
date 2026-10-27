@@ -75,7 +75,13 @@ jobs:
             $_.Name -in @('SHA256SUMS.txt', 'BUILD-MANIFEST.json')
           } | ForEach-Object { $_.FullName })
           if ($files.Count -ne 3) { throw 'Expected ZIP, checksums and manifest' }
-          $options = @('--verify-tag', '--title', "TypeBridge $env:RELEASE_TAG — Windows x64", '--generate-notes')
+          $options = @('--verify-tag', '--title', "TypeBridge $env:RELEASE_TAG — Windows x64")
+          $notes = Join-Path $env:GITHUB_WORKSPACE "docs/releases/$($env:RELEASE_TAG.Substring(1)).md"
+          if (Test-Path -LiteralPath $notes) {
+            $options += @('--notes-file', $notes)
+          } else {
+            $options += @('--generate-notes')
+          }
           if ($env:RELEASE_TAG.Contains('-')) { $options += @('--prerelease', '--latest=false') }
           gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
