@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Windows runners otherwise use cp1252 for redirected Python output. Tests
+# and dictionary reports contain Cyrillic/Hebrew even on English runners.
+env:
+  PYTHONUTF8: '1'
+  PYTHONIOENCODING: utf-8
+
 concurrency:
   group: portable-${{ github.ref }}
   cancel-in-progress: false
