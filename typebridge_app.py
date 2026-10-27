@@ -36,7 +36,16 @@ from incremental_recognition import prepare_early, build_early_index, suggest_li
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
 from dictionary_diagnostics import dictionary_report
 from pipeline_probe import emit_pipeline, decision_failure
-from word_trace import BROWSER_APPS, TRACE_APPS
+try:
+    from build_variant import PROFILE as BUILD_PROFILE
+except ModuleNotFoundError:
+    # Running from checked-out source keeps the original diagnostic workflow.
+    # Frozen release builders always embed an explicit, audited profile.
+    BUILD_PROFILE = 'diagnostics'
+
+BROWSER_APPS = frozenset({'chrome.exe', 'msedge.exe', 'firefox.exe',
+                          'brave.exe', 'opera.exe', 'vivaldi.exe'})
+TRACE_APPS = BROWSER_APPS | frozenset({'notepad.exe', 'notepad++.exe'})
 from early_native_edit import NativeEditBridge, supports_native_edit
 from word_recovery import recover_prefix
 from input_transport import send_with_remainder, unmatched_keydowns
@@ -59,7 +68,8 @@ APP_DIR = (Path(sys.executable).resolve().parent
 SETTINGS_PATH = USER_DIR / "settings.json"
 DEFAULT_SETTINGS_PATH = APP_DIR / "typebridge-settings.json"
 DEBUG_ENABLED = (APP_DIR / "TypeBridge-debug.flag").is_file()
-DEBUG_WORDS_ENABLED = DEBUG_ENABLED and (APP_DIR / "TypeBridge-debug-words.flag").is_file()
+DEBUG_WORDS_ENABLED = (BUILD_PROFILE == 'diagnostics' and DEBUG_ENABLED
+                       and (APP_DIR / "TypeBridge-debug-words.flag").is_file())
 
 WH_KEYBOARD_LL = 13
 WH_MOUSE_LL = 14
@@ -2271,7 +2281,7 @@ class TypeBridgeGui:
             self._browser_readback = BrowserReadback(
                 lambda result: self.events.put(('browser-readback-result', result)))
             self._browser_readback.start()
-        if DEBUG_ENABLED:
+        if DEBUG_ENABLED and BUILD_PROFILE == 'diagnostics':
             from hook_watchdog import HookWatchdog
             from raw_input_probe import RawKeyboardProbe
             from keyboard_control_probe import ControlKeyboardProbe
@@ -2943,7 +2953,7 @@ class TypeBridgeGui:
         # Metadata for comparing the two PCs is collected by the GUI timer,
         # NEVER during the low-level keyboard callback. Limit to a single
         # Notepad/Notepad++ focus per debug run; no document content is read.
-        if (DEBUG_ENABLED and self.hook is not None
+        if (DEBUG_ENABLED and BUILD_PROFILE == 'diagnostics' and self.hook is not None
                 and not getattr(self, '_comparison_captured', False)):
             try:
                 ctx = self.hook.context()
@@ -3253,6 +3263,8 @@ def self_test() -> dict:
                       and decision.replacement == replacement)
         results.append({"from": current, "to": target, "passed": passed})
     return {
+        'build_profile': BUILD_PROFILE,
+        'word_trace_enabled': DEBUG_WORDS_ENABLED,
         "ok": all(item["passed"] for item in results)
               and ctypes.sizeof(Input) == 40,
         "input_size": ctypes.sizeof(Input),

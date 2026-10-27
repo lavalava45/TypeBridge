@@ -6,6 +6,13 @@ Automatic keyboard layout correction for **Russian, English and Hebrew** on Wind
 
 [Русская инструкция](README-RU.md) · [הוראות בעברית](README-HE.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
 
+**Two build profiles:** `build-typebridge.ps1` automatically creates separate
+Public and Diagnostics EXEs from the same Git commit. Only Public is eligible
+for GitHub Releases; its frozen EXE excludes typed-content logging even when
+debug flags are present. Diagnostics is local for No01 testing only. See
+[Build profiles](docs/BUILD-PROFILES.md). Browser password-field protection
+remains a separate unresolved limitation.
+
 TypeBridge corrects words typed in the wrong layout, offers manual last-word
 conversion and direct layout shortcuts, and expands abbreviations into literal
 text templates. It runs locally in the notification area.

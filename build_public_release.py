@@ -12,6 +12,8 @@ import sys
 import urllib.request
 import zipfile
 
+from build_profiles import build_both, verify_frozen_profile
+
 
 def run(*args, cwd=None, env=None):
     subprocess.run([str(a) for a in args],cwd=cwd,env=env,check=True)
@@ -43,6 +45,31 @@ def run_isolated_tests(source, env):
     return modules
 
 
+def check_private_archive_entries(archive, *, level=0):
+    """Fail closed on private artifacts, including the embedded source ZIP."""
+    if level > 1:
+        raise ValueError('Unexpected nested release archive')
+    with zipfile.ZipFile(archive) as z:
+        for item in z.infolist():
+            if item.is_dir():
+                continue
+            parts = Path(item.filename.replace('\\', '/')).parts
+            lowered = [p.casefold() for p in parts]
+            if (any(p in ('typebridge-data', 'journal', '__pycache__', '.git')
+                    for p in lowered[:-1])
+                    or any(p in ('settings.json', 'snippets.json', 'user_lexicon.json',
+                                 '.env') for p in lowered)
+                    or lowered[-1].endswith(('.flag', '.log', '.jsonl', '.sqlite3',
+                                             '.sqlite3-wal', '.sqlite3-shm', '.sqlite3-journal'))):
+                raise ValueError('Private data in release archive: ' + item.filename)
+            if Path(item.filename).name.casefold() == 'typebridge-source.zip':
+                if level:
+                    raise ValueError('Recursive source archive forbidden')
+                if item.file_size > 100_000_000:
+                    raise ValueError('Unexpectedly large source archive')
+                check_private_archive_entries(io.BytesIO(z.read(item)), level=1)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path,required=True,help='New directory outside the repository')
@@ -57,6 +84,7 @@ def main():
     require_clean_source_snapshot(root)
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
     archive=subprocess.check_output(['git','archive','--format=zip',commit],cwd=root)
+    check_private_archive_entries(io.BytesIO(archive), level=1)
     out.mkdir(parents=True)
     source=out/'source'; source.mkdir()
     with zipfile.ZipFile(io.BytesIO(archive)) as z:
@@ -103,19 +131,23 @@ def main():
         with urllib.request.urlopen(request,timeout=30) as stream: raw=stream.read()
         if len(raw)<1000: raise ValueError('Unexpectedly short license: '+name)
         (licenses/name).write_bytes(raw)
-    log=out/'pyinstaller.log'
-    command=[sys.executable,'-m','PyInstaller','--noconfirm','--onefile','--windowed',
-             '--name','TypeBridge','--distpath',str(package),'--workpath',str(out/'build'),
-             '--add-data','dictionary_packs;dictionary_packs','typebridge_app.py']
-    with log.open('w',encoding='utf-8') as stream:
-        subprocess.run(command,cwd=source,stdout=stream,stderr=subprocess.STDOUT,check=True)
+    # Build BOTH profiles, but only copy the audited Public EXE into the ZIP.
+    # Diagnostics stays under the private build output and is never uploaded
+    # by release.yml. Neither profile reuses the other's Python analysis.
+    results = build_both(source, out/'profiles', commit=commit, version=args.version)
+    public_exe, public_manifest = results['public']
+    shutil.copy2(public_exe, package/'TypeBridge.exe')
+    shutil.copy2(public_exe.parent/'BUILD-PROFILE.json', package/'BUILD-PROFILE.json')
+    verify_frozen_profile(package/'TypeBridge.exe', 'public')
     # A hidden self-test only; no GUI event loop, migration or keyboard hooks.
     report_path = out/'self-test.json'
     result=subprocess.run([str(package/'TypeBridge.exe'),'--self-test',
                            '--self-test-report',str(report_path)],cwd=package,timeout=60,
                           creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     report = json.loads(report_path.read_text(encoding='utf-8'))
-    if result.returncode or not report.get('ok'):
+    if (result.returncode or not report.get('ok')
+            or report.get('build_profile') != 'public'
+            or report.get('word_trace_enabled') is not False):
         raise ValueError('Frozen self-test failed: '+json.dumps(report,ensure_ascii=False))
     manifest={'version':args.version,'source_commit':commit,'python':sys.version.split()[0],
               'packages':{n:metadata.version(n) for n in ('Pillow','psutil','pywin32','pyinstaller')},
@@ -134,9 +166,7 @@ def main():
             if path.is_file(): z.write(path,path.relative_to(package.parent))
     with zipfile.ZipFile(destination) as z:
         if z.testzip() is not None: raise ValueError('Corrupt release archive')
-        for name in z.namelist():
-            if any(part in ('settings.json','snippets.json','user_lexicon.json') for part in Path(name).parts):
-                raise ValueError('Private user file in archive')
+    check_private_archive_entries(destination)
     (out/'SHA256SUMS.txt').write_text(f'{sha(destination)}  {destination.name}\n',encoding='ascii')
     shutil.copy2(package/'BUILD-MANIFEST.json',out/'BUILD-MANIFEST.json')
     print('RELEASE_READY',destination,flush=True)

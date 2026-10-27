@@ -21,6 +21,13 @@ folder must remain with the executable in the ZIP. Local research dictionaries
 and personal files are not uploaded. The local `dist/TypeBridge.exe` is not
 involved.
 
+**Two build profiles:** Public and Diagnostics are compiled separately from
+one commit. Only the Public EXE is packaged; Diagnostics stays local to the
+builder/CI runner. The public frozen archive is inspected for excluded text
+tracing modules, and both the outer ZIP and embedded source ZIP are checked
+for private files. Each EXE has a `BUILD-PROFILE.json` with its checksum and
+source commit. See [BUILD-PROFILES.md](BUILD-PROFILES.md).
+
 Downloads include:
 
 - `TypeBridge-VERSION-windows-x64.zip`: EXE, external RU/EN/HE dictionaries and
