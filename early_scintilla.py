@@ -1,4 +1,4 @@
-"""Opt-in synchronous Notepad++ early correction, never keyboard replay.
+"""Verified Notepad++ transaction; live callers schedule it outside the hook.
 
 The triggering physical KEYDOWN has not reached the editor yet. Replace only
 the independently observed preceding prefix, including that new character in

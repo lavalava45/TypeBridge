@@ -1254,6 +1254,23 @@ class LiveHook:
             self.native_early_keyup_pending = (
                 self.keys[-1][0], tuple(self.keys), self._word_scope(context))
             return False
+        if (not native and getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            token = tuple(self.keys)
+            def released_scintilla():
+                if tuple(self.keys) != token:
+                    self.emit('diagnostic', 'scintilla-token-changed')
+                    return False
+                # Same recognition and verified native transaction. The held
+                # KEYDOWN has not entered Scintilla; keep the existing prefix
+                # span, Undo group and readback protocol unchanged.
+                try:
+                    return self._try_early(context, key_delivered=key_delivered)
+                except Exception:
+                    self.early_disabled = True
+                    raise
+            return self._schedule_keyboard(
+                context, released_scintilla, trigger=self._last_physical_event)
         self._trace_word('early-decision', context, source=decision.typed,
                          replacement=decision.replacement, target=decision.language)
         emit_pipeline(self, 'early-found', language=context.language,
@@ -1261,12 +1278,17 @@ class LiveHook:
                       method='keyboard' if keyboard else 'native')
         source_hkl = int(self.engine.mapper.layouts[context.language]) & 0xFFFFFFFF
         source_revision = getattr(self, '_browser_field_revision', 0)
+        source_settings, source_token = self.settings, tuple(self.keys)
         def valid():
             current = self.context()
+            gate = getattr(self, 'native_queue', None)
             return (current is not None and self._word_scope(current) == self._word_scope(context)
                     and current.language == context.language
                     and getattr(self, '_browser_field_revision', 0) == source_revision
                     and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
+                    and (native or (not self.stopping and not self.paused
+                         and self.settings is source_settings and tuple(self.keys) == source_token
+                         and not (gate is not None and gate.busy and gate.aborted_reason)))
                     and not any(self.pressed(vk) for vk in
                                 (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
         if keyboard:
@@ -1278,9 +1300,16 @@ class LiveHook:
                                         off_hook=self._native_is_off_hook())
                        if native else ScintillaEarlyBridge(context))
             bridge = adapter
-            with adapter as bridge:
-                outcome = replace_prefix(bridge, decision.typed if key_delivered else decision.typed[:-1],
-                                         decision.replacement, valid)
+            try:
+                with adapter as bridge:
+                    outcome = replace_prefix(bridge, decision.typed if key_delivered else decision.typed[:-1],
+                                             decision.replacement, valid)
+            finally:
+                # An adapter exit, diagnostic or HKL error must not replay the
+                # held letter after a possible Scintilla edit. Read-only
+                # preflight failures leave the original key replayable.
+                if not native and getattr(bridge, 'write_started', False):
+                    self._mark_keyboard_trigger_mutation()
         except Exception as error:
             emit_pipeline(self, 'transport', method='early-native', result='exception',
                           reason=getattr(bridge, 'failure', '') or type(error).__name__)
@@ -1302,6 +1331,10 @@ class LiveHook:
                 return True  # A native edit may have consumed the held key.
             setattr(self, disabled_attribute, True)
             self.emit("error", f"Ранний режим отключён до перезапуска: {type(error).__name__}")
+            if getattr(bridge, 'write_started', False):
+                self.clear_token()
+                self.token_blocked = True
+                return True
             return False
         if native:
             self._note_native_mutation(bridge)
