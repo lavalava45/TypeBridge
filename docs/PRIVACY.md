@@ -6,12 +6,21 @@ of behavior and limitations, not a claim of independent security certification.
 
 ## English
 
-The UIA password guard belongs to the correction hook. It does not automatically
-protect the separate clipboard history or journal. The journal is restricted to
-known native editor controls and checks their password style. Clipboard history
-uses owner-process exclusions and clipboard privacy flags; it cannot reliably
-recognize every copied secret, including text copied from a browser. Leave it
-disabled if that retention is unacceptable.
+**Known alpha security limitation (current source, 27 October 2026):**
+The general UI Automation `IsPassword` guard exists in the repository but is
+**not connected to the correction hook**. Only native Win32 `EDIT` password
+styles and exclusions for known password-manager processes are checked there;
+they do **not** reliably cover browser or custom password fields. Automatic
+and early correction, manual word conversion and templates can alter passwords
+or other sensitive input. Exit TypeBridge before typing secrets manually;
+prefer password-manager autofill. Disabling correction does not disable
+independent history, journal and search features. Changing these docs does
+not fix the limitation. Published EXE versions may behave differently.
+
+The separate input journal checks password styles in supported native editors.
+Clipboard history uses process exclusions and clipboard privacy flags, but
+cannot reliably recognize copied secrets, including from browsers. Keep
+optional recording disabled if this retention is unacceptable.
 
 Automatic clipboard history skips content whose owner is absent or whose owner
 process cannot be resolved or is excluded. Explicit plain-text paste still
@@ -25,6 +34,12 @@ questions are what is processed, retained and sent elsewhere. Ordinary correctio
 keeps the current word and the last word used for manual cycling in memory;
 it does not create a persistent typing diary. Diagnostic messages show operation
 results, languages and character counts, rather than the corrected words.
+**Exception:** enabling both `TypeBridge-debug.flag` and
+`TypeBridge-debug-words.flag` may write actual typed characters and browser
+text, **including passwords**, to `TypeBridge-data/debug-words.log`.
+No reliable general password filter protects this opt-in word trace. Never
+enable it while entering secrets. To stop recording, exit TypeBridge,
+remove the word-debug flag, restart, and separately delete sensitive logs.
 Early correction in Notepad++ also reads document text temporarily, up to 64 KB.
 This means access is broader than just individual key codes.
 Unexpected interface callback errors may create a bounded `ui-errors.log` in
@@ -66,21 +81,15 @@ editors copy a whole line with no selection. Old clipboard text is never used
 as a query. Applications that do not implement ordinary Copy remain unsupported;
 late asynchronous copies and unexpected native failures cannot be ruled out.
 
-Known password-manager applications are excluded. Correction skips ordinary
-Win32 EDIT password fields; other features apply their own field/process checks.
-The source version additionally watches UI Automation `IsPassword` metadata in
-a separate hidden process. Password, unknown and stale states skip correction,
-snippets and manual conversion; word buffers are cleared. The keyboard hook
-stays installed. UIA events are asynchronous and provider reports can be wrong;
-this does not promise zero exposure during every focus transition. The watcher
-does not read field contents. It is included in the current local build and
-public v0.1.0-alpha.5; this does not extend it to the separate journal/history.
-**This is not universal password detection.** Custom browser controls, secrets
-inside ordinary text, private messages, tokens, seed phrases and cryptocurrency
-addresses may not be identifiable. Clipboard privacy flags are not supplied by
-every app. Exclude sensitive applications, leave optional recording features
-off when unneeded, and disable correction before entering text that must remain
-exactly unchanged. Renamed executables can require additional exclusions.
+The disconnected UIA helper does not authorize or block edits in the current
+correction hook. Its old tests and historical changelog notes are not evidence
+of active protection. Browser inputs can share the same Win32 window handle;
+an unrecognized password field can be treated like ordinary text. Custom
+controls, private messages, tokens, seed phrases and cryptocurrency addresses
+may not be identifiable. Clipboard privacy flags are not supplied by every
+app. Exclude sensitive applications, keep optional recording off, and exit
+TypeBridge before entering confidential data. Renamed executables may require
+additional exclusions. Other features have their own independent checks.
 
 Disabling autocorrection does **not** disable independently enabled clipboard
 history, journal or search. **Exit** in the tray ends all app functions. Personal
@@ -95,11 +104,20 @@ using the actual file and its origin; do not blindly disable security software.
 
 ## Русский
 
-Общий UIA-контроль паролей относится к переключателю, а не автоматически ко всей
-истории буфера и дневнику. Дневник читает только известные нативные редакторы с
-проверкой парольного стиля. История учитывает исключённые процессы и признаки
-приватного буфера, но не распознаёт все скопированные секреты, в том числе из
-браузера. Если такое хранение неприемлемо, оставь историю выключенной.
+**Известное ограничение безопасности текущих исходников (27.10.2026):**
+общая UIA-проверка `IsPassword` есть в репозитории, но **не подключена
+к исправляющему клавиатурному hook**. Проверка `ES_PASSWORD` для стандартных
+Win32 `EDIT` и исключения менеджеров паролей сохранились, но **не защищают
+надёжно поля паролей в браузерах**. Автокоррекция, раннее исправление, ручная
+конвертация и шаблоны могут изменить пароль или другой секрет. Перед ручным
+вводом секретов завершай TypeBridge через трей; предпочтительно автозаполнение
+менеджера паролей. Отключение коррекции не отключает отдельно включённые
+историю буфера, дневник и поиск. Предупреждение не исправляет дефект;
+опубликованные EXE могут отличаться от текущего состояния исходников.
+
+Дневник отдельно проверяет парольный стиль известных нативных редакторов.
+История буфера учитывает исключённые процессы и признаки приватности, но не
+распознаёт все скопированные секреты, включая данные из браузера.
 
 Автоматическая история пропускает буфер без владельца, с неопределяемым либо
 исключённым процессом-владельцем. Явная команда чистой вставки по-прежнему
@@ -112,7 +130,13 @@ TypeBridge получает события клавиатуры Windows, что�
 объяснять, что программа делает с данными: обрабатывает, сохраняет или передаёт.
 Обычное исправление держит текущее и последнее переключаемое слово в памяти,
 не создавая постоянный дневник ввода. Диагностика показывает результат операции,
-языки и число символов, а не исправляемые слова. Ранний режим Notepad++ также
+языки и число символов, а не исправляемые слова. **Исключение:** при наличии
+обоих файлов `TypeBridge-debug.flag` и `TypeBridge-debug-words.flag`
+специальная диагностика может записывать реальные символы и текст браузерных
+полей, **включая пароли**, в `TypeBridge-data/debug-words.log`.
+Общего надёжного парольного фильтра у такой записи нет. Чтобы её прекратить,
+заверши TypeBridge, удали флаг записи слов, запусти программу заново и отдельно
+удали журнал, если он содержит секреты. Ранний режим Notepad++ также
 временно читает текст документа — до 64 КБ. Доступ не ограничивается кодами клавиш.
 При неожиданной ошибке интерфейса в личной папке может появиться ограниченный
 по размеру `ui-errors.log`: только тип исключения и строки кода, без аргументов
@@ -144,15 +168,11 @@ TypeBridge получает события клавиатуры Windows, что�
 - Личные слова, исключения и шаблоны хранятся в локальных JSON и тоже могут
   содержать личные сведения.
 
-Известные менеджеры паролей исключены; исправление пропускает стандартные
-парольные поля Win32 EDIT. У дополнительных функций свои проверки полей и
-процессов. В исходниках добавлен отдельный скрытый наблюдатель метаданных
-UI Automation `IsPassword`: парольное, неизвестное и устаревшее состояния
-пропускают исправления, шаблоны и ручную конвертацию, очищают буферы слова.
-Hook остаётся установленным. События асинхронны, провайдер может ошибаться;
-нулевой доступ на каждом переходе фокуса не гарантируется. Наблюдатель не читает
-текст поля. Защита включена в текущую локальную сборку и публичную alpha.5;
-это не распространяет её автоматически на отдельные дневник и историю буфера.
+Сохранившийся код UIA-наблюдателя `IsPassword` сейчас **не используется
+исправляющим hook**. Старые тесты и записи истории не доказывают действующую
+защиту. Несколько HTML-полей браузера могут иметь один HWND; неизвестное
+парольное поле может обрабатываться как обычное. У дополнительных функций
+свои отдельные проверки полей и процессов.
 
 **Универсального распознавания секретов нет:** браузерное поле может
 не сообщить о пароле, а переписка, ключ или криптоадрес могут выглядеть как обычный
@@ -174,10 +194,24 @@ Hook остаётся установленным. События асинхро�
 
 ## עברית
 
+**מגבלת אבטחה ידועה בקוד הנוכחי (27.10.2026):** מנגנון UI Automation
+`IsPassword` קיים בקוד, אך **אינו מחובר ל-hook של התיקון**. נשארו בדיקת
+`ES_PASSWORD` בשדות Win32 `EDIT` רגילים והחרגות למנהלי סיסמאות מוכרים;
+הן **אינן מזהות באופן מהימן סיסמאות בדפדפן**. תיקון אוטומטי ומוקדם,
+המרה ידנית ותבניות עלולים לשנות סיסמאות וטקסט רגיש. לפני הקלדה ידנית
+של סודות יש לצאת מ-TypeBridge; עדיף להשתמש במילוי אוטומטי של מנהל
+סיסמאות. כיבוי התיקון אינו מכבה תכונות נפרדות שהופעלו.
+שינוי התיעוד לא מתקן את הבעיה; קובצי EXE ישנים עשויים להתנהג אחרת.
+
 TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מילים שהוקלדו בפריסה שגויה.
 יכולת דומה קיימת גם ברושמי הקשות; ההבדל שחשוב לבדוק הוא מה מעובד, נשמר ונשלח.
 התיקון הרגיל מחזיק את המילה הנוכחית והאחרונה להחלפה ידנית בזיכרון, בלי יומן
-הקלדה קבוע. הודעות האבחון מציינות פעולות, שפות ומספר תווים ולא את המילים.
+הקלדה קבוע. הודעות האבחון הרגילות מציינות פעולות, שפות ומספר תווים ולא את המילים.
+**חריג:** עם שני הקבצים `TypeBridge-debug.flag` וגם
+`TypeBridge-debug-words.flag`, מצב אבחון המילים עשוי לשמור תווים שהוקלדו
+בדפדפן, **כולל סיסמאות**, ב-`TypeBridge-data/debug-words.log`.
+אין להסתמך על סינון כללי של סיסמאות. כדי להפסיק את התיעוד יש לצאת
+מ-TypeBridge, להסיר את דגל אבחון המילים, להפעיל מחדש ולמחוק בנפרד יומנים רגישים.
 התיקון המוקדם ב־Notepad++ גם קורא זמנית טקסט מהמסמך, עד 64 ק״ב.
 תקלה בלתי צפויה בממשק עשויה ליצור קובץ אבחון מוגבל בגודלו בשם `ui-errors.log`
 בתיקיית הנתונים האישיים. נשמרים רק סוג השגיאה ומיקומי קוד, בלי ערכי משתנים,
@@ -204,12 +238,10 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
   אי אפשר לשלול העתקה אסינכרונית מאוחרת או תקלה בפעולה נייטיבית.
 - מילים אישיות, החרגות ותבניות נשמרות בקובצי JSON מקומיים ועשויות לכלול מידע אישי.
 
-מנהלי סיסמאות מוכרים מוחרגים. התיקון מדלג על שדות סיסמה רגילים מסוג Win32 EDIT;
-בקוד המקור נוסף תהליך נסתר ונפרד שבודק רק את המטא־נתון IsPassword של UI Automation.
-בשדה סיסמה, במצב לא ידוע או במידע שהתיישן, תיקונים, תבניות והמרה ידנית מדולגים
-ומאגרי המילים מתנקים. ה־hook נשאר פעיל. אירועי UIA אסינכרוניים והספק עלול לטעות;
-אין הבטחה להגנה מוחלטת בכל מעבר מיקוד. תוכן השדה אינו נקרא. ההגנה כלולה בגרסה
-המקומית הנוכחית וב־alpha.5 הציבורית; היא אינה מכסה אוטומטית את היומן והיסטוריית הלוח.
+רכיב UIA הישן לא מחובר לתיקון הפעיל; בדיקות ישנות ויומן שינויים היסטורי
+אינם מעידים על הגנה פעילה. כמה שדות HTML יכולים לחלוק אותו HWND,
+ושדה סיסמה שלא זוהה עלול להיחשב לשדה טקסט רגיל.
+ליומן ולהיסטוריית הלוח יש בדיקות עצמאיות, לא הגנה כללית על כל סוד.
 
 לתכונות הנוספות בדיקות משלהן. **אין זיהוי אוניברסלי של סודות.** שדה בדפדפן עלול
 לא לדווח שהוא מכיל סיסמה, ומפתחות, התכתבויות וכתובות קריפטו עשויים להיראות כטקסט
@@ -235,7 +267,7 @@ API, in a hidden, time-limited helper process. An explicit unsupported-pattern
 result allows the Copy/preview fallback. Password, empty-selection and unknown
 failures do not activate it. Previously copied text is never searched.
 
-הגנת הסיסמאות של UIA שייכת לתיקון הפריסה; היא אינה מגינה אוטומטית על היסטוריית הלוח או היומן. היומן מוגבל לפקדי עורכים מוכרים ובודק את סגנון הסיסמה. היסטוריית הלוח אינה יכולה לזהות כל סוד שהועתק, לרבות מדפדפן; השאר אותה כבויה אם שמירה כזו אינה מקובלת.
+מנגנון הסיסמאות של UIA אינו מחובר כיום לתיקון הפריסה. היומן מוגבל לפקדי עורכים מוכרים ובודק את סגנון הסיסמה באופן עצמאי. היסטוריית הלוח אינה יכולה לזהות כל סוד שהועתק, לרבות מדפדפן; השאר אותה כבויה אם שמירה כזו אינה מקובלת.
 
 היסטוריית הלוח האוטומטית מדלגת על תוכן ללא בעלים, על תהליך שלא ניתן לזהות
 ועל תהליך מוחרג. הדבקה מפורשת כטקסט פשוט עדיין מאפשרת טקסט ללא בעלים לפי

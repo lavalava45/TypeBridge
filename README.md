@@ -10,6 +10,19 @@ TypeBridge corrects words typed in the wrong layout, offers manual last-word
 conversion and direct layout shortcuts, and expands abbreviations into literal
 text templates. It runs locally in the notification area.
 
+**Alpha security limitation (current source):** The UI Automation password-field
+guard is **not connected to the correction hook**. A native Win32 `EDIT`
+password check and exclusions for known password-manager programs remain, but
+they do **not** reliably identify password inputs in browsers or custom controls.
+Automatic/early correction, manual word conversion and templates may therefore
+modify a password or other sensitive text. Do not rely on TypeBridge to protect
+secret input: exit TypeBridge before manually entering secrets, or turn off
+correction and other independently enabled input features; prefer password
+manager autofill. The opt-in word-debug mode can also **record typed characters,
+including passwords**. Keep it disabled outside controlled tests. This is a
+disclosed unresolved limitation, not an implemented safeguard.
+See [Privacy and input access](docs/PRIVACY.md).
+
 ## Features
 
 - RU / EN / HE layout correction at word boundaries.
