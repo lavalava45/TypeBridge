@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from diagnostic_identity import computer_id
 
 
-def record_debug_event(folder, kind, message):
-    """Only our metadata prefixes and internal diagnostic codes may reach disk."""
+def debug_message(kind, message):
+    """Validate metadata without touching disk; shared by the batch writer."""
     prefixes = ('Диагностика:', 'Загрузка словарей из ', 'Словари:', 'Словарь ',
                 'Системные раскладки ', 'Защита паролей:')
     if not isinstance(message, str):
@@ -21,6 +21,14 @@ def record_debug_event(folder, kind, message):
                        for part in chunks[2:])):
             return
     elif not (kind == 'diagnostic' or message.startswith(prefixes)):
+        return
+    return message
+
+
+def record_debug_event(folder, kind, message):
+    """Only our metadata prefixes and internal diagnostic codes may reach disk."""
+    message = debug_message(kind, message)
+    if message is None:
         return
     try:
         path = Path(folder) / 'debug.log'

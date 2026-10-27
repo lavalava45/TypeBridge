@@ -7,6 +7,8 @@ The caller must independently prove token boundaries and safe replacement.
 from __future__ import annotations
 
 from bisect import bisect_left
+from dataclasses import dataclass
+from types import SimpleNamespace
 from engine import Decision, LANGS, _one_script_letters, _valid_typed
 from frequency_rank import normalize_word
 
@@ -34,10 +36,54 @@ def prepare_early(engine) -> None:
 
     Rebuild explicitly if lexical data changes; the hot path never refreshes.
     """
-    engine._early_prefix_index = build_early_index(engine)
+    # Base dictionaries are immutable after engine construction. Sort them
+    # once, before installing the hook; personal words stay in a small overlay.
+    engine._early_base_index = build_early_index(SimpleNamespace(words=engine.words))
+    engine._early_cached_key = None
+    engine._early_prefix_index = cached_early_index(engine, getattr(engine, 'user_lexicon', None))
+
+
+@dataclass(frozen=True)
+class PrefixOverlay:
+    base: tuple[str, ...]
+    additions: tuple[str, ...]
+
+
+def cached_early_index(engine, lexicon):
+    """Reuse the base snapshot; settings/exclusions never trigger a full sort.
+
+    Only personal *words* affect prefixes. Snapshot their contents so replacing,
+    removing or editing a word cannot accidentally reuse a stale index.
+    Publishing the returned mapping with its lexicon remains the caller's job.
+    """
+    if not hasattr(engine, '_early_base_index'):
+        # Compatibility for engines created outside LiveHook. Production calls
+        # prepare_early before installing the hook, even when early mode is off.
+        prepare_early(engine)
+    key = tuple(frozenset(word.casefold()
+                         for mode in ('sensitive', 'insensitive')
+                         for word in lexicon.data['words'][lang][mode])
+                if lexicon is not None else frozenset() for lang in LANGS)
+    if key == getattr(engine, '_early_cached_key', None):
+        return engine._early_cached_index
+    result = {}
+    for lang, words in zip(LANGS, key):
+        additions = set(words)
+        if lang == 'ru':
+            additions.update(word.replace('ё', 'е') for word in words)
+        base = engine._early_base_index[lang]
+        result[lang] = PrefixOverlay(base, tuple(sorted(additions))) if additions else base
+    engine._early_cached_key = key
+    engine._early_cached_index = result
+    return result
 
 
 def _prefix_matches(index: tuple[str, ...], prefix: str, limit: int = 2) -> tuple[str, ...]:
+    if isinstance(index, PrefixOverlay):
+        # The first N words of a union are among the first N of each shard.
+        # Deduplication preserves the original full-index ambiguity policy.
+        return tuple(sorted(set(_prefix_matches(index.base, prefix, limit)) |
+                            set(_prefix_matches(index.additions, prefix, limit))))[:limit]
     position = bisect_left(index, prefix)
     result = []
     for word in index[position:position + limit]:

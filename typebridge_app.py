@@ -32,9 +32,10 @@ from user_lexicon import UserLexicon
 from tray_layouts import layout_owner, WindowsLayouts
 from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bindings
 from word_cycle import CYCLE_KEYS, RecentWord, remember_word
-from incremental_recognition import prepare_early, build_early_index, suggest_live_early
+from incremental_recognition import prepare_early, cached_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
 from dictionary_diagnostics import dictionary_report
+from diagnostic_writer import DiagnosticWriter
 from pipeline_probe import emit_pipeline, decision_failure
 try:
     from build_variant import PROFILE as BUILD_PROFILE
@@ -350,8 +351,9 @@ class LiveHook:
         self._in_keyboard_callback = False
         self._last_physical_event = None
         self.native_early_keyup_pending = None
-        if settings.early_correction:
-            prepare_early(engine)
+        # Prepare before installing the hook. Enabling early mode later must
+        # not sort millions of words while keyboard callbacks are live.
+        prepare_early(engine)
         self.last_focus = 0
         self.last_language = ""
         self.suppressed_keyups: set[int] = set()
@@ -799,7 +801,8 @@ class LiveHook:
             self.emit('error', 'Не удалось запустить нативную транзакцию')
             return False
 
-    def _schedule_keyboard(self, context, job, *, trigger, drop_always=False):
+    def _schedule_keyboard(self, context, job, *, trigger, drop_always=False,
+                           allow_paused=False):
         """Hold the physical event, then send only after the hook has returned.
 
         A posted message, not a sleep or a reentrant callback flag, acknowledges
@@ -826,7 +829,7 @@ class LiveHook:
                     return False
                 current = self.context()
                 if (self.stopping or current is None
-                        or self.paused or self.settings is not settings
+                        or (self.paused and not allow_paused) or self.settings is not settings
                         or self._word_scope(current) != self._word_scope(context)
                         or current.language != context.language
                         or getattr(self, '_browser_field_revision', 0) != revision):
@@ -1400,6 +1403,17 @@ class LiveHook:
 
     def _switch_direct(self, context: FocusContext, language: str) -> None:
         self.clear_token()
+        if (getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            # Manual layout selection remains available while correction is
+            # paused. Wait for the posted callback-release acknowledgement,
+            # then use the same bounded focus/replay barrier as other jobs.
+            if not self._schedule_keyboard(
+                    context, lambda: self._switch_direct(context, language),
+                    trigger=self._last_physical_event, drop_always=True,
+                    allow_paused=True):
+                self.emit('diagnostic', 'direct-layout-worker-unavailable')
+            return  # Never fall back to waiting inside the hook.
         try:
             service = WindowsLayouts()
             target = service.capture()
@@ -2150,7 +2164,7 @@ class LiveHook:
 
     def request_config(self, settings: Settings, lexicon: UserLexicon) -> None:
         # Called by GUI, outside the hook: never sort dictionaries in a callback.
-        index = build_early_index(self.engine, lexicon) if settings.early_correction else None
+        index = cached_early_index(self.engine, lexicon) if settings.early_correction else None
         self.pending_config = (settings, lexicon, index)
         if self.thread_id:
             self.user32.PostThreadMessageW(self.thread_id, WM_RELOAD_CONFIG, 0, 0)
@@ -2240,6 +2254,9 @@ class TypeBridgeGui:
         from ui_diagnostics import install_callback_reporting
         install_callback_reporting(root, USER_DIR)
         self.events: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._diagnostic_writer = DiagnosticWriter(
+            USER_DIR, debug=DEBUG_ENABLED, words=DEBUG_WORDS_ENABLED,
+            diagnostics=BUILD_PROFILE == 'diagnostics')
         self.hook: LiveHook | None = None
         self.worker: threading.Thread | None = None
         self.closing = False
@@ -2952,14 +2969,16 @@ class TypeBridgeGui:
         self.root.after(4000, self._poll_hook_watchdog)
 
     def _drain(self) -> None:
+        started = perf_counter()
         try:
-            while True:
+            for _ in range(100):
+                if perf_counter() - started >= .008:
+                    break
                 kind, message = self.events.get_nowait()
                 if kind == 'native-trace':
                     if DEBUG_ENABLED:
-                        from dictionary_diagnostics import record_debug_event
                         for line in message:
-                            record_debug_event(USER_DIR, 'diagnostic', line)
+                            self._queue_diagnostic('debug', ('diagnostic', line))
                     continue
                 if kind == 'deferred-native-read':
                     hook, context = message
@@ -2982,32 +3001,20 @@ class TypeBridgeGui:
                     continue
                 if kind == 'word-trace':
                     if DEBUG_WORDS_ENABLED:
-                        from word_trace import record_word_event
-                        record_word_event(USER_DIR, message)
+                        self._queue_diagnostic('word', message)
                     continue
                 if kind == 'comparison':
                     if DEBUG_ENABLED:
-                        from comparison_diagnostics import context_report
-                        from dictionary_diagnostics import record_debug_event
-                        try:
-                            record_debug_event(USER_DIR, 'diagnostic', context_report(message))
-                        except Exception as error:
-                            record_debug_event(USER_DIR, 'diagnostic', 'comparison-error:' + type(error).__name__)
+                        self._queue_diagnostic('comparison', message)
                     continue
                 if kind == 'probe':
                     if DEBUG_ENABLED:
-                        from dictionary_diagnostics import record_debug_event
-                        record_debug_event(USER_DIR, kind, message)
+                        self._queue_diagnostic('debug', (kind, message))
                     continue
                 if DEBUG_ENABLED:
-                    from dictionary_diagnostics import record_debug_event
-                    record_debug_event(USER_DIR, kind, message)
+                    self._queue_diagnostic('debug', (kind, message))
                 if kind == "diagnostic":
-                    from ui_diagnostics import record_runtime_event
-                    try:
-                        record_runtime_event(USER_DIR, message)
-                    except OSError:
-                        pass
+                    self._queue_diagnostic('runtime', message)
                     message = "Замена текста: " + message
                 if kind == "quick-search-result":
                     if self.tray:
@@ -3113,10 +3120,24 @@ class TypeBridgeGui:
                 self.log.configure(state="disabled")
         except queue.Empty:
             pass
-        if self.closing and not (self.worker and self.worker.is_alive()):
+        pending = not self.events.empty()
+        if self.closing and not (self.worker and self.worker.is_alive()) and not pending:
+            writer = getattr(self, '_diagnostic_writer', None)
+            if writer is not None:
+                writer.close()
+                deadline = getattr(self, '_diagnostic_close_deadline', None)
+                if deadline is None:
+                    deadline = self._diagnostic_close_deadline = monotonic() + 2
+                if not writer.finished.is_set() and monotonic() < deadline:
+                    self.root.after(20, self._drain)
+                    return
             self.root.destroy()
             return
-        self.root.after(100, self._drain)
+        self.root.after(1 if pending else 100, self._drain)
+
+    def _queue_diagnostic(self, kind, payload):
+        writer = getattr(self, '_diagnostic_writer', None)
+        return writer.submit(kind, payload) if writer is not None else False
 
     def start(self) -> None:
         if self.closing:
