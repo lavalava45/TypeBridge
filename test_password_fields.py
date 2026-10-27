@@ -1,4 +1,8 @@
-"""Password metadata and hook gate checks; no hooks, field text or real input."""
+"""Password metadata and current hook checks; no live hooks or typed input.
+
+Legacy global password-field guard is intentionally not wired into LiveHook.
+The native password-style and excluded-process checks remain independent.
+"""
 import unittest
 from unittest.mock import Mock, patch
 import os
@@ -15,6 +19,24 @@ import test_word_cycle as cycle_tests
 
 
 class MetadataTests(unittest.TestCase):
+    def test_native_edit_metadata_does_not_authorize_browser_or_password_styles(self):
+        script = WATCH_SCRIPT.split('try {\n    [PasswordMetadata]::Start()')[0]
+        script += '''
+@(
+ [PasswordMetadata]::NativeStyleState("Edit",0)
+ [PasswordMetadata]::NativeStyleState("Edit",32)
+ [PasswordMetadata]::NativeStyleState("RichEditD2DPT",0)
+ [PasswordMetadata]::NativeStyleState("RichEditD2DPT",32)
+ [PasswordMetadata]::NativeStyleState("Chrome_RenderWidgetHostHWND",0)
+) | ConvertTo-Json -Compress
+'''
+        exe = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        result = subprocess.run([str(exe), '-NoProfile', '-NonInteractive', '-MTA', '-EncodedCommand',
+                                 base64.b64encode(script.encode('utf-16-le')).decode('ascii')],
+                                capture_output=True, timeout=15, creationflags=0x08000000)
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+        self.assertEqual(json.loads(result.stdout.decode('utf-8-sig').strip().splitlines()[-1]), [0,1,0,1,-1])
+
     def test_compiled_helper_keeps_only_verified_duplicate_focus(self):
         # Compile the actual C# helper; do not register UIA events or read any field.
         script = WATCH_SCRIPT.split('try {\n    [PasswordMetadata]::Start()')[0]
@@ -120,19 +142,17 @@ class MetadataTests(unittest.TestCase):
 
 
 class HookGateTests(unittest.TestCase):
-    def test_context_gate_covers_same_hwnd_browser_focus_changes(self):
+    def test_retired_global_guard_does_not_gate_valid_native_context(self):
         hook = settings_tests.HostedFocusTests().fixture()
         hook.password_guard = guard = PasswordFieldGuard()
-        self.assertIsNone(hook.context())
-        guard.ingest('10|20|safe')
         first = hook.context()
         self.assertIsNotNone(first)
-        guard.ingest('0|0|unknown')
-        self.assertIsNone(hook.context())
-        guard.ingest('10|20|password')
-        self.assertIsNone(hook.context())
         guard.ingest('10|20|safe')
-        self.assertNotEqual(hook._word_scope(first), hook._word_scope(hook.context()))
+        self.assertIsNotNone(hook.context())
+        guard.ingest('10|20|password')
+        self.assertIsNotNone(hook.context())
+        # Global UIA guard was deliberately retired; native ES_PASSWORD and
+        # excluded-process checks are tested by their own supported fixtures.
 
     def test_protected_context_clears_state_and_bypasses_every_conversion_command(self):
         hook = make_hook()
@@ -176,14 +196,14 @@ class HookGateTests(unittest.TestCase):
         key(hook, 65)
         self.assertFalse(getattr(hook, 'protection_skipped_input', False))
 
-    def test_delimiter_during_unknown_does_not_poison_next_word(self):
+    def test_unknown_context_does_not_retain_partial_token_through_delimiter(self):
         hook = make_hook()
-        hook.protection_scope = (10, 20)
         hook.context = lambda: None
         key(hook, 65)
-        self.assertTrue(hook.protection_skipped_input)
+        self.assertEqual(hook.keys, [])
         key(hook, 0x20)
-        self.assertFalse(hook.protection_skipped_input)
+        self.assertEqual(hook.keys, [])
+        self.assertFalse(hook.token_blocked)
 
     def test_fresh_check_after_click_preserves_boundary_correction(self):
         driver = cycle_tests.WordCycleTests()
@@ -199,36 +219,21 @@ class HookGateTests(unittest.TestCase):
         driver.type('ghbdtn ')
         self.assertEqual(driver.text, 'привет ')
 
-    def test_click_resets_quarantine_and_routine_notices_are_silent(self):
+    def test_click_clears_token_and_advances_field_revision_without_password_popup(self):
         from typebridge_app import WM_LBUTTONDOWN
         hook = make_hook()
-        hook.password_guard = guard = PasswordFieldGuard()
         hook.mouse_hook = None
-        hook.protection_skipped_input = True
+        hook.keys = [(0x41, False)]
+        hook._browser_field_revision = 3
         hook.handle_mouse(0, WM_LBUTTONDOWN, 0)
-        self.assertFalse(hook.protection_skipped_input)
-        hook.user32.GetForegroundWindow.return_value = 10
-        def pid(_window, value):
-            value._obj.value = os.getpid() + 1
-            return 1
-        hook.user32.GetWindowThreadProcessId.side_effect = pid
-        hook._report_password_state()
+        self.assertEqual(hook.keys, [])
+        self.assertEqual(hook._browser_field_revision, 4)
         hook.emit.assert_not_called()
-        guard.ingest('10|20|password')
-        hook._report_password_state()
-        hook._report_password_state()
-        self.assertEqual(hook.emit.call_count, 1)
 
-    def test_own_window_suppresses_password_notice(self):
+    def test_own_window_does_not_emit_retired_password_notice(self):
         hook = make_hook()
-        hook.password_guard = guard = PasswordFieldGuard()
-        guard.ingest('10|20|password')
-        hook.user32.GetForegroundWindow.return_value = 10
-        def pid(_window, value):
-            value._obj.value = os.getpid()
-            return 1
-        hook.user32.GetWindowThreadProcessId.side_effect = pid
-        hook._report_password_state()
+        hook.context = lambda: None
+        key(hook, 65)
         hook.emit.assert_not_called()
 
 

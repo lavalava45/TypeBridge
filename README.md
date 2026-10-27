@@ -49,6 +49,28 @@ For the ready-to-run Windows x64 bundle, open [Releases](https://github.com/lava
 download the TypeBridge ZIP, extract all files and run `TypeBridge.exe`.
 Python and separate dictionary preparation are not required for the bundle.
 The first public package is an unsigned alpha with open frequency dictionaries.
+Its word and confidence lists are derived from FrequencyWords/OpenSubtitles,
+but **numeric** `frequency_{ru,en,he}.tsv` indices are retained as reference
+data only: TypeBridge no longer loads or uses them for runtime decisions.
+
+**Native RichEdit transaction (test builds):** normal hooked typing dispatches
+RichEdit edits to a dedicated worker outside `WH_KEYBOARD_LL`. Incoming physical
+key transitions are briefly held in an ordered, bounded queue and replayed
+after the edit and layout request, provided focus has not changed. The worker
+admits up to 32 replacement characters; the synchronous fallback remains
+limited to 12. An input overflow or unsafe replay quarantines native edits.
+Release acceptance still requires physical fast-typing, focus, and Undo tests
+on both PCs: passing isolated Win32 tests is not a release guarantee.
+
+If focus changes while input is held, TypeBridge never automatically inserts
+those keys into a different field. For eligible printable keystrokes, the tray
+can offer **Restore held keystrokes to the original field**. Return to that
+field, verify the cursor and layout, and select Restore within three minutes.
+This is explicit, in-memory recovery only; shortcuts and uncertain partial
+writes cannot be replayed safely. Inspect the resulting text and Undo history.
+For browser fields, an unchanged HWND is not sufficient: a click or field
+navigation changes the field revision and blocks replay into another DOM input,
+including explicit recovery of that stale browser queue.
 
 New version tags automatically build and publish a Windows x64 ZIP with open
 dictionaries, instructions in three languages, licenses and SHA-256 checksums.
@@ -89,11 +111,26 @@ py -3.12 -m unittest discover -p "test_*.py"
 
 The executable is `dist/TypeBridge.exe`. Automated tests use model input or
 withdrawn windows; they do not prove physical typing compatibility in every app.
+The **Minimize to taskbar** button and the window X minimize settings without
+withdrawing the window: the TypeBridge taskbar button remains available even
+if Windows hides its notification-area icon in the overflow. The taskbar
+window icon shows RU/EN/HE; the optional flag by the text caret is a separate
+setting. Use the explicit **Exit** command to quit. The Windows shortcuts
+panel always shows the built-in Win+Space shortcut separately from optional
+legacy registry combinations, which may be absent without indicating an error.
 Early correction keeps native Notepad++/RichEdit paths and, through a separate
 opt-in, sends keyboard replacements to other fields too. Real browser, Windows
 Settings and Electron compatibility is not yet verified. Physical typing,
 multiline expansion and Undo behavior still
 need validation in each editor. This is an actively developed prototype.
+
+**Automatically correct rare words** affects both completed and early words.
+With it enabled, boundary correction uses the full dictionary; before Space,
+the early algorithm additionally accepts only an unambiguous, complete rare
+word of at least five letters, with no competing language prefix. It never
+guesses from an unfinished rare prefix. With the option disabled, the original
+confident-word policy applies. **Correct before a space** must be enabled
+separately. For example, `lbdthcbz` can become `диверсия` (EN → RU).
 
 ## Data and privacy
 

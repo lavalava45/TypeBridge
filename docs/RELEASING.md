@@ -6,23 +6,37 @@ and publish a release. Tags containing a hyphen are marked as prereleases.
 Manual **Run workflow** on `main` builds downloadable Actions artifacts without
 publishing a release. A published release is never overwritten by a rerun.
 
-The builder takes committed source with `git archive`, downloads the pinned
-FrequencyWords/OpenSubtitles data using `prepare_dictionaries.py`, and bundles
-only that open dictionary data. Local research dictionaries and personal files
-are not uploaded. The local `dist/TypeBridge.exe` is not involved.
+The builder takes committed source with `git archive`, downloads the pinned,
+SHA-256-verified full FrequencyWords/OpenSubtitles RU/EN/HE tables and the pinned
+Lebedev/Hunspell Russian dictionary through `prepare_open_data.py`.
+The new RU dictionary is the union of FrequencyWords and expanded Hunspell
+forms, while `frequency_{ru,en,he}.tsv` contains normalized frequencies
+measured over each *complete unfiltered* source corpus. Public source hashes,
+output hashes, author notices and licenses accompany the dictionaries.
+`build_public_release.py` refuses to run from a dirty worktree, including
+untracked source/tests: otherwise `git archive HEAD` would silently omit those
+changes. Commit/review the complete working state before building a release.
+They live in `data/` **beside** the EXE, not embedded in it. The entire `data/`
+folder must remain with the executable in the ZIP. Local research dictionaries
+and personal files are not uploaded. The local `dist/TypeBridge.exe` is not
+involved.
 
 Downloads include:
 
-- `TypeBridge-VERSION-windows-x64.zip`: EXE, RU/EN/HE dictionaries, example
-  dictionary packs, English/Russian/Hebrew instructions, source archive and licenses.
+- `TypeBridge-VERSION-windows-x64.zip`: EXE, external RU/EN/HE dictionaries and
+  all three frequency indices in `data/`, accompanying sources/license notices,
+  example dictionary packs, English/Russian/Hebrew instructions, source archive and licenses.
 - `SHA256SUMS.txt`: SHA-256 of the ZIP.
 - `BUILD-MANIFEST.json`: source commit, dependency versions, dictionary sources,
   file hashes and the result of the frozen executable's background self-test.
 
-The build must pass the entire background unittest suite on public dictionaries,
-its source and frozen dictionary/model self-tests, archive integrity check and
-private-file exclusion check before publication. These are not proof of physical
-typing compatibility in every editor. The executable is currently unsigned.
+The build must pass every `test_*.py` unittest module on public dictionaries.
+Modules run in separate Python processes to bound peak memory use when large
+dictionary and early-recognition fixtures are initialized. A failed module
+stops the build. The source and frozen dictionary/model self-tests, archive
+integrity check and private-file exclusion check must also pass before
+publication. These are not proof of physical typing compatibility in every
+editor. The executable is currently unsigned.
 
 Users extract the entire ZIP and run `TypeBridge.exe`. Neither Python,
 administrator rights nor an installer are needed for ordinary use. Settings

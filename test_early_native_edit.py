@@ -11,6 +11,7 @@ from test_app_controls import make_hook
 from typebridge_app import FocusContext, LiveHook
 from engine import Decision
 from early_live_trial import TrialHook
+from word_cycle import RecentWord
 
 
 class PositionTests(unittest.TestCase):
@@ -37,6 +38,136 @@ class PositionTests(unittest.TestCase):
 
 
 class TrialDeliveryTests(unittest.TestCase):
+    def test_notepad_native_early_waits_for_physical_char_and_does_not_replay_it(self):
+        from test_app_controls import key
+        from typebridge_app import WM_KEYUP
+        hook, editor, _, language = self.fixture(source='en', typed='ghbdt',
+                                                 target='ru', result='приве')
+        editor.data, editor.caret = b'ghbd', 4
+        hook.keys = [(0x41, False)] * 4
+        hook.last_language, hook.last_focus = 'en', 100
+        hook.user32.GetKeyState.return_value = 0
+        hook.token_blocked = False
+        hook.engine.mapper.char = lambda vk, lang, shift: 't'
+        decision = Decision('ghbdt', 'приве', 'ru', 'unique dictionary match')
+        with patch('typebridge_app.candidate_token_key', return_value=True), \
+                patch('typebridge_app.suggest_live_early', return_value=decision), \
+                patch('typebridge_app.NativeEditBridge', return_value=editor) as factory:
+            self.assertEqual(key(hook, 0x54), 0)  # Physical KEYDOWN is forwarded.
+            self.assertEqual(editor.data, b'ghbd')
+            factory.assert_not_called()
+            # The real editor accepts the physical fifth character once.
+            editor.data += b't'
+            editor.caret += 1
+            self.assertEqual(key(hook, 0x54, WM_KEYUP), 0)
+        self.assertEqual(editor.data, 'приве'.encode())
+        self.assertEqual(language[0], 'ru')
+        self.assertTrue(hook.early_done)
+        self.assertEqual(editor.writes, 1)
+        self.assertEqual(factory.call_args.kwargs['pending_char'], '')
+        hook.user32.SendInput.assert_not_called()
+        self.assertNotIn(0x54, hook.suppressed_keyups)
+
+    def test_native_keyup_early_refuses_when_source_not_delivered_yet(self):
+        from test_app_controls import key
+        from typebridge_app import WM_KEYUP
+        hook, editor, _, language = self.fixture(source='en', typed='ghbdt',
+                                                 target='ru', result='приве')
+        editor.data, editor.caret = b'ghbd', 4
+        hook.keys = [(0x41, False)] * 4
+        hook.engine.mapper.char = lambda vk, lang, shift: 't'
+        hook.user32.GetKeyState.return_value = 0
+        hook.token_blocked = False
+        decision = Decision('ghbdt', 'приве', 'ru', 'unique dictionary match')
+        with patch('typebridge_app.candidate_token_key', return_value=True), \
+                patch('typebridge_app.suggest_live_early', return_value=decision), \
+                patch('typebridge_app.NativeEditBridge', return_value=editor):
+            self.assertEqual(key(hook, 0x54), 0)
+            self.assertEqual(key(hook, 0x54, WM_KEYUP), 0)
+        self.assertEqual(editor.data, b'ghbd')
+        self.assertEqual(editor.writes, 0)
+        self.assertEqual(language[0], 'en')
+        self.assertFalse(getattr(hook, 'early_done', False))
+        hook.user32.SendInput.assert_not_called()
+
+    def native_cycle_fixture(self, *, text='tree ', source='en', suffix=' '):
+        hook, editor, _, language = self.fixture(source=source, typed='tree', target='he', result='ארקק')
+        forms = {'en': 'tree', 'he': 'ארקק', 'ru': 'екуу'}
+        keys = tuple((ord(letter.upper()), False) for letter in 'tree')
+        hook.engine.mapper.word = lambda physical, lang: forms[lang]
+        hook.context = lambda: FocusContext(90, 100, 1, language[0], 'notepad.exe', 'test', 100)
+        editor.data = text.encode('utf-8')
+        editor.caret = len(editor.data)
+        hook.keys.clear()
+        hook.last_word = RecentWord(keys, forms[source], source, suffix,
+                                    hook._word_scope(hook.context()))
+        return hook, editor, language
+
+    def test_repeated_pause_in_notepad_verifies_each_native_word_before_replacing(self):
+        hook, editor, language = self.native_cycle_fixture()
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory:
+            for expected, new_lang in (('ארקק ', 'he'), ('екуу ', 'ru'), ('tree ', 'en')):
+                hook._cycle_word(hook.context())
+                self.assertEqual(editor.data.decode('utf-8'), expected)
+                self.assertEqual(language[0], new_lang)
+        self.assertEqual(factory.call_count, 3)
+        self.assertEqual(editor.writes, 3)
+        hook.user32.SendInput.assert_not_called()
+
+    def test_pause_refuses_stale_notepad_buffer_instead_of_appending_variants(self):
+        hook, editor, language = self.native_cycle_fixture(text='tree extra ')
+        with patch('typebridge_app.NativeEditBridge', return_value=editor):
+            hook._cycle_word(hook.context())
+        self.assertEqual(editor.data.decode(), 'tree extra ')
+        self.assertEqual(editor.writes, 0)
+        self.assertEqual(language[0], 'en')
+        hook.user32.SendInput.assert_not_called()
+
+    def test_uncertain_native_pause_quarantines_following_cycle_presses(self):
+        hook, editor, language = self.native_cycle_fixture()
+        old_replace = editor.replace
+        def uncertain(*args):
+            old_replace(*args)
+            raise TimeoutError('write-failed-after-mutation')
+        editor.replace = uncertain
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory:
+            hook._cycle_word(hook.context())
+            self.assertTrue(hook.native_edit_disabled)
+            hook._cycle_word(hook.context())
+        self.assertEqual(editor.writes, 1)
+        self.assertEqual(factory.call_count, 1)
+        self.assertEqual(language[0], 'en')
+        hook.user32.SendInput.assert_not_called()
+
+    def test_native_pause_key_repeat_only_applies_one_verified_cycle_per_press(self):
+        from test_app_controls import key
+        from typebridge_app import VK_PAUSE, WM_KEYUP
+        hook, editor, language = self.native_cycle_fixture()
+        hook.last_focus = hook.context().focus
+        hook.last_language = language[0]
+        with patch('typebridge_app.NativeEditBridge', return_value=editor):
+            self.assertEqual(key(hook, VK_PAUSE), 1)
+            self.assertEqual(key(hook, VK_PAUSE), 1)
+            self.assertEqual(editor.writes, 1)
+            self.assertEqual(editor.data.decode(), 'ארקק ')
+            self.assertEqual(key(hook, VK_PAUSE, WM_KEYUP), 1)
+            self.assertEqual(key(hook, VK_PAUSE), 1)
+            self.assertEqual(editor.writes, 2)
+            self.assertEqual(editor.data.decode(), 'екуу ')
+        hook.user32.SendInput.assert_not_called()
+
+    def test_notepad_plus_plus_manual_cycle_uses_scintilla_not_unverified_input(self):
+        hook, editor, language = self.native_cycle_fixture()
+        hook.context = lambda: FocusContext(90, 100, 1, language[0],
+                                            'notepad++.exe', 'test', 100)
+        hook.last_word.scope = hook._word_scope(hook.context())
+        hook.user32.GetClassNameW.side_effect = lambda hwnd, buf, cap: setattr(buf, 'value', 'Scintilla')
+        with patch('typebridge_app.ScintillaEarlyBridge', return_value=editor) as adapter:
+            hook._cycle_word(hook.context())
+        adapter.assert_called_once()
+        self.assertEqual(editor.data.decode(), 'ארקק ')
+        hook.user32.SendInput.assert_not_called()
+
     def test_boundary_uses_native_word_replacement_and_forwards_space(self):
         hook, editor, decision, language = self.fixture()
         editor.data = decision.typed.encode()
@@ -162,6 +293,25 @@ class TrialDeliveryTests(unittest.TestCase):
             self.assertTrue(hook.early_done)
             hook.user32.SendInput.assert_not_called()
 
+    def test_rare_checkbox_routes_full_word_into_native_early_transport(self):
+        from incremental_recognition import prepare_early
+        source, typed, target, result = 'en', 'lbdthcbz', 'ru', 'диверсия'
+        hook, editor, _, language = self.fixture(source, typed, target, result)
+        forms = {'en': typed, 'ru': result, 'he': 'ךנגאירנז'}
+        hook.engine.mapper.word = lambda keys, lang: forms[lang][:len(keys)]
+        hook.engine.words = {'en': set(), 'ru': {result}, 'he': set()}
+        hook.engine.confident = {'en': set(), 'ru': set(), 'he': set()}
+        hook.engine.exclusions = set()
+        hook.engine.conservative = False
+        prepare_early(hook.engine)
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as bridge:
+            self.assertTrue(hook._try_early(hook.context()))
+            bridge.assert_called_once()
+        self.assertEqual(editor.data, result.encode())
+        self.assertEqual(language[0], 'ru')
+        self.assertTrue(hook.early_done)
+        hook.user32.SendInput.assert_not_called()
+
     def test_refusal_does_not_consume_held_key_or_change_layout(self):
         hook, editor, decision, language = self.fixture()
         editor.data = b'prefix-not-delivered'
@@ -188,6 +338,91 @@ class TrialDeliveryTests(unittest.TestCase):
         self.assertFalse(getattr(hook, 'early_disabled', False))
         hook.user32.SendInput.assert_not_called()
 
+    def test_read_timeout_defers_only_this_word_then_allows_fresh_early_attempt(self):
+        hook, editor, decision, language = self.fixture()
+        snapshot = editor.snapshot
+        editor.snapshot = Mock(side_effect=TimeoutError('read-only'))
+        editor.timeout = True
+        editor.failure = 'native:preflight:message-d:error-1460'
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory, patch('typebridge_app.suggest_live_early', return_value=decision):
+            self.assertFalse(hook._try_early(hook.context()))
+            self.assertFalse(getattr(hook, 'native_early_disabled', False))
+            self.assertTrue(hook.native_early_deferred)
+            self.assertFalse(editor.write_started)
+            self.assertFalse(hook._try_early(hook.context()))
+            factory.assert_called_once()
+            keys = hook.keys.copy()
+            hook.clear_token()
+            hook.keys = keys
+            editor.snapshot = snapshot
+            editor.timeout = False
+            self.assertTrue(hook._try_early(hook.context()))
+        self.assertEqual(editor.data, 'привет'.encode())
+        self.assertEqual(language[0], 'ru')
+        hook.user32.SendInput.assert_not_called()
+
+    def test_snapshot_changed_defers_next_letter_without_disabling_next_word(self):
+        hook, editor, decision, language = self.fixture()
+        original = editor.snapshot
+        editor.snapshot = Mock(side_effect=ValueError('snapshot-changed'))
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory, \
+                patch('typebridge_app.suggest_live_early', return_value=decision):
+            self.assertFalse(hook._try_early(hook.context()))
+            self.assertTrue(hook.native_early_deferred)
+            self.assertFalse(getattr(hook, 'native_edit_disabled', False))
+            self.assertFalse(hook._try_early(hook.context()))
+            factory.assert_called_once()
+            hook.clear_token()
+            hook.keys = [(0x41, False)] * len(decision.typed)
+            editor.snapshot = original
+            self.assertTrue(hook._try_early(hook.context()))
+        self.assertEqual(editor.data, 'привет'.encode())
+        self.assertEqual(language[0], 'ru')
+
+    def test_uncertain_early_write_blocks_boundary_and_manual_cycle_even_after_space(self):
+        hook, editor, decision, language = self.fixture()
+        original_replace = editor.replace
+        def partial(*args):
+            original_replace(*args)
+            raise TimeoutError('native-edit-budget')
+        editor.replace = partial
+        hook.engine.decide_token = Mock(return_value=decision)
+        with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory, \
+                patch('typebridge_app.suggest_live_early', return_value=decision):
+            self.assertTrue(hook._try_early(hook.context()))
+            self.assertTrue(hook.native_edit_disabled)
+            hook.clear_token()
+            hook.keys = [(0x41, False)] * len(decision.typed)
+            self.assertFalse(hook._correct(hook.context(), 0x20, ''))
+            hook.keys = [(0x41, False)] * len(decision.typed)
+            self.assertFalse(hook._correct(hook.context(), None, '', manual=True))
+            hook.last_word = SimpleNamespace(
+                scope=hook._word_scope(hook.context()), text='ghbdtn', suffix='',
+                next_variant=Mock(return_value=('ru', 'привет')))
+            hook._cycle_word(hook.context())
+            factory.assert_called_once()
+        hook.user32.SendInput.assert_not_called()
+        self.assertEqual(editor.writes, 1)
+        self.assertEqual(language[0], 'en')
+
+    def test_enter_read_timeout_does_not_disable_native_early(self):
+        hook, editor, decision, language = self.fixture()
+        editor.__class__.__enter__ = Mock(side_effect=TimeoutError('preflight'))
+        try:
+            with patch('typebridge_app.NativeEditBridge', return_value=editor), patch('typebridge_app.suggest_live_early', return_value=decision):
+                self.assertFalse(hook._try_early(hook.context()))
+            self.assertFalse(getattr(hook, 'native_early_disabled', False))
+            self.assertEqual(language[0], 'en')
+        finally:
+            del editor.__class__.__enter__
+
+    def test_debug_steps_are_queued_without_typed_text(self):
+        hook, editor, decision, language = self.fixture()
+        hook.pipeline_debug = True
+        editor.trace = ['native-step:phase=preflight:msg=d:ms=1.234:ok=1:error=0:write=0']
+        hook._trace_native(editor)
+        hook.emit.assert_called_with('native-trace', tuple(editor.trace))
+
     def test_boundary_resets_trial_without_changing_completed_word(self):
         hook, editor, decision, language = self.fixture()
         hook.early_done = True
@@ -202,7 +437,7 @@ class NativeTypingTests(unittest.TestCase):
         bridge = self.fixture()
         bridge.pending_char = ''
         bridge.prepared = (0, 6, 'привет', b'ghbdtn', 6)
-        bridge.selection = Mock(side_effect=[(6, 6), (0, 6)])
+        bridge.selection = Mock(return_value=(0, 6))
         bridge.snapshot = Mock(return_value=(b'ghbdtn', 6))
         bridge.replace(0, 6, 'привет'.encode())
         self.assertEqual([call.args for call in bridge.msg.call_args_list], [
@@ -219,7 +454,10 @@ class NativeTypingTests(unittest.TestCase):
         bridge.selection = Mock(side_effect=[(3, 3), (0, 4)])
         bridge.snapshot = Mock(return_value=('флгщ'.encode(), 8))
         bridge.timeout = bridge.budget_exceeded = bridge.write_started = False
-        bridge.msg = Mock()
+        def send(command, *args):
+            if command in (0x102, 0xB1):
+                bridge.write_started = True
+        bridge.msg = Mock(side_effect=send)
         return bridge
 
     def test_hebrew_uses_native_typing_group_with_undo_boundaries(self):
@@ -233,6 +471,8 @@ class NativeTypingTests(unittest.TestCase):
     def test_partial_character_timeout_is_uncertain_and_never_replayed(self):
         bridge = self.fixture()
         def send(command, *args):
+            if command in (0x102, 0xB1):
+                bridge.write_started = True
             if command == 0x102 and args[0] == ord('ל'):
                 bridge.timeout = True
                 raise TimeoutError('native-message')
@@ -242,6 +482,155 @@ class NativeTypingTests(unittest.TestCase):
         characters = [call.args[1] for call in bridge.msg.call_args_list if call.args[0] == 0x102]
         self.assertEqual(characters, [ord('щ'), ord('ש'), ord('ל')])
         self.assertTrue(bridge.write_started)
+
+    def test_prepare_reuses_snapshot_but_protocol_rechecks_before_write(self):
+        bridge = self.fixture()
+        bridge.last_snapshot = ('флг'.encode(), 6)
+        bridge.prepare(0, 6, 'שלום'.encode())
+        bridge.snapshot.assert_not_called()
+        self.assertEqual(bridge.prepared, (0, 3, 'שלום', 'флгщ'.encode(), 8))
+
+    def test_boundary_read_failure_is_refused_before_any_mutation(self):
+        bridge = self.fixture()
+        bridge.pending_char = ''
+        bridge.prepared = (0, 6, 'привет', b'ghbdtn', 6)
+        bridge.snapshot.side_effect = TimeoutError('read-only')
+        # Exercise the shared protocol with a real native replace method.
+        snapshots = [(b'ghbdtn', 6), (b'ghbdtn', 6)]
+        bridge.snapshot.side_effect = snapshots + [TimeoutError('read-only')]
+        bridge.prepare = Mock()
+        outcome = replace_prefix(bridge, 'ghbdtn', 'привет', lambda: True)
+        self.assertEqual(outcome.state, 'refused')
+        self.assertFalse(bridge.write_started)
+        bridge.msg.assert_not_called()
+
+    def test_selection_timeout_is_uncertain_even_before_text_write(self):
+        bridge = self.fixture()
+        bridge.pending_char = ''
+        bridge.prepared = (0, 6, 'привет', b'ghbdtn', 6)
+        bridge.snapshot.return_value = (b'ghbdtn', 6)
+        bridge.prepare = Mock()
+        def send(command, *args):
+            if command == 0xB1:
+                bridge.write_started = True
+                raise TimeoutError('selection')
+        bridge.msg.side_effect = send
+        outcome = replace_prefix(bridge, 'ghbdtn', 'привет', lambda: True)
+        self.assertEqual(outcome.state, 'uncertain')
+        self.assertTrue(bridge.write_started)
+
+
+class NativeTimingTests(unittest.TestCase):
+    def test_long_replacement_refused_before_any_native_mutation(self):
+        from early_native_edit import NATIVE_MAX_INLINE_CHARS
+        from early_scintilla import replace_prefix
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.context = SimpleNamespace(focus=100)
+        bridge.u = SimpleNamespace(SendMessageTimeoutW=Mock())
+        bridge.pending_char = ''
+        bridge.phase = 'preflight'
+        bridge.failure = ''
+        bridge.write_started = False
+        bridge.last_snapshot = (b'source', 6)
+        bridge.snapshot = Mock(return_value=(b'source', 6))
+        result = replace_prefix(bridge, 'source', 'a' * (NATIVE_MAX_INLINE_CHARS + 1), lambda: True)
+        self.assertEqual(result.state, 'refused')
+        self.assertEqual(result.reason, 'ValueError')
+        self.assertEqual(bridge.failure, 'native:prepare:callback-admission-too-large')
+        self.assertFalse(bridge.write_started)
+        bridge.u.SendMessageTimeoutW.assert_not_called()
+
+    def test_short_replacement_admitted_by_callback_budget(self):
+        from early_native_edit import NATIVE_MAX_INLINE_CHARS
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.pending_char, bridge.phase = '', 'preflight'
+        bridge.last_snapshot = (b'source', 6)
+        bridge.prepare(0, 6, ('a' * NATIVE_MAX_INLINE_CHARS).encode())
+        self.assertEqual(bridge.prepared[2], 'a' * NATIVE_MAX_INLINE_CHARS)
+
+    def test_native_messages_have_distinct_bounded_read_and_commit_timeouts(self):
+        # The physical Notepad trace contained a WM_CHAR timing out at 10.155 ms
+        # after a successfully delivered earlier character. Preflight should
+        # remain short, but irreversible writes need a bounded scheduling margin.
+        from early_native_edit import (NATIVE_READ_TIMEOUT_MS,
+                                       NATIVE_MUTATION_TIMEOUT_MS)
+        self.assertEqual(NATIVE_READ_TIMEOUT_MS, 10)
+        self.assertEqual(NATIVE_MUTATION_TIMEOUT_MS, 35)
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.context = SimpleNamespace(focus=100)
+        bridge.u = SimpleNamespace(SendMessageTimeoutW=Mock(return_value=1))
+        bridge.check_deadline = Mock()
+        bridge.trace, bridge.phase, bridge.write_started = [], 'preflight', False
+        bridge.msg(0xB0)  # EM_GETSEL; must not increase read risk.
+        bridge.phase = 'deliver-held'
+        bridge.msg(0x102, ord('у'), 1)  # Potentially irreversible.
+        bridge.phase = 'select-range'
+        bridge.msg(0xB1, 0, 5)  # Selection is also state-changing.
+        bridge.phase = 'verify-result'
+        bridge.msg(0xD)  # Reads after mutation are still bounded as reads.
+        calls = bridge.u.SendMessageTimeoutW.call_args_list
+        self.assertEqual([call.args[5] for call in calls], [10, 35, 35, 10])
+        self.assertTrue(bridge.write_started)
+
+    def test_native_commit_timeout_remains_uncertain_never_retried(self):
+        from early_native_edit import NATIVE_MUTATION_TIMEOUT_MS
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.context = SimpleNamespace(focus=100)
+        bridge.u = SimpleNamespace(SendMessageTimeoutW=Mock(return_value=0))
+        bridge.check_deadline = Mock()
+        bridge.phase, bridge.write_started, bridge.trace = 'write-replacement', True, []
+        with patch('early_native_edit.ctypes.get_last_error', return_value=1460):
+            with self.assertRaises(TimeoutError):
+                bridge.msg(0x102, ord('е'), 1)
+        self.assertEqual(bridge.u.SendMessageTimeoutW.call_args[0][5],
+                         NATIVE_MUTATION_TIMEOUT_MS)
+        self.assertTrue(bridge.timeout)
+        self.assertEqual(bridge.u.SendMessageTimeoutW.call_count, 1)
+        self.assertIn('message-102:error-1460', bridge.failure)
+
+    def test_budget_never_cuts_a_started_native_typing_group(self):
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.context = SimpleNamespace(focus=100)
+        bridge.u = SimpleNamespace(SendMessageTimeoutW=Mock(return_value=1))
+        bridge.started, bridge.phase = 0, 'write-replacement'
+        bridge.write_started, bridge.timeout, bridge.budget_exceeded = True, False, False
+        bridge.trace = []
+        with patch('early_native_edit.perf_counter', return_value=.070):
+            bridge.msg(0x102, ord('в'), 1)
+            bridge.msg(0x458)
+        self.assertEqual(bridge.u.SendMessageTimeoutW.call_count, 2)
+        self.assertFalse(bridge.budget_exceeded)
+
+    def test_deadline_before_write_message_does_not_mark_mutation(self):
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.u = SimpleNamespace(SendMessageTimeoutW=Mock())
+        bridge.write_started, bridge.trace, bridge.phase = False, [], 'select-range'
+        bridge.check_deadline = Mock(side_effect=TimeoutError('deadline-before-send'))
+        with self.assertRaises(TimeoutError):
+            bridge.msg(0xB1, 0, 3)
+        self.assertFalse(bridge.write_started)
+        bridge.u.SendMessageTimeoutW.assert_not_called()
+
+    def test_budget_failure_identifies_phase_without_sending(self):
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.started, bridge.phase = 0, 'verify-source'
+        with patch('early_native_edit.perf_counter', return_value=.046):
+            with self.assertRaises(TimeoutError):
+                bridge.check_deadline()
+        self.assertEqual(bridge.failure, 'native:verify-source:budget-45ms')
+
+    def test_message_failure_records_win32_error_and_phase(self):
+        bridge = NativeEditBridge.__new__(NativeEditBridge)
+        bridge.context = SimpleNamespace(focus=100)
+        bridge.u = SimpleNamespace(SendMessageTimeoutW=Mock(return_value=0))
+        bridge.check_deadline = Mock()
+        bridge.trace, bridge.phase, bridge.write_started = [], 'verify-result', True
+        with patch('early_native_edit.ctypes.get_last_error', return_value=1460):
+            with self.assertRaises(TimeoutError):
+                bridge.msg(0xD)
+        self.assertEqual(bridge.failure, 'native:verify-result:message-d:error-1460')
+        self.assertIn(':write=1', bridge.trace[0])
+        self.assertIn(':error=1460', bridge.trace[0])
 
 
 class TrialWindowTests(unittest.TestCase):

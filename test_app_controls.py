@@ -102,6 +102,17 @@ def key(hook, vk, message=WM_KEYDOWN, *, flags=0, extra=0):
 
 
 class HookControlTests(unittest.TestCase):
+    def test_native_quarantine_warns_once_without_enabling_another_edit(self):
+        hook = make_hook()
+        hook.native_edit_disabled = False
+        hook._quarantine_native()
+        hook._quarantine_native()
+        self.assertTrue(hook.native_edit_disabled)
+        self.assertTrue(hook.native_early_disabled)
+        hook.emit.assert_called_once()
+        self.assertEqual(hook.emit.call_args.args[0], 'transport-quarantine')
+        self.assertIn('запустите заново', hook.emit.call_args.args[1])
+
     def test_boundary_rechecks_focus_before_sendinput(self):
         hook = make_hook()
         context = hook.context()
@@ -116,6 +127,34 @@ class HookControlTests(unittest.TestCase):
         self.assertTrue(hook.token_blocked)
         self.assertIn(0x20, hook.suppressed_keyups)
         self.assertEqual(hook.user32.SendInput.call_count, 2)  # Partial batch + keyup only.
+
+    def test_partial_send_to_changed_field_does_not_send_remainder(self):
+        hook = make_hook()
+        calls = []
+        original = hook.context()
+        def first(count, batch, size):
+            calls.append([batch[i].u.ki.wVk for i in range(count)])
+            hook.context = lambda: None
+            return 2  # One complete Backspace; no unmatched key down.
+        hook.user32.SendInput.side_effect = first
+        self.assertTrue(hook._correct(original, 0x20, ''))
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(hook.token_blocked)
+        self.assertIn(0x20, hook.suppressed_keyups)
+
+    def test_releases_unmatched_key_after_incomplete_retry(self):
+        hook = make_hook()
+        slices = []
+        def deliver(count, batch, size):
+            events = [batch[i].u.ki for i in range(count)]
+            slices.append([(e.wVk, e.dwFlags) for e in events])
+            return 1 if len(slices) == 1 else (0 if len(slices) == 2 else count)
+        hook.user32.SendInput.side_effect = deliver
+        self.assertTrue(hook._correct(hook.context(), 0x20, ''))
+        self.assertEqual(len(slices), 3)
+        self.assertEqual(slices[0][0], (8, 0))  # First Backspace down accepted.
+        self.assertEqual(slices[2], [(8, 2)])  # Release, never a second down.
+        self.assertTrue(hook.token_blocked)
 
     def test_stop_event_unlocks_controls_even_while_worker_is_finishing(self):
         gui = TypeBridgeGui.__new__(TypeBridgeGui)

@@ -10,12 +10,13 @@ from password_fields import PasswordFieldGuard
 
 
 class PrefixRecoveryTests(unittest.TestCase):
+    """Old prefix reader stays isolated; live hook must never call it."""
     def setUp(self):
         self.driver = cycle_tests.WordCycleTests()
         self.driver.setUpClass()
         self.driver.setUp()
 
-    def test_skipped_start_is_restored_only_after_safe_from_document(self):
+    def test_skipped_start_is_not_silently_recovered_from_document(self):
         hook = self.driver.hook
         hook.password_guard = guard = PasswordFieldGuard()
         original = hook.context
@@ -26,9 +27,10 @@ class PrefixRecoveryTests(unittest.TestCase):
         self.driver.type('gh')
         self.assertEqual(hook.keys, [])  # No password/unknown key prefix is retained.
         guard.ingest('90|100|safe')
-        with patch('typebridge_app.recover_prefix', return_value=[(71, False), (72, False)]):
+        with patch('typebridge_app.recover_prefix', return_value=[(71, False), (72, False)]) as recover:
             self.driver.type('bdtn ')
-        self.assertEqual(self.driver.text, 'привет ')
+        recover.assert_not_called()
+        self.assertEqual(self.driver.text, 'ghbdtn ')
 
     def test_password_never_triggers_document_recovery(self):
         hook = self.driver.hook
@@ -50,10 +52,10 @@ class PrefixRecoveryTests(unittest.TestCase):
         hook.pressed = lambda vk: False
         key(hook, 8)
         key(hook, 66)
-        self.assertEqual(hook.skipped_prefix_length, -1)
+        self.assertFalse(hasattr(hook, 'skipped_prefix_length'))
         self.assertEqual(hook.keys, [])
 
-    def test_restored_first_word_corrects_before_space(self):
+    def test_skipped_first_word_is_not_recovered_before_space(self):
         from incremental_recognition import prepare_early
         hook = self.driver.hook
         hook.settings = replace(hook.settings, early_correction=True, early_native=True)
@@ -66,9 +68,10 @@ class PrefixRecoveryTests(unittest.TestCase):
         hook.context = context
         self.driver.type('gh')
         guard.ingest('90|100|safe')
-        with patch('typebridge_app.recover_prefix', return_value=[(71, False), (72, False)]):
+        with patch('typebridge_app.recover_prefix', return_value=[(71, False), (72, False)]) as recover:
             self.driver.type('bdtn')
-        self.assertEqual(self.driver.text, 'привет')
+        recover.assert_not_called()
+        self.assertEqual(self.driver.text, 'ghbdtn')
 
     def snapshot_case(self, snapshots, length=2, valid=lambda: True):
         def class_name(_hwnd, value, _size): value.value = 'RichEdit50W'

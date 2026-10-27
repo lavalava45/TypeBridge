@@ -10,10 +10,14 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+from time import monotonic
+import ctypes
+from ctypes import wintypes
 
 import win32api
 import win32con
 import win32gui
+from pywintypes import error as Win32Error
 from tray_layouts import WindowsLayouts, SHELL_CLASSES
 from ui_i18n import tr
 
@@ -21,28 +25,50 @@ from ui_i18n import tr
 WM_TRAY = win32con.WM_APP + 52
 WM_SET_LANGUAGE = win32con.WM_APP + 53
 WM_CLIPBOARD_CONFIG = win32con.WM_APP + 54
+WM_RETRY_ICON = win32con.WM_APP + 55
 MENU_OPEN, MENU_ENABLE, MENU_EXIT = 4001, 4002, 4005
 MENU_SNIPPETS = 4006
 MENU_HISTORY = 4007
 MENU_CARET_FLAG = 4008
 MENU_JOURNAL = 4009
+MENU_RESTORE_INPUT = 4010
 MENU_LAYOUT_BASE = 5000
 ICON_LABELS = {"ru": "RU", "en": "EN", "he": "HE", "idle": "--"}
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
                 "running": "Автоисправление включено", "paused": "Автоисправление выключено",
-                "stopping": "Останавливается…", "error": "Ошибка запуска"}
+                "stopping": "Останавливается…", "error": "Ошибка запуска",
+                "degraded": "Автоисправление ограничено (RichEdit)"}
 
 
-def menu_items(state: str, detail: str = "", caret_flag: bool = False, journal_enabled: bool = False):
+def icon_registered(hwnd):
+    """Ask Explorer about this exact icon; a live helper thread is insufficient."""
+    class Identifier(ctypes.Structure):
+        _fields_ = [('cbSize', wintypes.DWORD), ('hWnd', wintypes.HWND),
+                    ('uID', wintypes.UINT), ('guidItem', ctypes.c_ubyte * 16)]
+    identifier = Identifier()
+    identifier.cbSize = ctypes.sizeof(identifier)
+    identifier.hWnd = hwnd
+    rect = wintypes.RECT()
+    query = ctypes.WinDLL('shell32').Shell_NotifyIconGetRect
+    query.argtypes = [ctypes.POINTER(Identifier), ctypes.POINTER(wintypes.RECT)]
+    query.restype = ctypes.c_long
+    return query(ctypes.byref(identifier), ctypes.byref(rect)) == 0
+
+
+def menu_items(state: str, detail: str = "", caret_flag: bool = False,
+               journal_enabled: bool = False, recovery_available: bool = False):
     """One checked correction toggle; no separate stop/pause commands."""
     busy = state in ("starting", "stopping")
     status = STATE_LABELS[state]
-    if state == "error" and detail:
+    if state in ("error", "degraded") and detail:
         status = detail
-    status_row = ((0, status[:180], False, False),) if busy or state == "error" else ()
+    status_row = ((0, status[:180], False, False),) if busy or state in ("error", "degraded") else ()
     journal_row = ((0, "● Дневник включён", False, False),) if journal_enabled else ()
-    items = status_row + journal_row + (
-        (MENU_ENABLE, "Автоисправление", not busy, state == "running"),
+    recovery_row = ((MENU_RESTORE_INPUT, "Вернуть задержанные клавиши в исходное поле…",
+                     True, False),) if recovery_available else ()
+    items = status_row + journal_row + recovery_row + (
+        (MENU_ENABLE, "Автоматически переключать раскладку", not busy,
+         state in ("running", "degraded")),
         (MENU_CARET_FLAG, "Флажок у текстового курсора", True, caret_flag),
         (MENU_OPEN, "Открыть настройки", True, False),
         (MENU_SNIPPETS, "Автозамена и шаблоны…", True, False),
@@ -55,6 +81,7 @@ def menu_items(state: str, detail: str = "", caret_flag: bool = False, journal_e
 
 def _icon_files() -> dict[str, Path]:
     """Create our own flag artwork under the user's app data, not in Windows."""
+    import os
     from PIL import Image, ImageDraw
 
     from app_paths import USER_DIR
@@ -65,7 +92,16 @@ def _icon_files() -> dict[str, Path]:
         path = base / f"{language}.ico"
         result[language] = path
         if path.exists():
-            continue
+            try:
+                with Image.open(path) as existing:
+                    if existing.format != 'ICO':
+                        raise ValueError('not an icon')
+                    existing.verify()
+                continue
+            except (OSError, ValueError, SyntaxError):
+                # A truncated or corrupt ICO used to permanently kill the
+                # tray worker. Regenerate *only* our disposable icon art.
+                pass
         image = Image.new("RGBA", (64, 64), (248, 248, 248, 255))
         draw = ImageDraw.Draw(image)
         if language == "ru":
@@ -94,7 +130,9 @@ def _icon_files() -> dict[str, Path]:
         else:
             draw.ellipse((8, 8, 56, 56), fill=(100, 100, 100))
         draw.rectangle((0, 0, 63, 63), outline=(65, 65, 65), width=1)
-        image.save(path, format="ICO", sizes=[(16, 16), (32, 32), (64, 64)])
+        temp = path.with_suffix('.ico.tmp')
+        image.save(temp, format="ICO", sizes=[(16, 16), (32, 32), (64, 64)])
+        os.replace(temp, path)
     return result
 
 
@@ -114,8 +152,13 @@ class TrayController:
         self.last_target = None
         self.caret_flag = False
         self.journal_enabled = False
+        self.native_recovery_available = False
         self.clipboard_settings = None
         self.clipboard_hotkeys = None
+        self.next_recovery = 0.0
+        self.tray_start_failures = 0
+        self.last_fatal_error = None
+        self.last_icon_status = None
 
     def configure_clipboard(self, settings):
         self.clipboard_settings = settings
@@ -129,6 +172,10 @@ class TrayController:
         self.journal_enabled = bool(enabled)
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, WM_SET_LANGUAGE, 0, 0)
+
+    def set_native_recovery(self, enabled):
+        self.native_recovery_available = bool(enabled)
+        self.refresh_ui()
 
     def refresh_ui(self):
         if self.hwnd:
@@ -146,11 +193,69 @@ class TrayController:
             self.notify(("tray-error", str(error)))
 
     def start(self):
-        if self.worker:
+        if self.closing or (self.worker and self.worker.is_alive()):
             return
         self.worker = threading.Thread(target=self._message_loop,
                                        name="TypeBridgeTray", daemon=True)
         self.worker.start()
+
+    def maintain(self):
+        """Queue recovery on the tray thread; never operate Tk or take focus."""
+        if self.closing:
+            return
+        now = monotonic()
+        if now < getattr(self, 'next_recovery', 0.0):
+            return
+        self.next_recovery = now + min(60.0, 2.0 * (2 ** min(5, getattr(self, 'tray_start_failures', 0))))
+        if not self.worker or not self.worker.is_alive():
+            self.start()
+        elif self.hwnd:
+            try:
+                win32gui.PostMessage(self.hwnd, WM_RETRY_ICON, 0, 0)
+            except (OSError, Win32Error):
+                self.ready.clear()
+
+    def _icon_status(self, message):
+        if message != self.last_icon_status:
+            self.last_icon_status = message
+            self.notify(('tray-diagnostic', message))
+
+    def _ensure_icon(self, *, update=False):
+        """A temporarily unavailable Explorer must not kill the message loop."""
+        if self.closing:
+            return
+        try:
+            present = icon_registered(self.hwnd)
+            if update or not present:
+                operation = win32gui.NIM_MODIFY if present else win32gui.NIM_ADD
+                try:
+                    win32gui.Shell_NotifyIcon(operation, self._icon_data())
+                except (OSError, Win32Error):
+                    # An ADD can race Explorer's acknowledgement of an earlier
+                    # ADD. MODIFY the same identity, never create a second one.
+                    if operation != win32gui.NIM_ADD:
+                        raise
+                    win32gui.Shell_NotifyIcon(win32gui.NIM_MODIFY, self._icon_data())
+                present = icon_registered(self.hwnd)
+            if present:
+                self.ready.set()
+                self.tray_start_failures = 0
+                self._icon_status('Значок трея подтверждён Explorer')
+            else:
+                self.ready.clear()
+                self._icon_status('Explorer пока не подтвердил значок трея; повтор через 2 с')
+        except (OSError, Win32Error, AttributeError) as error:
+            self.ready.clear()
+            self._icon_status('Регистрация значка трея: '
+                              + str(error) + '; повтор через 2 с')
+
+    def available(self):
+        try:
+            return bool(not self.closing and self.ready.is_set() and self.worker
+                        and self.worker.is_alive() and self.hwnd
+                        and win32gui.IsWindow(self.hwnd) and icon_registered(self.hwnd))
+        except (OSError, Win32Error, AttributeError):
+            return False
 
     def set_language(self, language: str):
         if language not in ICON_LABELS or self.closing:
@@ -197,7 +302,7 @@ class TrayController:
 
     def _icon_data(self):
         state, detail = self.run_state
-        status = tr(detail if state == "error" and detail else STATE_LABELS[state])
+        status = tr(detail if state in ("error", "degraded") and detail else STATE_LABELS[state])
         return (self.hwnd, 0, win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
                 WM_TRAY, self.icons.get(self.language) or self.icons["idle"],
                 f"TypeBridge — {tr('Дневник ВКЛ · ') if self.journal_enabled else ''}{status}"[:127])
@@ -213,19 +318,28 @@ class TrayController:
                 self._show_menu()
             return 0
         if message == WM_SET_LANGUAGE:
-            win32gui.Shell_NotifyIcon(win32gui.NIM_MODIFY, self._icon_data())
+            self._ensure_icon(update=True)
+            return 0
+        if message == WM_RETRY_ICON:
+            self._ensure_icon()
             return 0
         if message == win32con.WM_CLOSE:
             win32gui.DestroyWindow(hwnd)
             return 0
         if message == win32con.WM_DESTROY:
+            self.ready.clear()
             if self.clipboard_hotkeys:
                 self.clipboard_hotkeys.close()
-            win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
-            win32gui.PostQuitMessage(0)
+            try:
+                win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
+            except (OSError, Win32Error):
+                pass  # Explorer may already be gone during shutdown.
+            finally:
+                win32gui.PostQuitMessage(0)
             return 0
         if message == self.taskbar_created:
-            win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, self._icon_data())
+            self.ready.clear()
+            self._ensure_icon(update=True)
             return 0
         return win32gui.DefWindowProc(hwnd, message, wparam, lparam)
 
@@ -256,7 +370,8 @@ class TrayController:
                 win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0, tr(str(error))[:180])
             insert_position = 0
             for code, title, enabled, checked in menu_items(*self.run_state, caret_flag=self.caret_flag,
-                                                          journal_enabled=self.journal_enabled):
+                                                          journal_enabled=self.journal_enabled,
+                                                          recovery_available=self.native_recovery_available):
                 flags = win32con.MF_STRING
                 if not enabled:
                     flags |= win32con.MF_GRAYED
@@ -279,6 +394,13 @@ class TrayController:
                     MENU_CARET_FLAG: "toggle-caret-flag", MENU_JOURNAL: "journal", MENU_EXIT: "exit"}
         if chosen == MENU_HISTORY:
             self.notify(("history", target))
+        if chosen == MENU_RESTORE_INPUT:
+            try:
+                self._return_to_target(target)
+                self.notify('restore-native-input')
+            except OSError as error:
+                self.notify(('tray-error', str(error)))
+            return
         if chosen in (0, MENU_ENABLE, MENU_CARET_FLAG) and self.layouts.valid(target):
             try:
                 self._return_to_target(target)
@@ -298,31 +420,41 @@ class TrayController:
                 self.notify(("tray-error", f"Не удалось сменить раскладку: {error}"))
 
     def _message_loop(self):
+        registered_class = None
         try:
             self.taskbar_created = win32gui.RegisterWindowMessage("TaskbarCreated")
             wc = win32gui.WNDCLASS()
             wc.lpszClassName = f"TypeBridgeTray{os.getpid()}_{threading.get_ident()}"
             wc.lpfnWndProc = self._wndproc
             win32gui.RegisterClass(wc)
+            registered_class = wc.lpszClassName
             self.hwnd = win32gui.CreateWindow(wc.lpszClassName, "TypeBridgeTray",
                                                0, 0, 0, 0, 0, 0, 0, 0, None)
             for language, path in _icon_files().items():
                 self.icons[language] = win32gui.LoadImage(
                     0, str(path), win32con.IMAGE_ICON, 32, 32,
                     win32con.LR_LOADFROMFILE)
-            win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, self._icon_data())
+            self._ensure_icon()
             self._register_clipboard_hotkeys()
-            self.ready.set()
             if self.closing:
                 win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
             win32gui.PumpMessages()
         except Exception as exc:
-            self.notify(("tray-error", str(exc)))
+            self.tray_start_failures = getattr(self, 'tray_start_failures', 0) + 1
+            self.next_recovery = monotonic() + min(60.0, 2.0 * (2 ** min(5, self.tray_start_failures)))
+            error = str(exc)
+            if error != getattr(self, 'last_fatal_error', None):
+                self.last_fatal_error = error
+                self.notify(("tray-error", error))
         finally:
             if self.clipboard_hotkeys:
                 self.clipboard_hotkeys.close()
             self.ready.clear()
+            if self.hwnd and win32gui.IsWindow(self.hwnd):
+                win32gui.DestroyWindow(self.hwnd)
             self.hwnd = None
+            if registered_class:
+                win32gui.UnregisterClass(registered_class, None)
             for icon in self.icons.values():
                 if icon:
                     win32gui.DestroyIcon(icon)

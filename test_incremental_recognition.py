@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from incremental_recognition import (prepare_early, suggest_early,
-                                     evaluate_unique_language, _prefix_matches)
+                                     evaluate_unique_language, suggest_live_early,
+                                     _prefix_matches)
 from engine import read_words, SAMPLE_HEBREW
 
 
@@ -33,6 +34,75 @@ def fixture(representations, source, target, completion, *, competitors=()):
 
 
 class EarlyRecognitionTests(unittest.TestCase):
+    def test_rare_mode_accepts_unique_complete_word_before_space(self):
+        forms = {'en': 'lbdthcbz', 'ru': 'диверсия', 'he': 'ךנגאירנז'}
+        engine, keys = fixture(forms, 'en', 'ru', 'диверсия')
+        engine.confident['ru'].clear()
+        engine.conservative = True
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+        engine.conservative = False
+        decision = suggest_live_early(engine, keys, 'en')
+        self.assertIsNotNone(decision)
+        self.assertEqual((decision.typed, decision.replacement, decision.language),
+                         ('lbdthcbz', 'диверсия', 'ru'))
+        self.assertEqual(decision.reason, 'unique rare exact word')
+
+    def test_rare_exact_matching_covers_all_six_language_directions(self):
+        for source, target, representations in (
+            ('ru', 'en', {'ru': 'руддщ', 'en': 'hello', 'he': 'אקךךם'}),
+            ('he', 'en', {'ru': 'руддщ', 'en': 'hello', 'he': 'אקךךם'}),
+            ('en', 'ru', {'en': 'ghbdtn', 'ru': 'привет', 'he': 'עינגאמ'}),
+            ('he', 'ru', {'en': 'ghbdtn', 'ru': 'привет', 'he': 'עינגאמ'}),
+            ('en', 'he', {'en': 'akuoy', 'ru': 'флгщн', 'he': 'שלוםו'}),
+            ('ru', 'he', {'en': 'akuoy', 'ru': 'флгщн', 'he': 'שלוםו'}),
+        ):
+            with self.subTest(source=source, target=target):
+                expected = representations[target]
+                engine, keys = fixture(representations, source, target, expected)
+                engine.confident[target].clear()
+                engine.conservative = False
+                decision = suggest_live_early(engine, keys, source)
+                self.assertIsNotNone(decision)
+                self.assertEqual((decision.replacement, decision.language), (expected, target))
+
+    def test_rare_mode_rejects_unfinished_words_and_short_tokens(self):
+        forms = {'en': 'lbdthcbz', 'ru': 'диверсия', 'he': 'ךנגאירנז'}
+        engine, keys = fixture(forms, 'en', 'ru', 'диверсиями')
+        engine.confident['ru'].clear()
+        engine.conservative = False
+        for size in range(4, len(keys) + 1):
+            self.assertIsNone(suggest_live_early(engine, keys[:size], 'en'))
+        short, skeys = fixture({'en': 'qwer', 'ru': 'йцук', 'he': 'קוןר'},
+                               'en', 'ru', 'йцук')
+        short.confident['ru'].clear()
+        short.conservative = False
+        self.assertIsNone(suggest_live_early(short, skeys, 'en'))
+
+    def test_rare_mode_rejects_competing_prefix_and_known_source_prefix(self):
+        forms = {'en': 'lbdthcbz', 'ru': 'диверсия', 'he': 'ךנגאירנז'}
+        engine, keys = fixture(forms, 'en', 'ru', 'диверсия',
+                               competitors=[('he', 'ךנגאירנזים')])
+        engine.confident['ru'].clear()
+        engine.conservative = False
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+        engine.words['he'].clear()
+        engine.words['en'].add('lbdthcbzz')
+        prepare_early(engine)
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+
+    def test_rare_mode_rejects_source_word_exclusion_and_modified_keys(self):
+        forms = {'en': 'lbdthcbz', 'ru': 'диверсия', 'he': 'ךנגאירנז'}
+        engine, keys = fixture(forms, 'en', 'ru', 'диверсия')
+        engine.confident['ru'].clear()
+        engine.conservative = False
+        self.assertIsNone(suggest_live_early(engine, keys[:-1] + [(90, True)], 'en'))
+        engine.exclusions.add('диверсия')
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+        engine.exclusions.clear()
+        engine.words['en'].add('lbdthcbz')
+        prepare_early(engine)
+        self.assertIsNone(suggest_live_early(engine, keys, 'en'))
+
     def test_relaxed_candidate_negative_guards(self):
         reps = {"ru": "руддщ", "en": "hello", "he": "אקךךם"}
         engine, keys = fixture(reps, "ru", "en", "hellos",

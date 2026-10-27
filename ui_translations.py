@@ -721,6 +721,10 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                                'בוטל'},
  'Ручное переключение → {v0}': {'en': 'Manual conversion → {v0}', 'he': 'המרה ידנית → {v0}'},
  'Свернуть в трей': {'en': 'Minimize to tray', 'he': 'מזער למגש המערכת'},
+ 'Свернуть на панель задач': {'en': 'Minimize to taskbar', 'he': 'מזער לשורת המשימות'},
+ 'Окно свёрнуто на панель задач; открой его кнопкой TypeBridge. Значок трея может находиться среди скрытых значков Windows': {
+     'en': 'Minimized to the taskbar; use the TypeBridge button to reopen. Windows may put the tray icon in the hidden icons area.',
+     'he': 'החלון מוזער לשורת המשימות; אפשר לפתוח אותו דרך הכפתור של TypeBridge. סמל המגש עשוי להופיע בין הסמלים המוסתרים של Windows.'},
  'Свой словарь: TXT или JSON': {'en': 'Your dictionary: TXT or JSON', 'he': 'מילון משלך: TXT או JSON'},
  'Слишком длинный путь для автозагрузки Windows': {'en': 'The Windows startup path is too long',
                                                    'he': 'נתיב ההפעלה האוטומטית של Windows ארוך מדי'},
@@ -1262,6 +1266,21 @@ CATALOG.update({
         'en': 'Left Alt+Shift', 'he': 'Alt שמאלי+Shift'},
     'Не назначено': {'en': 'Not assigned', 'he': 'לא הוקצה'},
     'Не удалось определить': {'en': 'Unknown', 'he': 'לא ניתן לקבוע'},
+    'Дополнительное сочетание не указано в реестре': {
+        'en': 'No additional shortcut configured in the registry',
+        'he': 'לא הוגדר קיצור מקשים נוסף ברישום'},
+    'Win+Space (дополнительное не задано)': {
+        'en': 'Win+Space (no additional shortcut configured)',
+        'he': 'Win+Space (לא הוגדר קיצור נוסף)'},
+    'Win+Space — стандартное переключение раскладки': {
+        'en': 'Win+Space — standard keyboard layout switch',
+        'he': 'Win+Space — קיצור הדרך הרגיל להחלפת פריסת מקלדת'},
+    'Win+Space (параметры недоступны)': {
+        'en': 'Win+Space (other shortcut settings unavailable)',
+        'he': 'Win+Space (הגדרות קיצורים נוספות אינן זמינות)'},
+    'Не назначено (дополнительно; Win+Space доступно)': {
+        'en': 'None assigned (additional; Win+Space remains available)',
+        'he': 'לא הוגדר (נוסף; Win+Space עדיין זמין)'},
     'Не удалось открыть настройки Windows': {
         'en': 'Could not open Windows settings', 'he': 'לא ניתן לפתוח את הגדרות Windows'},
     'В Windows: дополнительные параметры клавиатуры → сочетания клавиш для языков ввода.': {
@@ -1276,4 +1295,79 @@ CATALOG.update({
     'Защита паролей: поле не удалось проверить; исправления в нём отключены': {
         'en': 'Password protection: field could not be verified; corrections in it are disabled',
         'he': 'הגנת סיסמאות: לא ניתן לבדוק את השדה; התיקון בו מושבת'},
+})
+
+# Clear correction option labels and explanations.
+CATALOG.update({
+  "Автоматически переключать раскладку": {
+    "en": "Automatically switch keyboard layout",
+    "he": "להחליף פריסת מקלדת אוטומטית"
+  },
+  "Исправлять редкие слова автоматически": {
+    "en": "Automatically correct rare words",
+    "he": "לתקן מילים נדירות אוטומטית"
+  },
+  "Исправлять слово во время набора": {
+    "en": "Correct words while typing",
+    "he": "לתקן מילים בזמן ההקלדה"
+  },
+  "Исправлять во время набора и в других приложениях — эксперимент": {
+    "en": "Also correct while typing in other applications — experimental",
+    "he": "לתקן בזמן ההקלדה גם ביישומים אחרים — ניסיוני"
+  },
+  "Ручное исправление слова до пробела": {
+    "en": "Manually correct the current word before a space",
+    "he": "תיקון ידני של המילה לפני הקלדת רווח"
+  },
+  "Исправлять слова, набранные в неправильной раскладке.": {
+    "en": "Correct words typed in the wrong keyboard layout.",
+    "he": "תיקון מילים שהוקלדו בפריסת מקלדת שגויה."
+  },
+  "Включено: весь словарь по пробелу; до пробела дополнительно исправляются однозначные полные редкие слова от 5 букв, но не их незаконченные префиксы. Выключено: только уверенные совпадения. Редкие слова увеличивают риск неверного выбора языка.": {
+    "en": "On: use the full dictionary at a word boundary; before Space, also correct unique complete rare words of at least 5 letters, but not unfinished rare prefixes. Off: confident matches only. Rare words increase the risk of choosing the wrong language.",
+    "he": "כאשר מסומן: שימוש במילון המלא בסיום מילה; לפני רווח מתקנים גם מילים נדירות שלמות וחד־משמעיות בנות 5 אותיות לפחות, אך לא קידומות לא גמורות. כשהאפשרות כבויה: התאמות בטוחות בלבד. מילים נדירות מגדילות את הסיכון לבחירת שפה שגויה."
+  },
+  "Исправлять слово, когда набранных букв достаточно, не дожидаясь пробела или другого разделителя. По умолчанию — в Notepad++; другие приложения подключаются следующей опцией.": {
+    "en": "Correct a word once enough letters have been typed, before a space or another separator. By default this applies to Notepad++; enable the next option for other applications.",
+    "he": "תיקון מילה לאחר שהוקלדו מספיק אותיות, לפני רווח או סימן מפריד אחר. כברירת מחדל האפשרות חלה על Notepad++; האפשרות הבאה מרחיבה אותה ליישומים אחרים."
+  },
+  "Расширяет исправление во время набора за пределы Notepad++. Это тот же момент исправления, а не ещё более ранний режим. Действует только при включённой предыдущей опции. Выбор сохраняется при её выключении.": {
+    "en": "Extends correction while typing beyond Notepad++. The timing is the same, not earlier. Requires the previous option. This choice is retained when that option is turned off.",
+    "he": "הרחבת התיקון בזמן ההקלדה מעבר ל־Notepad++. מועד התיקון זהה, ולא מוקדם יותר. נדרש להפעיל את האפשרות הקודמת. הבחירה נשמרת כאשר מכבים אותה."
+  },
+  "Исправить набираемое слово по выбранной горячей клавише, не дожидаясь пробела.": {
+    "en": "Correct the current word using the selected shortcut, before typing a space.",
+    "he": "תיקון המילה הנוכחית באמצעות קיצור המקשים שנבחר, לפני הקלדת רווח."
+  }
+})
+
+# A single early correction option across supported applications.
+CATALOG.update({
+  "Автоисправление ограничено (RichEdit)": {
+    "en": "Autocorrection limited (RichEdit)",
+    "he": "התיקון האוטומטי מוגבל (RichEdit)"
+  },
+  "Вернуть задержанные клавиши в исходное поле…": {
+    "en": "Restore held keystrokes to the original field…",
+    "he": "שחזור המקשים שהושהו לשדה המקורי…"
+  }
+})
+
+CATALOG.update({
+  "Исправлять до пробела": {
+    "en": "Correct before a space",
+    "he": "לתקן לפני רווח"
+  },
+  "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.": {
+    "en": "Experimental mode: do not wait for a space or another separator. Correction happens once enough letters have been typed to choose a word.",
+    "he": "מצב ניסיוני: התיקון מתבצע בלי להמתין לרווח או לסימן מפריד אחר, לאחר שהוקלדו מספיק אותיות לבחירת מילה."
+  },
+  "Левый Alt+Shift (стандартное; не подтверждено)": {
+    "en": "Left Alt+Shift (default; not confirmed)",
+    "he": "Alt שמאלי+Shift (ברירת מחדל; לא אומת)"
+  },
+  "Исправлять слова, набранные в неправильной раскладке. Определяется после пробела или другого разделителя": {
+    "en": "Correct words typed in the wrong keyboard layout. Detected after a space or another separator.",
+    "he": "תיקון מילים שהוקלדו בפריסת מקלדת שגויה. הזיהוי מתבצע אחרי רווח או סימן מפריד אחר."
+  }
 })

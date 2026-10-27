@@ -19,6 +19,7 @@ import queue
 import sys
 import tempfile
 import threading
+from time import perf_counter, monotonic
 import tkinter as tk
 from tkinter import ttk
 from ui_i18n import (messagebox, tr, localize_window, LocalizedStringVar, ChoiceVar,
@@ -33,10 +34,13 @@ from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bi
 from word_cycle import CYCLE_KEYS, RecentWord, remember_word
 from incremental_recognition import prepare_early, build_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
+from dictionary_diagnostics import dictionary_report
+from pipeline_probe import emit_pipeline, decision_failure
+from word_trace import BROWSER_APPS, TRACE_APPS
 from early_native_edit import NativeEditBridge, supports_native_edit
-from password_fields import PasswordFieldGuard
 from word_recovery import recover_prefix
-from input_transport import send_with_remainder
+from input_transport import send_with_remainder, unmatched_keydowns
+from native_transaction_queue import NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES
 from windows_shortcuts import read_windows_shortcuts, open_windows_keyboard_settings
 from settings_widgets import ScrollablePage, Tooltip, fit_settings_window
 from caps_correction import caps_decision
@@ -54,6 +58,8 @@ APP_DIR = (Path(sys.executable).resolve().parent
            else Path(__file__).resolve().parent)
 SETTINGS_PATH = USER_DIR / "settings.json"
 DEFAULT_SETTINGS_PATH = APP_DIR / "typebridge-settings.json"
+DEBUG_ENABLED = (APP_DIR / "TypeBridge-debug.flag").is_file()
+DEBUG_WORDS_ENABLED = DEBUG_ENABLED and (APP_DIR / "TypeBridge-debug-words.flag").is_file()
 
 WH_KEYBOARD_LL = 13
 WH_MOUSE_LL = 14
@@ -66,6 +72,8 @@ WM_TOGGLE_PAUSE = 0x8001
 WM_RELOAD_CONFIG = 0x8002
 WM_RELOAD_SNIPPETS = 0x8003
 WM_PASSWORD_STATE = 0x8004
+WM_DEBUG_PROBE_PING = 0x8005
+WM_RELEASE_KEYBOARD_JOB = 0x8006
 WM_INPUTLANGCHANGEREQUEST = 0x0050
 WM_LBUTTONDOWN = 0x0201
 WM_RBUTTONDOWN = 0x0204
@@ -89,7 +97,10 @@ MODIFIER_VKS = frozenset((VK_SHIFT, VK_CONTROL, VK_MENU, 0xA0, 0xA1,
                           0xA2, 0xA3, 0xA4, 0xA5))
 
 LLKHF_INJECTED = 0x10
+LLKHF_EXTENDED = 0x01
+KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_SCANCODE = 0x0008
 KEYEVENTF_UNICODE = 0x0004
 SMTO_BLOCK = 0x0001
 SMTO_ABORTIFHUNG = 0x0002
@@ -329,15 +340,27 @@ class LiveHook:
         self._declare_api()
         self.keys: list[tuple[int, bool]] = []
         self.token_blocked = False
+        self._backspace_remaining = 0
         self.last_word: RecentWord | None = None
         self.early_done = False
         self.early_disabled = False
         self.native_early_disabled = False
+        self.native_edit_disabled = False
+        self.native_blocked_scopes = set()
+        self.native_edit_attempts = 0
+        self.native_queue = NativeTransactionQueue()
+        self.native_worker = None
+        self.native_pending_recovery = None
+        self._native_worker_tls = threading.local()
+        self._in_keyboard_callback = False
+        self._last_physical_event = None
+        self.native_early_keyup_pending = None
         if settings.early_correction:
             prepare_early(engine)
         self.last_focus = 0
         self.last_language = ""
         self.suppressed_keyups: set[int] = set()
+        self.process_cache: dict[int, str] = {}
         self.keyboard_hook = None
         self.mouse_hook = None
         self.keyboard_callback = None
@@ -348,14 +371,16 @@ class LiveHook:
         self.pending_config = None
         self.snippets = SnippetMatcher(snippets or SnippetConfig())
         self.pending_snippets = None
-        self.password_guard = PasswordFieldGuard(self._password_state_changed)
-        self.protection_skipped_input = False
-        self.last_guard_revision = 0
-
-    def _password_state_changed(self):
-        if self.thread_id:
-            self.user32.PostThreadMessageW(self.thread_id, WM_PASSWORD_STATE,
-                                          self.password_guard.snapshot.revision, 0)
+        self.pipeline_debug = DEBUG_ENABLED
+        self.debug_words = DEBUG_WORDS_ENABLED
+        self._browser_field_revision = 0
+        self.debug_keyboard_callbacks = 0
+        self.debug_keydowns = 0
+        self.debug_mouse_callbacks = 0
+        self.debug_probe_pongs = 0
+        self.debug_callback_errors = 0
+        self.debug_keyboard_slow = 0
+        self.debug_keyboard_max_ms = 0
 
     def _declare_api(self) -> None:
         u, k = self.user32, self.kernel32
@@ -420,36 +445,58 @@ class LiveHook:
             wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
             ctypes.POINTER(wintypes.DWORD))
         k.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        k.GetProcessTimes.argtypes = (
+            wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME))
+        k.GetProcessTimes.restype = wintypes.BOOL
         k.CloseHandle.argtypes = (wintypes.HANDLE,)
 
     def pressed(self, vk: int) -> bool:
         return bool(self.user32.GetAsyncKeyState(vk) & 0x8000)
 
     def process_name(self, pid: int) -> str:
-        # PIDs are reused; never authorize a new process using an old cached name.
+        # Never key safety-critical exclusions by PID alone: Windows can reuse
+        # a PID for a completely different process (including a password app).
         handle = self.kernel32.OpenProcess(0x1000, False, pid)
         if not handle:
+            self.process_cache.pop(pid, None)
             return ""
         try:
+            creation, exit_time = wintypes.FILETIME(), wintypes.FILETIME()
+            kernel_time, user_time = wintypes.FILETIME(), wintypes.FILETIME()
+            if not self.kernel32.GetProcessTimes(handle, ctypes.byref(creation),
+                                                 ctypes.byref(exit_time),
+                                                 ctypes.byref(kernel_time),
+                                                 ctypes.byref(user_time)):
+                self.process_cache.pop(pid, None)
+                return ""
+            identity = (int(creation.dwHighDateTime), int(creation.dwLowDateTime))
+            cached = self.process_cache.get(pid)
+            if isinstance(cached, tuple) and cached[0] == identity:
+                return cached[1]
             path = ctypes.create_unicode_buffer(1024)
             size = wintypes.DWORD(len(path))
             if not self.kernel32.QueryFullProcessImageNameW(
                     handle, 0, path, ctypes.byref(size)):
+                self.process_cache.pop(pid, None)
                 return ""
             name = path.value.rsplit("\\", 1)[-1].casefold()
+            self.process_cache[pid] = (identity, name)
             return name
         finally:
             self.kernel32.CloseHandle(handle)
 
     def context(self) -> FocusContext | None:
-        self.protection_scope = None
         top = int(self.user32.GetForegroundWindow() or 0)
         if not top:
+            emit_pipeline(self, 'context-rejected', reason='no-foreground', interval=4)
             return None
         pid = wintypes.DWORD()
         top_thread = int(self.user32.GetWindowThreadProcessId(
             top, ctypes.byref(pid)) or 0)
         if not top_thread or not pid.value or pid.value == os.getpid():
+            emit_pipeline(self, 'context-rejected', reason='own-or-invalid-top', interval=4)
             return None
         info = GuiThreadInfo(cbSize=ctypes.sizeof(GuiThreadInfo))
         focus = top
@@ -460,62 +507,608 @@ class LiveHook:
             focus, ctypes.byref(focus_pid)) or 0)
         if (not focus_thread or not focus_pid.value or focus_pid.value == os.getpid()
                 or (focus != top and not self.user32.IsChild(top, focus))):
+            emit_pipeline(self, 'context-rejected', reason='invalid-focus', interval=4)
             return None
         process = self.process_name(focus_pid.value)
         host_process = self.process_name(pid.value)
         if (not process or not host_process
                 or process in effective_exclusions(self.settings)
                 or host_process in effective_exclusions(self.settings)):
+            emit_pipeline(self, 'context-rejected', reason='process-unavailable-or-excluded', interval=4)
             return None
         title_buffer = ctypes.create_unicode_buffer(512)
         self.user32.GetWindowTextW(top, title_buffer, len(title_buffer))
         title = title_buffer.value
         only_title = self.settings.only_window_title.casefold()
         if only_title and only_title not in title.casefold():
+            emit_pipeline(self, 'context-rejected', reason='title-filter', interval=4)
             return None
         class_buffer = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(focus, class_buffer, len(class_buffer))
         if (class_buffer.value.casefold() == "edit"
                 and self.user32.GetWindowLongPtrW(focus, GWL_STYLE)
                 & ES_PASSWORD):
-            return None
-        guard = getattr(self, 'password_guard', None)
-        revision = guard.permit_revision(top, focus) if guard is not None else 0
-        if revision is None:
-            self.protection_scope = (top, focus)
+            emit_pipeline(self, 'context-rejected', reason='protected-edit', interval=4)
             return None
         owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
-        language_id = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFF
+        raw_hkl = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFFFFFF
+        language_id = raw_hkl & 0xFFFF
         language = next((name for name, code in LANGS.items()
                          if code == language_id), "")
         if not language:
+            emit_pipeline(self, 'context-rejected', reason='unrecognized-hkl', interval=4,
+                          hkl=f'{raw_hkl:08X}')
             return None
-        return FocusContext(top, focus, owner_thread, language, process, title, owner, revision)
+        emit_pipeline(self, 'context-ready', interval=4, app=process,
+                      language=language, hkl=f'{raw_hkl:08X}')
+        return FocusContext(top, focus, owner_thread, language, process, title, owner)
 
     def clear_token(self, *, preserve_snippets=False) -> None:
         self.keys.clear()
         self.token_blocked = False
+        self._backspace_remaining = 0
         self.last_word = None
         self.early_done = False
+        self.native_early_deferred = False
+        self.native_early_keyup_pending = None
         if not preserve_snippets and getattr(self, "snippets", None):
             self.snippets.reset()
 
-    def _send_events(self, events, context):
+    def _native_blocked(self, context) -> bool:
+        if getattr(self, 'native_edit_disabled', False):
+            return True
+        scopes = getattr(self, 'native_blocked_scopes', set())
+        return context is not None and self._word_scope(context) in scopes
+
+    @staticmethod
+    def _native_recovery_key_safe(event, drop_trigger):
+        if event.trigger and drop_trigger:
+            return True
+        vk = event.vk
+        return (0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2 or
+                vk in (VK_SPACE, VK_SHIFT, 0xA0, 0xA1)) and not event.flags & 0x20
+
+    def _quarantine_native(self, reason='uncertain-write', context=None) -> None:
+        """Do not retry unsafe native mutations; expose the actual reason."""
+        scoped = reason == 'input-barrier-lost' and context is not None
+        if scoped:
+            scopes = getattr(self, 'native_blocked_scopes', None)
+            if scopes is None:
+                scopes = self.native_blocked_scopes = set()
+            target = self._word_scope(context)
+            first = target not in scopes and not getattr(self, 'native_edit_disabled', False)
+            scopes.add(target)
+        else:
+            first = not getattr(self, 'native_edit_disabled', False)
+            self.native_edit_disabled = True
+            self.native_early_disabled = True
+        if first:
+            cause = {
+                'uncertain-write': 'после неопределённого результата записи',
+                'input-barrier-lost': 'из-за смены поля или неполной доставки задержанных клавиш',
+                'worker-error': 'из-за ошибки рабочего потока',
+            }.get(reason, 'из-за ошибки нативной коррекции')
+            if scoped:
+                message = ('Нативные исправления ограничены для исходного поля '
+                           'из-за потери задержанных клавиш. Другие поля доступны. '
+                           'Вернись в исходное поле и проверь текст; восстановление '
+                           'задержанного ввода автоматически не выполняется.')
+            else:
+                message = ('Нативные исправления заблокированы ' + cause + '. '
+                           'Остальные функции могут работать. Для восстановления закройте '
+                           'TypeBridge через «Выход» и запустите заново.')
+            self.emit('transport-quarantine', message)
+
+    def _note_native_mutation(self, bridge) -> None:
+        # Do not count expensive read-only preflight or declined admissions as
+        # mutations: quarantining them would unnecessarily disable correction
+        # on the slower PC without any text ever having been changed.
+        if getattr(bridge, 'write_started', False) and not self._native_is_off_hook():
+            self.native_edit_attempts = getattr(self, 'native_edit_attempts', 0) + 1
+
+    def _trace_word(self, event, context, **details):
+        """Queue test-only word content, never write from the keyboard hook."""
+        if (not getattr(self, 'debug_words', False) or context is None
+                or context.process_name.lower() not in TRACE_APPS):
+            return
+        self.emit('word-trace', {'event': event, 'app': context.process_name,
+                                 'language': context.language, **details})
+
+    def _trace_browser_key(self, context, vk, shift):
+        """Debug-only physical input; not a claim about the browser document.
+
+        Called after shortcut filtering. Includes blocked tails so a duplicate
+        following an early conversion can be compared with actual key delivery.
+        No clipboard, DOM read, UI Automation, file I/O or waiting in the hook.
+        """
+        if (not getattr(self, 'debug_words', False) or context is None
+                or context.process_name.lower() not in BROWSER_APPS):
+            return
+        try:
+            reason = 'token-blocked' if getattr(self, 'token_blocked', False) else 'tracking'
+            if vk == VK_BACK:
+                self._trace_word('edit-action', context, state='backspace', reason=reason,
+                                 tracked=str(len(self.keys)))
+                return
+            state = {VK_SPACE: 'space', VK_RETURN: 'enter', VK_TAB: 'tab'}.get(vk)
+            char = self.engine.mapper.char(vk, context.language, shift)
+            if state or (char and char.isprintable()):
+                self._trace_word('typed-character', context, source=char or '',
+                                 state=state or 'physical-key', reason=reason,
+                                 tracked=str(len(self.keys)))
+        except Exception:
+            pass  # Diagnostic failures must not alter physical input delivery.
+
+    def _queue_browser_readback(self, context, source, replacement, phase, *, revision=None):
+        if (not getattr(self, 'debug_words', False) or context is None
+                or context.process_name.lower() not in BROWSER_APPS):
+            return
+        self.emit('browser-readback-request',
+                  (self, context, {'source': source, 'replacement': replacement, 'phase': phase},
+                   getattr(self, '_browser_field_revision', 0) if revision is None else revision,
+                   monotonic()))
+
+    @staticmethod
+    def _native_word_excerpt(bridge):
+        value = getattr(bridge, 'last_snapshot', None)
+        if not value:
+            return ''
+        document, caret = value
+        try:
+            return document[:caret].decode('utf-8', 'strict')[-60:]
+        except (UnicodeError, TypeError, ValueError):
+            return ''
+
+    def _trace_native_before_boundary(self, context):
+        """Queue a post-early read; never read the document inside the hook."""
+        if (not getattr(self, 'debug_words', False)
+                or not getattr(self, 'early_done', False)
+                or context.process_name != 'notepad.exe'
+                or getattr(self, '_native_observation_pending', False)):
+            return
+        self._native_observation_pending = True
+        self.emit('deferred-native-read', (self, context))
+
+    def _trace_native_after_boundary(self, context):
+        """Read in the GUI thread, after physical delimiter handling.
+
+        This observation may contain subsequent typed characters; metadata
+        names it as a deferred sample, not an atomic boundary-time snapshot.
+        """
+        self._native_observation_pending = False
+        if (not getattr(self, 'debug_words', False)
+                or context.process_name != 'notepad.exe'):
+            return
+        bridge = None
+        try:
+            def valid():
+                current = self.context()
+                return (current is not None and
+                        self._word_scope(current) == self._word_scope(context))
+            if not valid():
+                self._trace_word('post-early-deferred', context, state='read-skipped',
+                                 reason='focus-changed-before-read')
+                return
+            bridge = NativeEditBridge(context, valid, pending_char='')
+            with bridge:
+                bridge.snapshot()
+            self._trace_word('post-early-deferred', context, state='readback-after-boundary',
+                             observed=self._native_word_excerpt(bridge))
+        except Exception as error:
+            self._trace_word('post-early-deferred', context, state='read-failed',
+                             reason=type(error).__name__)
+
+    def _send_guarded_inputs(self, events, valid, *, before_send=None):
+        """One serial SendInput attempt, one bounded remainder, balanced releases.
+
+        Generic keyboard correction, snippets, and manual cycling all use the
+        same protection. A successful SendInput event count does not prove the
+        editor's text changed; never report it as verified document content.
+        """
+        if not valid():
+            return 0, 'context-changed-before-send'
+
         def send(part):
+            if before_send is not None:
+                # Runs after the context preflight and immediately before
+                # the irreversible Windows API. An exception in SendInput or
+                # later layout verification must not replay a held trigger.
+                before_send()
             batch = (Input * len(part))(*part)
-            return self.user32.SendInput(len(part), batch, ctypes.sizeof(Input))
-        def valid():
-            current = self.context()
-            return (current is not None and self._word_scope(current) == self._word_scope(context)
-                    and current.language == context.language
-                    and not any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)))
+            ctypes.set_last_error(0)
+            return int(self.user32.SendInput(len(part), batch, ctypes.sizeof(Input)))
+
         sent = send_with_remainder(events, send, valid)
-        if 0 < sent < len(events) and sent % 2:
-            # Applies to ordinary correction, early correction, templates and cycling.
-            last = events[sent - 1].u.ki
-            release = input_key(last.wVk, last.dwFlags | KEYEVENTF_KEYUP, last.wScan)
-            self.user32.SendInput(1, ctypes.byref(release), ctypes.sizeof(Input))
-        return sent
+        if sent < len(events):
+            dangling = unmatched_keydowns(events, sent)
+            if dangling:
+                releases = [input_key(vk, flags | KEYEVENTF_KEYUP, scan)
+                            for vk, scan, flags in reversed(dangling)]
+                if send(releases) != len(releases):
+                    self.emit('error', 'SendInput: не подтверждено отпускание клавиш')
+            return sent, 'partial'
+        return sent, 'complete'
+
+    def _physical_event(self, vk, message, event, *, trigger=False):
+        return PhysicalKey(int(vk), int(event.scanCode), int(event.flags),
+                           int(message), trigger)
+
+    def _schedule_native(self, context, job, *, trigger=None, drop_always=False):
+        """Start a native editor transaction off WH_KEYBOARD_LL.
+
+        The hook then only captures physical keys to a bounded queue. On
+        completion the worker replays them under the verified target focus.
+        `job` returns True iff an original punctuation hotkey was already
+        inserted by the native replacement and must not be replayed.
+        """
+        gate = getattr(self, 'native_queue', None)
+        if gate is None:
+            gate = self.native_queue = NativeTransactionQueue()
+        if getattr(self, '_native_worker_tls', None) is None:
+            self._native_worker_tls = threading.local()
+        if self.stopping or not gate.begin(
+                trigger, target_scope=self._native_scope(context),
+                command_trigger=drop_always):
+            return False
+
+        def work():
+            drop_trigger = bool(drop_always)
+            try:
+                self._native_worker_tls.active = True
+                current = self.context()
+                if (not self.stopping and current is not None and
+                        self._native_scope(current) == gate.target_scope):
+                    drop_trigger = bool(job()) or drop_trigger
+                else:
+                    gate.abort('focus-changed-before-commit')
+                    self.emit('diagnostic', 'native-job-refused:focus-changed')
+            except Exception as error:
+                self._quarantine_native('worker-error')
+                self.emit('diagnostic', 'native-worker-error:' + type(error).__name__)
+            finally:
+                drop_trigger = drop_trigger or gate.trigger_irreversible
+                # Replay in small batches without releasing the barrier in
+                # between. Physical input that arrived during replay is next.
+                try:
+                    self._drain_native_input(context, gate, trigger, drop_trigger)
+                except Exception as error:
+                    # A worker exception must never leave the low-level hook
+                    # swallowing every later key behind a stuck barrier.
+                    gate.close()
+                    self._quarantine_native('worker-error')
+                    self.emit('error', 'Ошибка возврата клавиш: ' + type(error).__name__)
+                finally:
+                    self._native_worker_tls.active = False
+
+        thread = threading.Thread(target=work, name='TypeBridgeNativeEdit', daemon=True)
+        self.native_worker = thread
+        try:
+            thread.start()
+            return True
+        except RuntimeError:
+            gate.close()
+            self.emit('error', 'Не удалось запустить нативную транзакцию')
+            return False
+
+    def _schedule_keyboard(self, context, job, *, trigger, drop_always=False):
+        """Hold the physical event, then send only after the hook has returned.
+
+        A posted message, not a sleep or a reentrant callback flag, acknowledges
+        return to the hook thread's message pump. The existing bounded barrier
+        holds following input and replays the trigger only if nothing was edited.
+        """
+        if getattr(self, '_keyboard_job_release', None) is not None:
+            return False
+        serial = getattr(self, '_keyboard_job_serial', 0) + 1
+        self._keyboard_job_serial = serial
+        release = threading.Event()
+        revision = getattr(self, '_browser_field_revision', 0)
+        settings = self.settings
+        self._keyboard_job_release = (serial, release)
+        if not self.user32.PostThreadMessageW(self.thread_id, WM_RELEASE_KEYBOARD_JOB, serial, 0):
+            self._keyboard_job_release = None
+            return False
+
+        def released_job():
+            try:
+                if not release.wait(.5):
+                    self.native_queue.abort('keyboard-callback-release-timeout')
+                    self.emit('diagnostic', 'keyboard-job-refused:callback-not-released')
+                    return False
+                current = self.context()
+                if (self.stopping or current is None
+                        or self.paused or self.settings is not settings
+                        or self._word_scope(current) != self._word_scope(context)
+                        or current.language != context.language
+                        or getattr(self, '_browser_field_revision', 0) != revision):
+                    self.native_queue.abort('keyboard-context-changed')
+                    self.emit('diagnostic', 'keyboard-job-refused:context-changed')
+                    return False
+                return job()
+            finally:
+                pending = getattr(self, '_keyboard_job_release', None)
+                if pending is not None and pending[0] == serial:
+                    self._keyboard_job_release = None
+
+        started = self._schedule_native(context, released_job, trigger=trigger,
+                                        drop_always=drop_always)
+        if not started:
+            self._keyboard_job_release = None
+        else:
+            emit_pipeline(self, 'transport', method='keyboard-worker', result='scheduled')
+        return started
+
+    def _release_keyboard_job(self, serial):
+        pending = getattr(self, '_keyboard_job_release', None)
+        if pending is not None and pending[0] == serial:
+            self._keyboard_job_release = None
+            pending[1].set()
+
+    def _native_is_off_hook(self):
+        tls = getattr(self, '_native_worker_tls', None)
+        return bool(tls is not None and getattr(tls, 'active', False))
+
+    def _mark_keyboard_trigger_mutation(self):
+        """Mark the first possible SendInput mutation before entering Win32."""
+        gate = getattr(self, 'native_queue', None)
+        if self._native_is_off_hook() and gate is not None:
+            gate.mark_trigger_irreversible()
+
+    def _confirm_keyboard_trigger_acceptance(self, sent):
+        """Only a definite zero-acceptance response permits trigger replay."""
+        gate = getattr(self, 'native_queue', None)
+        if not sent and self._native_is_off_hook() and gate is not None:
+            gate.reset_unaccepted_trigger()
+
+    def _browser_field_changed_after_submission(self, context, revision):
+        """Never switch a browser thread's HKL for a different DOM input."""
+        if (context.process_name.lower() not in BROWSER_APPS or
+                getattr(self, '_browser_field_revision', 0) == revision):
+            return False
+        gate = getattr(self, 'native_queue', None)
+        if gate is not None and gate.busy:
+            gate.abort('field-revision-changed-after-submit')
+        self.native_early_disabled = True
+        self.clear_token()
+        self.token_blocked = True
+        self.emit('error', 'Поле браузера изменилось после отправки текста; '
+                  'переключение раскладки и досылка клавиш отменены')
+        return True
+
+    def _drain_native_input(self, context, gate, trigger, drop_trigger,
+                            *, recovery=False):
+        lost = False
+        original_scope = gate.target_scope or self._native_scope(context)
+        trigger_vk = trigger.vk if trigger is not None else None
+        had_following_input = False
+        cleared_token = False
+        attempted_replay = False
+        undelivered = []
+        # A hotkey is already suppressed by its hook branch; for punctuation
+        # prevent a later physical KEYUP from reaching the editor when its
+        # KEYDOWN was incorporated in the native replacement.
+        if (drop_trigger and trigger_vk is not None and not gate.aborted_reason
+                and not recovery):
+            self.suppressed_keyups.add(trigger_vk)
+        try:
+            for _ in range(16):
+                if gate.aborted_reason:
+                    lost = True
+                    break
+                held = gate.take()
+                if (drop_trigger and trigger_vk is not None and
+                        not gate.command_trigger and gate.trigger_repeated):
+                    # Physical printable auto-repeat needs its final KEYUP.
+                    self.suppressed_keyups.discard(trigger_vk)
+                undelivered.extend(held)
+                if gate.aborted_reason:
+                    lost = True
+                    break
+                playable = []
+                for event in held:
+                    if event.trigger and drop_trigger:
+                        if event.message in KEYUP_MESSAGES:
+                            self.suppressed_keyups.discard(trigger_vk)
+                        continue
+                    if not event.trigger and event.message not in KEYUP_MESSAGES:
+                        had_following_input = True
+                    if event.message in KEYUP_MESSAGES and event.vk in self.suppressed_keyups:
+                        self.suppressed_keyups.discard(event.vk)
+                        continue
+                    flags = KEYEVENTF_SCANCODE if event.scan else 0
+                    if event.flags & LLKHF_EXTENDED:
+                        flags |= KEYEVENTF_EXTENDEDKEY
+                    if event.message in KEYUP_MESSAGES:
+                        flags |= KEYEVENTF_KEYUP
+                    playable.append(input_key(0 if event.scan else event.vk,
+                                              flags, event.scan))
+                if playable:
+                    def valid():
+                        current = self.context()
+                        return (not gate.aborted_reason and not self.stopping and current is not None and
+                                self._native_scope(current) == original_scope)
+                    sent, reason = self._send_guarded_inputs(playable, valid)
+                    # A pre-send focus refusal accepted NO events. Preserve
+                    # the still-intact physical queue for explicit recovery
+                    # in its original field, rather than treating the mere
+                    # attempt to call SendInput as an irreversible replay.
+                    if sent:
+                        attempted_replay = True
+                    if sent != len(playable):
+                        lost = True
+                        gate.abort('unsafe-replay-' + reason)
+                        self.emit('error', 'Задержанные клавиши не полностью доставлены: ' + reason)
+                    else:
+                        undelivered.clear()
+                else:
+                    undelivered.clear()
+                if had_following_input and not cleared_token:
+                    # Clear the old source token BEFORE releasing the barrier.
+                    # A new physical KEYDOWN is allowed to enter the hook as
+                    # soon as close_if_drained() returns True.
+                    self.clear_token(preserve_snippets=True)
+                    self.token_blocked = True
+                    cleared_token = True
+                if gate.aborted_reason:
+                    lost = True
+                    break
+                if gate.close_if_drained():
+                    break
+            else:
+                lost = True
+        finally:
+            if gate.busy:
+                waiting = gate.close()
+                undelivered.extend(waiting)
+                lost = bool(waiting) or lost
+            if gate.overflow:
+                lost = True
+            if gate.aborted_reason:
+                lost = True
+            if lost:
+                reason = gate.aborted_reason or 'replay-error'
+                # Preserve an untouched backlog in volatile memory ONLY if
+                # no replay was attempted and focus switched. Never insert
+                # it into an unrelated target or silently discard it.
+                if (reason in ('focus-changed', 'focus-changed-before-commit',
+                               'unsafe-replay-context-changed-before-send')
+                        and not attempted_replay and undelivered
+                        and getattr(self, 'native_pending_recovery', None) is None
+                        and (context.process_name.lower() not in BROWSER_APPS or
+                             self._native_scope(context) == original_scope)
+                        and all(self._native_recovery_key_safe(e, drop_trigger)
+                                for e in undelivered)):
+                    self.native_pending_recovery = (context, tuple(undelivered),
+                                                    bool(drop_trigger), trigger,
+                                                    self.last_language if getattr(self, 'last_language', '')
+                                                    in LANGS else context.language,
+                                                    original_scope,
+                                                    perf_counter())
+                    self.emit('native-recovery-available', len(undelivered))
+                # A refused (zero-event) replay, focus change or overflow
+                # does not prove the editor's text was mutated. Limit that
+                # quarantine to the source field. An uncertain partial replay
+                # or unexplained failure still requires a global stop.
+                local_failure = (reason in ('focus-changed', 'focus-changed-before-commit',
+                                            'field-revision-changed',
+                                            'buffer-overflow', 'external-injected-input',
+                                            'unsafe-replay-context-changed-before-send'))
+                self._quarantine_native('input-barrier-lost' if local_failure
+                                        else 'uncertain-write', context if local_failure else None)
+                self.emit('error', 'Задержанный ввод не может быть безопасно доставлен: '
+                          + reason + ('; исходное поле заблокировано' if local_failure
+                                      else '; нативный транспорт заблокирован'))
+                if trigger_vk is not None:
+                    self.suppressed_keyups.discard(trigger_vk)
+            # Replayed injected keystrokes intentionally bypass token parsing.
+            # Never resume an old token using an incomplete physical history.
+            if lost:
+                self.clear_token(preserve_snippets=True)
+                self.token_blocked = True
+
+    def expire_native_pending(self):
+        """Drop an expired volatile buffer without accessing other windows."""
+        pending = getattr(self, 'native_pending_recovery', None)
+        if pending is None or perf_counter() - pending[-1] <= 180:
+            return False
+        self.native_pending_recovery = None
+        self.emit('native-recovery-available', 0)
+        self.emit('info', 'Время возврата задержанных клавиш истекло')
+        return True
+
+    def restore_native_pending(self):
+        """Explicit recovery request; replay ONLY in original focused field.
+
+        In-memory physical events are never written to disk or auto-injected
+        after a focus switch. The operator must return to the source field and
+        select Restore from the tray menu. Never replay during a live edit.
+        """
+        recovery = getattr(self, 'native_pending_recovery', None)
+        if recovery is None or self.stopping or getattr(self, 'native_edit_disabled', False):
+            return False
+        if len(recovery) == 6:  # Legacy in-memory/test snapshot without DOM revision.
+            original, held, drop_trigger, trigger, expected_language, timestamp = recovery
+            expected_scope = self._native_scope(original)
+        else:
+            original, held, drop_trigger, trigger, expected_language, expected_scope, timestamp = recovery
+        if perf_counter() - timestamp > 180:
+            self.expire_native_pending()
+            return False
+        current = self.context()
+        if (current is None or self._word_scope(current) != self._word_scope(original)
+                or current.language != expected_language
+                or self._native_scope(current) != expected_scope):
+            self.emit('error', 'Для возврата клавиш активируй исходное поле '
+                      'и нужную раскладку (' + expected_language.upper() + ')')
+            return False
+        # Only printable physical typing and optional Shift are recoverable.
+        # Never replay Win/Alt/Ctrl shortcuts, Tab/Enter navigation, or
+        # arbitrary hotkeys later at a possibly different caret position.
+        if not all(self._native_recovery_key_safe(e, drop_trigger) for e in held):
+            self.emit('error', 'Отложенные клавиши содержат управляющую комбинацию; '
+                      'автоматический возврат небезопасен')
+            return False
+        if getattr(self, 'native_queue', None) is None:
+            return False
+        gate = self.native_queue
+        # Compensate unmatched physical down events; the corresponding real
+        # KEYUP may already have been delivered in another field.
+        paired = list(held)
+        unmatched = []
+        for item in held:
+            key = (item.vk, item.scan)
+            if item.message in KEYUP_MESSAGES:
+                for i in range(len(unmatched)-1, -1, -1):
+                    if (unmatched[i].vk, unmatched[i].scan) == key:
+                        unmatched.pop(i)
+                        break
+            else:
+                unmatched.append(item)
+        paired.extend(PhysicalKey(item.vk, item.scan, 0, WM_KEYUP,
+                                  trigger=item.trigger)
+                      for item in reversed(unmatched))
+        if len(paired) > gate.limit:
+            self.emit('error', 'Буфер восстановления превышает безопасный лимит')
+            return False
+        if not gate.begin(target_scope=expected_scope):
+            self.emit('info', 'Нативная операция ещё выполняется; восстановление не начато')
+            return False
+        self.native_pending_recovery = None
+        self.emit('native-recovery-available', 0)
+        for item in paired:
+            if not gate.capture(item):
+                gate.close()
+                self.emit('error', 'Буфер восстановления переполнен; возврат отменён')
+                return False
+
+        def restore():
+            try:
+                self._drain_native_input(original, gate, trigger, drop_trigger,
+                                         recovery=True)
+                if (not getattr(self, 'native_edit_disabled', False)
+                        and not gate.aborted_reason and not gate.overflow):
+                    getattr(self, 'native_blocked_scopes', set()).discard(
+                        self._word_scope(original))
+                    self.emit('native-recovery-complete', 'Отложенный ввод отправлен '
+                              'в исходное поле; проверь результат и позицию каретки')
+            except Exception as error:
+                gate.close()
+                self._quarantine_native('worker-error')
+                self.emit('error', 'Ошибка возврата клавиш: ' + type(error).__name__)
+
+        thread = threading.Thread(target=restore, name='TypeBridgeNativeRecovery', daemon=True)
+        self.native_worker = thread
+        try:
+            thread.start()
+            return True
+        except RuntimeError:
+            gate.close()
+            # No physical input was replayed; restore the recoverable snapshot
+            # so a failed thread start does not erase the user's last chance.
+            self.native_pending_recovery = recovery
+            self.emit('native-recovery-available', len(held))
+            self.emit('error', 'Не удалось запустить возврат клавиш; ввод сохранён в памяти')
+            return False
 
     def _try_snippet(self, context, vk, shift):
         matcher = getattr(self, "snippets", None)
@@ -548,9 +1141,16 @@ class LiveHook:
         self.clear_token()
         matcher.invalidate()
         self.token_blocked = True
-        sent = self._send_events(events, context)
+        def still_valid():
+            current = self.context()
+            return (not self.stopping and not self.paused and current is not None
+                    and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language)
+
+        sent, reason = self._send_guarded_inputs(events, still_valid)
         if sent == 0:
-            self.emit('error', 'Автозамена не отправлена')
+            self.emit('diagnostic' if reason == 'context-changed-before-send' else 'error',
+                      'snippet-refused:' + reason)
             return False, False
         self.suppressed_keyups.add(vk)
         if sent != len(events):
@@ -559,7 +1159,8 @@ class LiveHook:
             self.emit('ok', 'Шаблон вставлен')
         return True, False
 
-    def _try_early(self, context: FocusContext) -> bool:
+    def _try_early(self, context: FocusContext, *, await_native_keyup=False,
+                   key_delivered=False) -> bool:
         if (not self.settings.early_correction or self.paused
                 or getattr(self, "early_done", False)):
             return False
@@ -567,22 +1168,46 @@ class LiveHook:
         disabled_attribute = "native_early_disabled" if native else "early_disabled"
         if getattr(self, disabled_attribute, False):
             return False
+        if native and self._native_blocked(context):
+            return False
+        if native and getattr(self, 'native_early_deferred', False):
+            return False
         if native:
             if not self.settings.early_native:
                 return False
             name = ctypes.create_unicode_buffer(128)
             self.user32.GetClassNameW(context.focus, name, len(name))
             keyboard = not supports_native_edit(name.value)
+            if not keyboard and self._native_blocked(context):
+                return False
         else:
             keyboard = False
         decision = suggest_live_early(self.engine, self.keys, context.language)
         if decision is None:
+            if await_native_keyup:
+                self.native_early_keyup_pending = None
             return False
+        if native and not keyboard and await_native_keyup:
+            # Do not manufacture the currently held WM_CHAR. On some modern
+            # Notepad RichEdit controls, a late physical character reaches the
+            # document after our synchronous transaction and duplicates it.
+            # Allow the physical KEYDOWN through, then try after KEYUP, only
+            # when the full typed source is independently visible in RichEdit.
+            self.native_early_keyup_pending = (
+                self.keys[-1][0], tuple(self.keys), self._word_scope(context))
+            return False
+        self._trace_word('early-decision', context, source=decision.typed,
+                         replacement=decision.replacement, target=decision.language)
+        emit_pipeline(self, 'early-found', language=context.language,
+                      target=decision.language, length=len(self.keys),
+                      method='keyboard' if keyboard else 'native')
         source_hkl = int(self.engine.mapper.layouts[context.language]) & 0xFFFFFFFF
+        source_revision = getattr(self, '_browser_field_revision', 0)
         def valid():
             current = self.context()
             return (current is not None and self._word_scope(current) == self._word_scope(context)
                     and current.language == context.language
+                    and getattr(self, '_browser_field_revision', 0) == source_revision
                     and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
                     and not any(self.pressed(vk) for vk in
                                 (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
@@ -590,57 +1215,136 @@ class LiveHook:
             return self._try_keyboard_early(context, decision, valid)
         bridge = None
         try:
-            adapter = (NativeEditBridge(context, valid, pending_char=decision.typed[-1])
+            adapter = (NativeEditBridge(context, valid,
+                                        pending_char='' if key_delivered else decision.typed[-1],
+                                        off_hook=self._native_is_off_hook())
                        if native else ScintillaEarlyBridge(context))
+            bridge = adapter
             with adapter as bridge:
-                outcome = replace_prefix(bridge, decision.typed[:-1],
+                outcome = replace_prefix(bridge, decision.typed if key_delivered else decision.typed[:-1],
                                          decision.replacement, valid)
         except Exception as error:
-            if native and isinstance(error, ValueError):
-                self.emit("diagnostic", "early-refused:" + type(error).__name__)
-                return False  # Unsupported field state; no write was attempted.
+            emit_pipeline(self, 'transport', method='early-native', result='exception',
+                          reason=getattr(bridge, 'failure', '') or type(error).__name__)
+            if native:
+                self._note_native_mutation(bridge)
+                self._trace_native(bridge)
+                if not getattr(bridge, 'write_started', False):
+                    self.native_early_deferred = True
+                    self.emit('diagnostic', 'early-refused:' +
+                              (getattr(bridge, 'failure', '') or type(error).__name__))
+                    return False
+                self._quarantine_native()
+                if not key_delivered:
+                    self.suppressed_keyups.add(self.keys[-1][0])
+                self.clear_token()
+                self.token_blocked = True
+                self.emit('diagnostic', 'early-uncertain:' +
+                          (getattr(bridge, 'failure', '') or type(error).__name__))
+                return True  # A native edit may have consumed the held key.
             setattr(self, disabled_attribute, True)
             self.emit("error", f"Ранний режим отключён до перезапуска: {type(error).__name__}")
             return False
-        if bridge.timeout or getattr(bridge, "budget_exceeded", False):
+        if native:
+            self._note_native_mutation(bridge)
+            self._trace_native(bridge)
+        if not native and (bridge.timeout or getattr(bridge, "budget_exceeded", False)):
             setattr(self, disabled_attribute, True)
             self.emit("error", "Ранний режим отключён: редактор не ответил вовремя")
         if outcome.state == "refused":
-            self.emit("diagnostic", "early-refused:" + outcome.reason)
+            if native and outcome.reason != 'prefix-not-delivered':
+                # An unstable caret/document must not be read again on the next
+                # physical letter of the same word. Retry only in a new token.
+                self.native_early_deferred = True
+            emit_pipeline(self, 'transport', method='early-native', result='refused',
+                          reason=outcome.reason)
+            self.emit("diagnostic", "early-refused:" +
+                      ((getattr(bridge, 'failure', '') if native else '') or outcome.reason))
+            self._trace_word('early-result', context, source=decision.typed,
+                             replacement=decision.replacement, state='refused',
+                             reason=outcome.reason, observed=self._native_word_excerpt(bridge))
             return False  # No document write: forward the triggering key normally.
-        if native:
+        if native and not key_delivered:
             self.suppressed_keyups.add(self.keys[-1][0])
         if outcome.state != "verified":
+            emit_pipeline(self, 'transport', method='early-native', result=outcome.state,
+                          reason=outcome.reason)
             setattr(self, disabled_attribute, True)
+            if native:
+                self._quarantine_native()
             self.clear_token()
             self.token_blocked = True
+            if native:
+                self.emit('diagnostic', 'early-uncertain:' +
+                          (getattr(bridge, 'failure', '') or outcome.reason))
             self.emit("error", "Ранняя замена не подтверждена; повтор отключён")
+            self._trace_word('early-result', context, source=decision.typed,
+                             replacement=decision.replacement, state=outcome.state,
+                             reason=outcome.reason, observed=self._native_word_excerpt(bridge))
             return True  # Mutation may already include this character; never replay.
+        emit_pipeline(self, 'transport', method='early-native', result='verified')
+        self._trace_word('early-result', context, source=decision.typed,
+                         replacement=decision.replacement, state='verified',
+                         observed=self._native_word_excerpt(bridge))
         return self._finish_early_layout(context, decision, disabled_attribute)
 
     def _try_keyboard_early(self, context, decision, valid):
+        if (getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            token = tuple(self.keys)
+            def send_released_token():
+                if tuple(self.keys) != token:
+                    self.native_queue.abort('keyboard-token-changed')
+                    return False
+                return self._try_keyboard_early(context, decision, valid)
+            return self._schedule_keyboard(context,
+                send_released_token,
+                trigger=self._last_physical_event)
         # Use the existing boundary-correction transport, with no delimiter.
         # The current key is still held: remove only the preceding physical keys.
-        # No editor API, clipboard, worker, or application-specific adapter.
-        if not valid():
+        # No editor API or clipboard. In live callbacks this packet runs only
+        # in the worker after the posted release acknowledgement.
+        # Worker and mouse callbacks can clear the tracked token in parallel.
+        # Do not read keys[-1] or remeasure the deletion span after Win32 I/O.
+        token = tuple(self.keys)
+        if not token:
             return False
-        events = correction_inputs(len(self.keys) - 1, decision.replacement, None, "")
-        if not valid():
-            return False
-        sent = self._send_events(events, context)
+        current_vk = token[-1][0]
+        removed = len(token) - 1
+        events = correction_inputs(removed, decision.replacement, None, "")
+        readback_revision = getattr(self, '_browser_field_revision', 0)
+        sent, reason = self._send_guarded_inputs(
+            events, valid, before_send=self._mark_keyboard_trigger_mutation)
+        self._confirm_keyboard_trigger_acceptance(sent)
+        emit_pipeline(self, 'transport', method='early-sendinput',
+                      result=reason)
+        self._trace_word('early-result', context, source=decision.typed,
+                         replacement=decision.replacement, target=decision.language,
+                         state='submitted-unverified' if sent == len(events) else 'incomplete',
+                         transport='sendinput', reason=reason, sent=str(sent),
+                         total=str(len(events)), removed=str(removed))
         if sent != len(events):
+            if reason == 'context-changed-before-send':
+                return False  # No accepted input: forward the physical key.
             self.emit("error", f"SendInput: отправлено {sent}/{len(events)}")
             if sent == 0:
                 self.token_blocked = True
                 return False  # Nothing inserted: deliver the held physical key normally.
+            self._queue_browser_readback(context, decision.typed, decision.replacement,
+                                         'early-partial', revision=readback_revision)
             self.native_early_disabled = True
-            self.suppressed_keyups.add(self.keys[-1][0])
+            self.suppressed_keyups.add(current_vk)
             self.clear_token()
             self.token_blocked = True
             return True  # Partial edit is uncertain; do not repeat or append the held key.
-        self.suppressed_keyups.add(self.keys[-1][0])
-        return self._finish_early_layout(context, decision, "native_early_disabled",
-                                         keyboard=True)
+        self.suppressed_keyups.add(current_vk)
+        if self._browser_field_changed_after_submission(context, readback_revision):
+            return True
+        finished = self._finish_early_layout(context, decision, "native_early_disabled",
+                                             keyboard=True)
+        self._queue_browser_readback(context, decision.typed, decision.replacement,
+                                     'early', revision=readback_revision)
+        return finished
 
     def _finish_early_layout(self, context, decision, disabled_attribute, *, keyboard=False):
         hkl = int(self.engine.mapper.layouts[decision.language])
@@ -649,6 +1353,9 @@ class LiveHook:
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             30, ctypes.byref(result))
         observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        emit_pipeline(self, 'layout-result', target=decision.language,
+                      hkl=f'{hkl & 0xFFFFFFFF:08X}', observed=f'{observed:08X}',
+                      result='confirmed' if observed == hkl & 0xFFFFFFFF else 'unconfirmed')
         self.last_language = next((name for name, code in LANGS.items()
                                    if code == (observed & 0xFFFF)), "")
         if observed != hkl & 0xFFFFFFFF:
@@ -667,7 +1374,14 @@ class LiveHook:
     @staticmethod
     def _word_scope(context: FocusContext) -> tuple:
         return (context.top, context.focus, context.thread_id, context.process_name,
-                context.layout_window, context.password_revision)
+                context.layout_window)
+
+    def _native_scope(self, context: FocusContext) -> tuple:
+        scope = self._word_scope(context)
+        if context.process_name.lower() in BROWSER_APPS:
+            return scope + (('browser-field-revision',
+                             getattr(self, '_browser_field_revision', 0)),)
+        return scope
 
     def _remember(self, context, keys, text, language, suffix, *, whole=False):
         self.last_word = remember_word(keys, text, language, suffix,
@@ -690,6 +1404,13 @@ class LiveHook:
             self.emit("error", f"Прямое переключение: {error}")
 
     def _cycle_word(self, context: FocusContext) -> None:
+        class_name = ctypes.create_unicode_buffer(128)
+        self.user32.GetClassNameW(context.focus, class_name, len(class_name))
+        native = supports_native_edit(class_name.value)
+        scintilla = context.process_name == 'notepad++.exe' and class_name.value == 'Scintilla'
+        if native and self._native_blocked(context):
+            self.emit('diagnostic', 'native-edit-quarantined:manual-cycle')
+            return
         if self.keys and not self.token_blocked:
             text = self.engine.mapper.word(self.keys, context.language)
             match = self.engine.decide(self.keys, context.language, allow_rare=True)
@@ -705,18 +1426,33 @@ class LiveHook:
         except ValueError as error:
             self.emit("info", str(error))
             return
+        if native or scintilla:
+            if getattr(self, '_in_keyboard_callback', False):
+                trigger = getattr(self, '_last_physical_event', None)
+                if self._schedule_native(context,
+                        lambda: self._cycle_edit_word(context, word, language,
+                                                      replacement, native=native),
+                        trigger=trigger, drop_always=True):
+                    return
+                self.emit('diagnostic', 'manual-cycle-worker-unavailable')
+                return
+            self._cycle_edit_word(context, word, language, replacement, native=native)
+            return
         events = correction_inputs(len(word.text + word.suffix),
                                    replacement + word.suffix, None, "")
-        current = self.context()
-        if (current is None or self._word_scope(current) != self._word_scope(context)
-                or current.language != context.language):
-            self.clear_token()
-            return
-        sent = self._send_events(events, context)
+        def still_valid():
+            current = self.context()
+            return (not self.stopping and current is not None
+                    and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language
+                    and getattr(self, 'last_word', None) is word)
+
+        sent, reason = self._send_guarded_inputs(events, still_valid)
         if sent != len(events):
             self.clear_token()
             self.token_blocked = True
-            self.emit("error", f"Ручная замена: отправлено {sent}/{len(events)}; повтор отменён")
+            self.emit('diagnostic' if reason == 'context-changed-before-send' else 'error',
+                      f'Ручная замена: отправлено {sent}/{len(events)}; {reason}; повтор отменён')
             return
         hkl = self.engine.mapper.layouts[language]
         result = ctypes.c_size_t()
@@ -734,6 +1470,75 @@ class LiveHook:
                   f"Ручное переключение → {language.upper()}" if self.last_language == language
                   else "Слово переключено, но приложение не подтвердило смену раскладки")
 
+    def _cycle_edit_word(self, context, word, language, replacement, *, native):
+        """Verified native manual cycle. Never blindly backspace a RichEdit word.
+
+        Repeated hotkey presses are particularly unsafe when a previous cycle
+        left a partial word: compare the actual editor suffix (including spaces)
+        before every edit, and update the remembered variant only after readback.
+        """
+        source_hkl = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        def valid():
+            current = self.context()
+            return (current is not None and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language
+                    and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
+                    and getattr(self, 'last_word', None) is word
+                    and not any(self.pressed(vk) for vk in
+                                (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
+        bridge = None
+        try:
+            bridge = (NativeEditBridge(context, valid, off_hook=self._native_is_off_hook())
+                      if native else ScintillaEarlyBridge(context))
+            with bridge:
+                result = replace_prefix(bridge, word.text + word.suffix,
+                                        replacement + word.suffix, valid)
+        except Exception as error:
+            # No blind fallback: timeout may have modified the document already.
+            result = None
+            reason = getattr(bridge, 'failure', '') or type(error).__name__
+        else:
+            reason = getattr(bridge, 'failure', '') or result.reason
+        if native:
+            self._note_native_mutation(bridge)
+            self._trace_native(bridge)
+        if result is None or result.state != 'verified':
+            uncertain = (result is None and getattr(bridge, 'write_started', False)
+                         or result is not None and result.state == 'uncertain')
+            self._trace_word('manual-cycle-result', context, source=word.text,
+                             replacement=replacement, state='uncertain' if uncertain else 'refused',
+                             reason=reason, observed=self._native_word_excerpt(bridge))
+            self.clear_token()
+            if uncertain:
+                self.token_blocked = True
+                if native:
+                    self._quarantine_native()
+                else:
+                    self.early_disabled = True
+            self.emit('diagnostic', 'manual-cycle-' + ('uncertain:' if uncertain else 'refused:') + reason)
+            return
+        self._trace_word('manual-cycle-result', context, source=word.text,
+                         replacement=replacement, state='verified',
+                         observed=self._native_word_excerpt(bridge))
+        hkl = int(self.engine.mapper.layouts[language])
+        response = ctypes.c_size_t()
+        self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
+            WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            180, ctypes.byref(response))
+        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
+        self.last_language = next((name for name, code in LANGS.items() if code == observed), '')
+        if observed != hkl & 0xFFFF:
+            # The text changed but the language did not. Without verified HKL,
+            # no additional cycle is allowed on this remembered word.
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('error', 'Ручная замена подтверждена, но раскладка не переключилась')
+            return
+        word.text, word.language = replacement, language
+        self.keys.clear()
+        self.token_blocked = not bool(word.suffix)
+        self.emit('ok', f'Ручное переключение → {language.upper()}')
+
     def _boundary(self, vk: int, language: str,
                   shift: bool) -> tuple[int | None, str] | None:
         if vk in BOUNDARY_VKS:
@@ -749,7 +1554,20 @@ class LiveHook:
 
     def _correct(self, context: FocusContext, boundary_vk: int | None,
                  boundary_text: str, *, manual: bool = False) -> bool:
+        if boundary_vk is not None:
+            self._trace_native_before_boundary(context)
+            if (getattr(self, 'debug_words', False) and getattr(self, 'early_done', False)
+                    and context.process_name.lower() in BROWSER_APPS):
+                self._queue_browser_readback(context, '',
+                    self.engine.mapper.word(list(self.keys), context.language), 'boundary-after-early')
         suffix = " " if boundary_vk == VK_SPACE else boundary_text
+        emit_pipeline(self, 'delimiter', length=len(self.keys), language=context.language,
+                      separator=('space' if boundary_vk == VK_SPACE else
+                                 'enter' if boundary_vk == VK_RETURN else
+                                 'tab' if boundary_vk == VK_TAB else
+                                 'manual' if manual else 'punctuation'),
+                      blocked=bool(getattr(self, 'token_blocked', False)),
+                      paused=bool(self.paused), early=bool(getattr(self, 'early_done', False)))
         remember = boundary_vk not in (VK_RETURN, VK_TAB)
         previous = getattr(self, "last_word", None)
         if not self.keys and previous is not None and not manual:
@@ -760,6 +1578,7 @@ class LiveHook:
                 self.last_word = previous
             return False
         if getattr(self, "token_blocked", False):
+            emit_pipeline(self, 'decision-none', reason='token-blocked')
             self.clear_token(preserve_snippets=True)
             self.token_blocked = manual
             return False
@@ -770,9 +1589,38 @@ class LiveHook:
                     and self.user32.GetKeyState(VK_CAPITAL) & 1) else None)
         decision = caps or (self.engine.decide_token(keys, context.language, allow_rare=manual)
                     if manual or (not self.paused and not getattr(self, "early_done", False)) else None)
+        if getattr(self, 'debug_words', False) and keys:
+            try:
+                alternatives = {lang: self.engine.mapper.word(keys, lang)
+                                for lang in ('ru', 'en', 'he')}
+                reason = (decision.reason if decision else
+                          decision_failure(self.engine, keys, context.language,
+                                           allow_rare=manual))
+                self._trace_word('boundary-decision', context,
+                                 source=alternatives[context.language], **alternatives,
+                                 replacement=decision.replacement if decision else '',
+                                 target=decision.language if decision else '',
+                                 state='selected' if decision else 'no-decision',
+                                 reason=reason)
+            except Exception:
+                # Diagnostic work must never interfere with physical typing.
+                pass
         original_length = len(keys)
         self.clear_token(preserve_snippets=True)
         if decision is None:
+            if self.paused and not manual:
+                reason = 'paused'
+            elif getattr(self, 'early_done', False) and not manual:
+                reason = 'already-corrected-early'
+            else:
+                try:
+                    reason = decision_failure(self.engine, keys, context.language,
+                                              allow_rare=manual)
+                except Exception:
+                    reason = 'diagnostic-classifier-failed'
+            emit_pipeline(self, 'decision-none', reason=reason, length=len(keys),
+                          language=context.language, rare=not self.settings.conservative,
+                          manual=manual)
             if remember and keys:
                 typed = self.engine.mapper.word(keys, context.language)
                 whole = False
@@ -783,30 +1631,77 @@ class LiveHook:
             return False
         name = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(context.focus, name, len(name))
-        if supports_native_edit(name.value):
+        native = supports_native_edit(name.value)
+        emit_pipeline(self, 'decision-found', target=decision.language,
+                      language=context.language, length=len(keys),
+                      method='native' if native else 'generic')
+        if native:
+            if self._native_blocked(context):
+                emit_pipeline(self, 'decision-none', reason='native-edit-quarantined')
+                return False
+            if getattr(self, '_in_keyboard_callback', False):
+                trigger = getattr(self, '_last_physical_event', None)
+                return self._schedule_native(
+                    context,
+                    lambda: self._correct_native(context, decision, keys, boundary_vk,
+                        boundary_text, remember, suffix, manual, bool(caps)),
+                    trigger=trigger, drop_always=manual)
             return self._correct_native(context, decision, keys, boundary_vk,
                                         boundary_text, remember, suffix, manual, bool(caps))
+        if (getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            return self._schedule_keyboard(context,
+                lambda: self._correct_keyboard(context, decision, keys, boundary_vk,
+                    boundary_text, remember, suffix, manual, bool(caps)),
+                trigger=self._last_physical_event, drop_always=manual)
+        return self._correct_keyboard(context, decision, keys, boundary_vk,
+                                      boundary_text, remember, suffix, manual, bool(caps))
+
+    def _correct_keyboard(self, context, decision, keys, boundary_vk, boundary_text,
+                          remember, suffix, manual, caps):
+        """Generic boundary packet, also used by the released-hook worker."""
+        original_length = len(keys)
         events = correction_inputs(original_length, decision.replacement,
                                    boundary_vk, boundary_text)
         if caps:
             events = [input_key(VK_CAPITAL), input_key(VK_CAPITAL, KEYEVENTF_KEYUP)] + events
             # Last-word cycling must preserve the corrected case with CapsLock off.
             keys = [(vk, not shift if 0x41 <= vk <= 0x5A else shift) for vk, shift in keys]
-        current = self.context()
-        if (current is None or self._word_scope(current) != self._word_scope(context)
-                or current.language != context.language):
-            self.token_blocked = True
-            return False
-        ctypes.set_last_error(0)
-        sent = self._send_events(events, context)
+        def target_still_valid():
+            current = self.context()
+            return (not self.stopping and not self.paused and current is not None
+                    and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language
+                    and getattr(self, '_browser_field_revision', 0) == readback_revision)
+
+        readback_revision = getattr(self, '_browser_field_revision', 0)
+        sent, reason = self._send_guarded_inputs(
+            events, target_still_valid,
+            before_send=self._mark_keyboard_trigger_mutation)
+        self._confirm_keyboard_trigger_acceptance(sent)
+        emit_pipeline(self, 'transport', method='sendinput',
+                  result=reason)
+        self._trace_word('boundary-result', context, source=decision.typed,
+                         replacement=decision.replacement, target=decision.language,
+                         state='submitted-unverified' if sent == len(events) else 'incomplete',
+                         transport='sendinput', reason=reason, sent=str(sent),
+                         total=str(len(events)), removed=str(original_length))
         if sent != len(events):
+            if reason == 'context-changed-before-send':
+                return False
             self.token_blocked = True
             self.emit("error", f"SendInput: отправлено {sent}/{len(events)}")
-            if sent > 0:
-                if boundary_vk is not None:
-                    self.suppressed_keyups.add(boundary_vk)
-                return True  # Uncertain edit: never replay the held boundary.
-            return False
+            # If even one Backspace was submitted, the physical separator
+            # must not be forwarded a second time into a partly edited word.
+            # Keep its KEYUP balanced while prohibiting any corrective replay.
+            if sent > 0 and boundary_vk is not None:
+                self.suppressed_keyups.add(boundary_vk)
+            if sent:
+                self._queue_browser_readback(context, decision.typed, decision.replacement,
+                                             'boundary-partial', revision=readback_revision)
+            return sent > 0
+        if self._browser_field_changed_after_submission(context, readback_revision):
+            return True
         target_hkl = int(self.engine.mapper.layouts[decision.language])
         result = ctypes.c_size_t()
         self.user32.SendMessageTimeoutW(
@@ -815,6 +1710,10 @@ class LiveHook:
         observed_language_id = int(
             self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
         changed = observed_language_id == (target_hkl & 0xFFFF)
+        emit_pipeline(self, 'layout-result', target=decision.language,
+                      observed=f'{observed_language_id:04X}',
+                      hkl=f'{target_hkl & 0xFFFFFFFF:08X}',
+                      result='confirmed' if changed else 'unconfirmed')
         self.last_language = next((name for name, code in LANGS.items()
                                    if code == observed_language_id), "")
         if remember:
@@ -830,10 +1729,22 @@ class LiveHook:
                       f" · {original_length} символов")
         else:
             self.emit("error", "Текст исправлен, но приложение не подтвердило смену раскладки")
+        self._queue_browser_readback(context, decision.typed, decision.replacement,
+                                     'boundary', revision=readback_revision)
         return True
+
+    def _trace_native(self, bridge):
+        # Queue metadata only; persistence belongs to the GUI, never the hook.
+        if getattr(self, 'pipeline_debug', False):
+            trace = getattr(bridge, 'trace', ())
+            if trace:
+                self.emit('native-trace', tuple(trace))
 
     def _correct_native(self, context, decision, keys, boundary_vk, boundary_text,
                         remember, suffix, manual, caps):
+        if self._native_blocked(context):
+            self.emit('diagnostic', 'native-edit-quarantined:boundary')
+            return False
         # The word is already delivered; the delimiter/manual hotkey is held.
         # A refusal must never fall back to deleting an unverified character count.
         def valid():
@@ -842,16 +1753,34 @@ class LiveHook:
                     and self._word_scope(current) == self._word_scope(context)
                     and current.language == context.language)
         target = decision.replacement + (boundary_text if boundary_vk is None else "")
+        bridge = None
         try:
-            with NativeEditBridge(context, valid, pending_char="") as bridge:
+            bridge = NativeEditBridge(context, valid, pending_char="",
+                                      off_hook=self._native_is_off_hook())
+            with bridge:
                 outcome = replace_prefix(bridge, decision.typed, target, valid)
         except Exception as error:
-            self.emit("diagnostic", "boundary-refused:" + type(error).__name__)
+            self._note_native_mutation(bridge)
+            self._trace_native(bridge)
+            emit_pipeline(self, 'transport', method='native', result='exception',
+                          reason=type(error).__name__)
+            self.emit("diagnostic", "boundary-refused:" +
+                      (getattr(bridge, 'failure', '') or type(error).__name__))
+            if getattr(bridge, 'write_started', False):
+                self._quarantine_native()
             return False
+        self._note_native_mutation(bridge)
+        self._trace_native(bridge)
+        emit_pipeline(self, 'transport', method='native', result=outcome.state,
+                      reason=outcome.reason)
         if outcome.state != "verified":
-            self.emit("diagnostic", "boundary-" + outcome.state + ":" + outcome.reason)
+            self._trace_word('boundary-result', context, source=decision.typed,
+                             replacement=decision.replacement, state=outcome.state,
+                             reason=outcome.reason, observed=self._native_word_excerpt(bridge))
+            self.emit("diagnostic", "boundary-" + outcome.state + ":" +
+                      (getattr(bridge, 'failure', '') or outcome.reason))
             if outcome.state == "uncertain":
-                self.native_early_disabled = True
+                self._quarantine_native()
                 self.token_blocked = True
             return False  # Forward the delimiter; never retry a possibly partial word edit.
         if caps:
@@ -864,6 +1793,9 @@ class LiveHook:
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             30, ctypes.byref(result))
         observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
+        emit_pipeline(self, 'layout-result', target=decision.language,
+                      observed=f'{observed:04X}', hkl=f'{hkl & 0xFFFFFFFF:08X}',
+                      result='confirmed' if observed == hkl & 0xFFFF else 'unconfirmed')
         self.last_language = next((lang for lang, code in LANGS.items() if code == observed), "")
         if remember:
             self._remember(context, keys, decision.replacement, decision.language,
@@ -871,6 +1803,9 @@ class LiveHook:
         self.token_blocked = manual
         self.emit("diagnostic", "boundary-verified:layout-" +
                   ("confirmed" if observed == hkl & 0xFFFF else "unconfirmed"))
+        self._trace_word('boundary-result', context, source=decision.typed,
+                         replacement=decision.replacement, state='verified',
+                         observed=self._native_word_excerpt(bridge))
         # Space/Enter/Tab pass physically, preserving the application's own handling.
         # Literal punctuation was included in the verified range replacement.
         return boundary_vk is None
@@ -884,17 +1819,64 @@ class LiveHook:
         if event.dwExtraInfo == OWN_INPUT_MARKER:
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
+        gate = getattr(self, 'native_queue', None)
+        if gate is not None and gate.busy:
+            if event.flags & LLKHF_INJECTED:
+                # External synthetic input must not be captured and replayed
+                # as our physical key. Another input tool may be injecting
+                # during the transaction; abandon the barrier instead.
+                gate.abort('external-injected-input')
+                return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
+            # The barrier belongs to one specific focused control. If the
+            # user clicks another field, do not swallow that field's typing.
+            # The worker must not replay already held events into the new
+            # field; instead it reports the undeliverable old-field prefix.
+            if gate.active:
+                if (message in (WM_KEYDOWN, WM_SYSKEYDOWN) and
+                        (vk in (VK_TAB, 0x1B, 0x21, 0x22, 0x23, 0x24,
+                                0x25, 0x26, 0x27, 0x28,
+                                VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN,
+                                0xA2, 0xA3, 0xA4, 0xA5))):
+                    self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
+                    gate.abort('field-revision-changed')
+                try:
+                    current = self.context()
+                    same = (current is not None and
+                            (gate.target_scope is None or
+                             self._native_scope(current) == gate.target_scope))
+                except (OSError, ValueError, AttributeError):
+                    same = False
+                if not same:
+                    gate.abort('focus-changed')
+                elif gate.capture(self._physical_event(vk, message, event)):
+                    return 1
+            # The worker still owns cleanup. Until it finishes, let all
+            # subsequent physical input pass through unmodified and do not
+            # start any new correction on a different target.
+            return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
         if (event.flags & LLKHF_INJECTED) and not self.accept_injected:
             self.clear_token()
+            emit_pipeline(self, 'input-filtered', reason='injected', interval=5)
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if message in (WM_KEYUP, WM_SYSKEYUP):
-            guard = getattr(self, 'password_guard', None)
-            if guard is not None and guard.snapshot.state != 'safe':
-                self.suppressed_keyups.clear()
             if vk in self.suppressed_keyups:
                 self.suppressed_keyups.discard(vk)
                 return 1
+            candidate = getattr(self, 'native_early_keyup_pending', None)
+            if candidate is not None and vk == candidate[0]:
+                self.native_early_keyup_pending = None
+                if (tuple(self.keys) == candidate[1] and not self.token_blocked
+                        and not self.stopping):
+                    current = self.context()
+                    if (current is not None
+                            and self._word_scope(current) == candidate[2]):
+                        if (getattr(self, '_in_keyboard_callback', False)
+                                and self._schedule_native(current,
+                                    lambda: self._try_early(current, key_delivered=True))):
+                            pass
+                        elif not getattr(self, '_in_keyboard_callback', False):
+                            self._try_early(current, key_delivered=True)
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if message not in (WM_KEYDOWN, WM_SYSKEYDOWN):
@@ -904,35 +1886,23 @@ class LiveHook:
             self.clear_token()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
+        self._last_physical_event = self._physical_event(vk, message, event, trigger=True)
+        emit_pipeline(self, 'hook-keydown', interval=5)
         context = self.context()
         if context is None:
-            scope = getattr(self, 'protection_scope', None)
-            if vk in (VK_SPACE, VK_RETURN, VK_TAB):
-                self.protection_skipped_input = False
-                self.skipped_input_scope = None
-                self.skipped_prefix_length = 0
-            elif scope is not None and (0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2):
-                if not getattr(self, 'protection_skipped_input', False):
-                    self.emit('diagnostic', 'input-refused:password-recheck')
-                self.protection_skipped_input = True
-                self.skipped_input_scope = scope
-                count = getattr(self, 'skipped_prefix_length', 0)
-                self.skipped_prefix_length = min(41, count + 1) if count >= 0 else -1
-                if any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)):
-                    self.skipped_prefix_length = -1
-            elif scope is not None and vk == VK_BACK:
-                count = getattr(self, 'skipped_prefix_length', 0)
-                self.skipped_prefix_length = max(0, count - 1) if count >= 0 else -1
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
-        if context.password_revision != getattr(self, 'last_guard_revision', 0):
-            if self.keys:
-                self.emit('diagnostic', 'input-reset:password-revision')
-            self.clear_token()
-            self.last_guard_revision = context.password_revision
+        if vk != VK_BACK:
+            # Retyping, shortcuts or navigation interrupt a consecutive run
+            # of deletes. Never reuse its count for a different document span.
+            self._backspace_remaining = 0
+        if (vk in (VK_TAB, 0x1B, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+                            VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN, 0xA2, 0xA3, 0xA4, 0xA5)
+                or any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN))):
+            self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
         if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
                 and self.pressed(VK_MENU)):
             # Key-repeat must not toggle the pause state more than once.
@@ -942,37 +1912,12 @@ class LiveHook:
             return 1
         if (context.focus != self.last_focus
                 or context.language != self.last_language):
+            if self.keys:
+                emit_pipeline(self, 'token-reset', reason=(
+                    'focus-changed' if context.focus != self.last_focus else 'language-changed'))
             self.clear_token()
         self.last_focus = context.focus
         self.last_language = context.language
-        if getattr(self, 'protection_skipped_input', False):
-            scope = getattr(self, 'skipped_input_scope', None)
-            if scope is not None and scope != (context.top, context.focus):
-                self.protection_skipped_input = False
-                self.skipped_prefix_length = 0
-            # Never treat the tail of input skipped during protection as a new word.
-            else:
-                self.token_blocked = True
-                def recovery_valid():
-                    current = self.context()
-                    return (current is not None and self._word_scope(current) == self._word_scope(context)
-                            and current.language == context.language
-                            and not any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)))
-                recovered = recover_prefix(context, self.engine.mapper,
-                                           getattr(self, 'skipped_prefix_length', 0), recovery_valid)
-                if recovered is not None:
-                    self.keys = recovered
-                    self.token_blocked = False
-                    self.protection_skipped_input = False
-                    self.skipped_prefix_length = 0
-                elif 0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2:
-                    count = getattr(self, 'skipped_prefix_length', 0)
-                    self.skipped_prefix_length = min(41, count + 1) if count >= 0 else -1
-        if vk == VK_TAB and getattr(self, 'password_guard', None) is not None:
-            self.password_guard.invalidate()
-            self.protection_skipped_input = False
-            self.clear_token()
-            return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
         if vk in MODIFIER_VKS:
             if vk in (VK_CONTROL, VK_MENU, 0xA2, 0xA3, 0xA4, 0xA5):
                 self.clear_token()
@@ -1017,32 +1962,62 @@ class LiveHook:
             return 1
         if (self.pressed(VK_CONTROL) or self.pressed(VK_MENU)
                 or self.pressed(VK_LWIN) or self.pressed(VK_RWIN)):
+            if self.keys:
+                emit_pipeline(self, 'token-reset', reason='modifier')
             self.clear_token()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if vk == VK_BACK:
+            self._trace_browser_key(context, vk, False)
             if getattr(self, 'snippets', None): self.snippets.invalidate()
+            previous = self.last_word
             self.last_word = None
-            if not self.keys:
-                self.token_blocked = True
             if self.keys:
                 self.keys.pop()
+                if not self.keys:
+                    # The entire tracked token is gone; its early conversion
+                    # must not suppress recognition of the next typed word.
+                    self.clear_token(preserve_snippets=True)
+            else:
+                remaining = getattr(self, '_backspace_remaining', 0)
+                if (not remaining and previous is not None
+                        and previous.scope == self._word_scope(context)
+                        and previous.language == context.language
+                        and previous.text.isalpha()
+                        and len(previous.text) == len(previous.keys)
+                        and all(ord(c) <= 0xFFFF for c in previous.text)
+                        and not previous.suffix.strip(' ')
+                        and not self.pressed(VK_SHIFT)):
+                    remaining = len(previous.text) + len(previous.suffix)
+                if remaining:
+                    self._backspace_remaining = remaining - 1
+                    if self._backspace_remaining:
+                        self.token_blocked = True
+                    else:
+                        self.clear_token(preserve_snippets=True)
+                        emit_pipeline(self, 'token-reset', reason='known-word-deleted')
+                else:
+                    # Unknown text, a moved caret or extra Backspace still
+                    # requires a delimiter before automatic correction resumes.
+                    self.token_blocked = True
+                    emit_pipeline(self, 'token-blocked', reason='backspace-unknown-span', interval=2)
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         shift = self.pressed(VK_SHIFT)
         if 0x41 <= vk <= 0x5A:
             shift ^= bool(self.user32.GetKeyState(VK_CAPITAL) & 1)
+        self._trace_browser_key(context, vk, shift)
         expanded, pending_snippet = self._try_snippet(context, vk, shift)
         if expanded:
             return 1
         if pending_snippet:
+            emit_pipeline(self, 'token-blocked', reason='snippet-prefix', interval=2)
             # Reserve a recognized shortcut prefix from layout and CapsLock correction.
             self.keys.clear(); self.last_word = None; self.early_done = False
             self.token_blocked = True
             return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
         boundary = self._boundary(vk, context.language, shift)
         if boundary is not None:
-            self.protection_skipped_input = False
             if self._correct(context, *boundary):
                 return 1
             return self.user32.CallNextHookEx(
@@ -1055,27 +2030,30 @@ class LiveHook:
                                 context.language, bool(self.keys))
                 or self.engine.mapper.char(vk, context.language, shift) in WORD_AFFIXES):
             self.keys.append((vk, shift))
+            if len(self.keys) == 1:
+                emit_pipeline(self, 'token-start', language=context.language, interval=1)
             if len(self.keys) > 40:
                 self.clear_token(preserve_snippets=True)
                 self.token_blocked = True
-            elif self._try_early(context):
+            elif self._try_early(context, await_native_keyup=True):
                 return 1
         else:
+            if self.keys:
+                emit_pipeline(self, 'token-reset', reason='nonword-key')
             self.clear_token(preserve_snippets=True)
             character = self.engine.mapper.char(vk, context.language, shift)
             self.token_blocked = bool(character and character.isprintable())
+            if self.token_blocked:
+                emit_pipeline(self, 'token-blocked', reason='nonword-key', interval=2)
         return self.user32.CallNextHookEx(
             self.keyboard_hook, code, message, param)
 
     def handle_mouse(self, code, message, param):
         if code >= 0 and int(message) in MOUSE_BOUNDARIES:
-            if int(message) in (WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, WM_XBUTTONDOWN):
-                guard = getattr(self, 'password_guard', None)
-                if guard is not None:
-                    guard.invalidate()
-                self.protection_skipped_input = False
-                self.skipped_input_scope = None
-                self.skipped_prefix_length = 0
+            self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
+            gate = getattr(self, 'native_queue', None)
+            if gate is not None and gate.busy:
+                gate.abort('field-revision-changed')
             self.clear_token()
             self.last_focus = 0
             self.last_language = ""
@@ -1089,28 +2067,49 @@ class LiveHook:
         return bool(self.user32.PostThreadMessageW(
             self.thread_id, WM_QUIT, 0, 0))
 
-    def _report_password_state(self):
-        guard = self.password_guard
-        snapshot = guard.snapshot
-        top = int(self.user32.GetForegroundWindow() or 0)
-        pid = wintypes.DWORD()
-        self.user32.GetWindowThreadProcessId(top, ctypes.byref(pid))
-        if not top or pid.value == os.getpid():
-            return  # Our own settings/log is intentionally outside correction.
-        if snapshot.state == 'safe':
-            self.last_password_notice = None
-            return
-        if snapshot.state == 'password':
-            notice = 'Защита паролей: парольное поле, обработка пропускается'
-        elif snapshot.reason in ('helper-failed', 'helper-exited', 'helper-timeout', 'restarting'):
-            notice = 'Защита паролей: помощник недоступен; автоматическое восстановление'
-        elif guard.clock() - guard.state_since >= 2:
-            notice = 'Защита паролей: поле не удалось проверить; исправления в нём отключены'
-        else:
-            return
-        if notice != getattr(self, 'last_password_notice', None):
-            self.last_password_notice = notice
-            self.emit('info', notice)
+    def request_probe_ping(self) -> bool:
+        """Debug-only liveness ping; does not change keyboard state or focus."""
+        if not self.pipeline_debug or not self.thread_id:
+            return False
+        return bool(self.user32.PostThreadMessageW(
+            self.thread_id, WM_DEBUG_PROBE_PING, 0, 0))
+
+    def _keyboard_probe_callback(self, code, message, param):
+        started = perf_counter()
+        self._keyboard_callback_depth = getattr(self, '_keyboard_callback_depth', 0) + 1
+        self._in_keyboard_callback = True
+        self.debug_keyboard_callbacks += 1
+        if code >= 0 and message in (WM_KEYDOWN, WM_SYSKEYDOWN):
+            self.debug_keydowns += 1
+        try:
+            return self.handle_keyboard(code, message, param)
+        except Exception as error:
+            self.debug_callback_errors += 1
+            emit_pipeline(self, 'callback-error', method='keyboard',
+                          reason=type(error).__name__)
+            return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
+        finally:
+            self._keyboard_callback_depth -= 1
+            self._in_keyboard_callback = self._keyboard_callback_depth > 0
+            elapsed = int((perf_counter() - started) * 1000)
+            self.debug_keyboard_max_ms = max(self.debug_keyboard_max_ms, elapsed)
+            if elapsed >= 200:
+                self.debug_keyboard_slow += 1
+                # Elapsed time is NOT a mutation outcome. It can include
+                # CallNextHookEx delays in another hook and worker counters
+                # may change independently. Only actual uncertain writes
+                # cause native quarantine in their transport handlers.
+                emit_pipeline(self, 'slow-keyboard-callback', elapsed_ms=elapsed)
+
+    def _mouse_probe_callback(self, code, message, param):
+        self.debug_mouse_callbacks += 1
+        try:
+            return self.handle_mouse(code, message, param)
+        except Exception as error:
+            self.debug_callback_errors += 1
+            emit_pipeline(self, 'callback-error', method='mouse',
+                          reason=type(error).__name__)
+            return self.user32.CallNextHookEx(self.mouse_hook, code, message, param)
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused
@@ -1141,11 +2140,21 @@ class LiveHook:
         self.thread_id = int(self.kernel32.GetCurrentThreadId())
         message = wintypes.MSG()
         self.user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 0)
+        if self.pending_config is not None:
+            # Saves made after the GUI published this hook but before its
+            # message queue existed must take effect before hook install.
+            self.settings, self.engine.user_lexicon, index = self.pending_config
+            self.engine._early_prefix_index = index
+            self.engine.conservative = self.settings.conservative
+            self.pending_config = None
         if self.stopping:
             self.thread_id = 0
             return
-        self.keyboard_callback = self.callback_type(self.handle_keyboard)
-        self.mouse_callback = self.callback_type(self.handle_mouse)
+        # Measure slow native transactions even without debug flags: Windows
+        # can silently remove a low-level keyboard hook after long callbacks.
+        self.keyboard_callback = self.callback_type(self._keyboard_probe_callback)
+        self.mouse_callback = self.callback_type(
+            self._mouse_probe_callback if self.pipeline_debug else self.handle_mouse)
         module = self.kernel32.GetModuleHandleW(None)
         self.keyboard_hook = self.user32.SetWindowsHookExW(
             WH_KEYBOARD_LL, self.keyboard_callback, module, 0)
@@ -1156,17 +2165,21 @@ class LiveHook:
         if not self.mouse_hook:
             self.user32.UnhookWindowsHookEx(self.keyboard_hook)
             raise ctypes.WinError(ctypes.get_last_error())
+        emit_pipeline(self, 'hook-installed')
+        emit_pipeline(self, 'settings', enabled=True, paused=self.paused,
+                      rare=not self.settings.conservative,
+                      early=self.settings.early_correction,
+                      native=self.settings.early_native, words=self.debug_words)
         self.emit("ready", "Автоисправление включено")
         message = wintypes.MSG()
         try:
-            self.password_guard.start()
             while self.user32.GetMessageW(
                     ctypes.byref(message), None, 0, 0) > 0:
-                if message.message == WM_PASSWORD_STATE:
-                    if int(message.wParam) > self.last_guard_revision:
-                        self.clear_token()
-                        self.last_guard_revision = int(message.wParam)
-                    self._report_password_state()
+                if message.message == WM_RELEASE_KEYBOARD_JOB:
+                    self._release_keyboard_job(int(message.wParam))
+                    continue
+                if message.message == WM_DEBUG_PROBE_PING and self.pipeline_debug:
+                    self.debug_probe_pongs += 1
                     continue
                 if message.message == WM_TOGGLE_PAUSE:
                     self.toggle_pause()
@@ -1186,7 +2199,6 @@ class LiveHook:
                 self.user32.TranslateMessage(ctypes.byref(message))
                 self.user32.DispatchMessageW(ctypes.byref(message))
         finally:
-            self.password_guard.close()
             if self.mouse_hook:
                 self.user32.UnhookWindowsHookEx(self.mouse_hook)
             if self.keyboard_hook:
@@ -1206,12 +2218,38 @@ class TypeBridgeGui:
         self.worker: threading.Thread | None = None
         self.closing = False
         self.cancel_start = threading.Event()
+        # Serialize publication of a new hook with GUI configuration saves.
+        self._runtime_config_lock = threading.RLock()
+        self._desired_runtime_config = None
         self.tray = None
         self.caret_indicator = None
         self.caret_indicator_error = ""
         self.last_tray_language = None
+        self._window_icon_language = None
         self.run_state = "stopped"
         self.last_start_error = ""
+        self.native_quarantine_message = ""
+        self._hook_watchdog = None
+        self._raw_probe = None
+        self._control_probe = None
+        self._watchdog_idle_logged = False
+        self._comparison_captured = False
+        self._browser_readback = None
+        if DEBUG_WORDS_ENABLED:
+            from browser_readback import BrowserReadback
+            self._browser_readback = BrowserReadback(
+                lambda result: self.events.put(('browser-readback-result', result)))
+            self._browser_readback.start()
+        if DEBUG_ENABLED:
+            from hook_watchdog import HookWatchdog
+            from raw_input_probe import RawKeyboardProbe
+            from keyboard_control_probe import ControlKeyboardProbe
+            from dictionary_diagnostics import record_debug_event
+            self._raw_probe = RawKeyboardProbe()
+            self._control_probe = ControlKeyboardProbe()
+            self._hook_watchdog = HookWatchdog(
+                lambda kind, event: record_debug_event(USER_DIR, kind, event),
+                raw_probe=self._raw_probe, control_probe=self._control_probe)
         settings = load_settings()
         set_language(settings.ui_language)
         self.ui_language = tk.StringVar(value=LANGUAGES[settings.ui_language])
@@ -1236,6 +2274,8 @@ class TypeBridgeGui:
         self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
         self.clipboard_tools.configure(settings)
         root.title("TypeBridge — RU / EN / HE")
+        # The window close button minimizes to a recoverable taskbar entry;
+        # only the explicit Exit command terminates the background switcher.
         root.protocol("WM_DELETE_WINDOW", self.hide)
         self.status = LocalizedStringVar(value="Остановлен")
         self.conservative = tk.BooleanVar(value=settings.conservative)
@@ -1246,8 +2286,7 @@ class TypeBridgeGui:
         self.plain_paste = tk.BooleanVar(value=settings.plain_paste)
         self.plain_paste_key = ChoiceVar(value=settings.plain_paste_key)
         self.cycle_key = ChoiceVar(value=settings.cycle_key)
-        self.early_correction = tk.BooleanVar(value=settings.early_correction)
-        self.early_native = tk.BooleanVar(value=settings.early_native)
+        self._init_early_options(settings)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
@@ -1269,16 +2308,38 @@ class TypeBridgeGui:
         self.refresh_windows_shortcuts()
         root.bind("<FocusIn>", self.refresh_windows_shortcuts, add="+")
         root.after(100, self._drain)
+        if DEBUG_ENABLED:
+            root.after(800, self._raw_probe.start)
+            root.after(1100, self._control_probe.start)
+            root.after(4000, self._poll_hook_watchdog)
         root.after(150, self._start_tray)
         root.after(500, self._update_tray)
         root.after(200, lambda: self._apply_caret_indicator(self.show_caret_flag.get()))
         if settings.corrections_enabled:
             root.after(300, self._restore_corrections)
 
+    def _make_rare_words_option(self, parent):
+        # Keep the stored conservative flag and existing profiles unchanged.
+        return ttk.Checkbutton(parent, text="Исправлять редкие слова автоматически",
+                               variable=self.conservative, onvalue=False, offvalue=True)
+
+    def _init_early_options(self, settings):
+        self.early_correction = tk.BooleanVar(self.root, value=settings.early_correction)
+        # One UI choice drives both legacy runtime fields; master was authoritative.
+        self.early_native = self.early_correction
+
+    def _make_early_option(self, parent):
+        return ttk.Checkbutton(parent, text="Исправлять до пробела", variable=self.early_correction)
+
     def refresh_windows_shortcuts(self, _event=None) -> None:
         language, layout = read_windows_shortcuts()
         self.windows_language_shortcut.set(language)
         self.windows_layout_shortcut.set(layout)
+        values = (language, layout)
+        if values != getattr(self, '_last_windows_shortcuts', None):
+            self._last_windows_shortcuts = values
+            if DEBUG_ENABLED:
+                self.emit('probe', f'windows-shortcuts:language={language};layout={layout}')
 
     def open_windows_shortcuts(self) -> None:
         try:
@@ -1291,7 +2352,7 @@ class TypeBridgeGui:
         footer.pack(side='bottom', fill='x')
         self.save_button = ttk.Button(footer, text="Сохранить настройки", command=self.save)
         self.save_button.pack(side='left')
-        ttk.Button(footer, text="Свернуть в трей", command=self.hide).pack(side="left", padx=8)
+        ttk.Button(footer, text="Свернуть на панель задач", command=self.hide).pack(side="left", padx=8)
         ttk.Button(footer, text="Автозамена и шаблоны…", command=self.open_snippets).pack(side="left")
         ttk.Button(footer, text="Выход", command=self.close).pack(side="right")
         language_bar = ttk.Frame(self.root)
@@ -1315,34 +2376,22 @@ class TypeBridgeGui:
         ttk.Label(frame, textvariable=self.status,
                   font=("Segoe UI", 11)).pack(anchor="w", pady=(4, 14))
         self.corrections_check = ttk.Checkbutton(
-            frame, text="Включить автоисправление", variable=self.corrections_enabled,
+            frame, text="Автоматически переключать раскладку", variable=self.corrections_enabled,
             command=self._on_corrections_check)
         self.corrections_check.pack(anchor="w", pady=(0, 10))
-        ttk.Checkbutton(
-            frame, text="Осторожный режим: исправлять только уверенные совпадения",
-            variable=self.conservative).pack(anchor="w")
-        ttk.Checkbutton(frame, text="Исправлять до введения пробела",
-                        variable=self.early_correction).pack(anchor="w", pady=(6, 0))
-        early_row = ttk.Frame(frame)
-        early_row.pack(fill='x', pady=(6, 0))
-        early_option = ttk.Checkbutton(early_row, text="Раннее исправление в других приложениях (эксперимент)",
-                                      variable=self.early_native)
-        early_option.pack(side='left')
-        help_icon = ttk.Label(early_row, text='ⓘ', cursor='question_arrow', takefocus=True)
-        help_icon.pack(side='left', padx=6)
-        help_text = "Для остальных полей используется обычная клавиатурная замена."
-        Tooltip(early_option, help_text)
-        Tooltip(help_icon, help_text)
+        Tooltip(self.corrections_check, "Исправлять слова, набранные в неправильной раскладке. Определяется после пробела или другого разделителя")
+        rare_option = self._make_rare_words_option(frame)
+        rare_option.pack(anchor="w")
+        Tooltip(rare_option, "Включено: весь словарь по пробелу; до пробела дополнительно исправляются "
+                "однозначные полные редкие слова от 5 букв, но не их незаконченные префиксы. "
+                "Выключено: только уверенные совпадения. Редкие слова увеличивают риск неверного выбора языка.")
+        early_option = self._make_early_option(frame)
+        early_option.pack(anchor="w", pady=(6, 0))
+        Tooltip(early_option, "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.")
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
                         variable=self.autostart).pack(anchor="w", pady=(6, 0))
-        manual_row = ttk.Frame(frame)
-        manual_row.pack(fill="x", pady=(6, 0))
-        ttk.Checkbutton(manual_row, text="Исправить набираемое слово до пробела",
-                        variable=self.manual_f8).pack(side="left")
-        ttk.Combobox(manual_row, textvariable=self.manual_key, state="readonly",
-                     values=tuple(MANUAL_KEYS), width=15).pack(side="left", padx=10)
         cycle_row = ttk.Frame(frame)
         cycle_row.pack(fill="x", pady=(6, 0))
         ttk.Label(cycle_row, text="Перебрать раскладки последнего слова:").pack(side="left")
@@ -1367,6 +2416,14 @@ class TypeBridgeGui:
         dictionary = page("Мои слова и исключения")
         self._build_dictionary(dictionary)
         shortcuts = page("Горячие клавиши")
+        manual_row = ttk.Frame(shortcuts)
+        manual_row.pack(fill="x", pady=(6, 0))
+        manual_option = ttk.Checkbutton(manual_row, text="Ручное исправление слова до пробела",
+                                        variable=self.manual_f8)
+        manual_option.pack(side="left")
+        Tooltip(manual_option, "Исправить набираемое слово по выбранной горячей клавише, не дожидаясь пробела.")
+        ttk.Combobox(manual_row, textvariable=self.manual_key, state="readonly",
+                     values=tuple(MANUAL_KEYS), width=15).pack(side="left", padx=10)
         ttk.Label(shortcuts, text="Установить раскладку без изменения текста",
                   font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 14))
         for lang, title in (("ru", "Русский"), ("en", "Английский"), ("he", "Иврит")):
@@ -1381,6 +2438,8 @@ class TypeBridgeGui:
                   wraplength=620).pack(anchor="w", pady=14)
         system_keys = ttk.LabelFrame(shortcuts, text="Системные сочетания Windows", padding=12)
         system_keys.pack(fill="x", pady=(20, 0))
+        ttk.Label(system_keys, text="Win+Space — стандартное переключение раскладки",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 6))
         for title, variable in (
             ("Между языками:", self.windows_language_shortcut),
             ("Между раскладками одного языка:", self.windows_layout_shortcut),
@@ -1388,7 +2447,7 @@ class TypeBridgeGui:
             row = ttk.Frame(system_keys)
             row.pack(fill="x", pady=4)
             ttk.Label(row, text=title).pack(side="left")
-            ttk.Label(row, textvariable=variable).pack(side="right")
+            ttk.Label(row, textvariable=variable, wraplength=330, justify="right").pack(side="right")
         ttk.Button(system_keys, text="Изменить в Windows…",
                    command=self.open_windows_shortcuts).pack(anchor="w", pady=(8, 4))
         ttk.Label(system_keys, text="В Windows: дополнительные параметры клавиатуры → сочетания клавиш для языков ввода.",
@@ -1513,7 +2572,7 @@ class TypeBridgeGui:
         try:
             from tray_win32 import TrayController
             self.tray = TrayController(lambda action: self.events.put(("tray", action)))
-            self.tray.set_state(self.run_state, self.last_start_error)
+            self.tray.set_state(*self._tray_state())
             self.tray.set_caret_flag(self.show_caret_flag.get())
             self.tray.set_journal_enabled(self.journal_service.enabled)
             self.tray.configure_clipboard(self.clipboard_tools.settings)
@@ -1522,18 +2581,46 @@ class TypeBridgeGui:
             self.emit("error", f"Трей недоступен: {error}")
             self.root.deiconify()
 
+    def _update_taskbar_language_icon(self, language: str) -> None:
+        """Keep a language flag on the recoverable taskbar window as well.
+
+        Explorer may accept a tray icon yet place it in an inaccessible
+        overflow area. This separate icon belongs to our regular Tk window;
+        unlike the notification icon, it remains reachable when iconified.
+        """
+        language = language if language in ('ru', 'en', 'he') else 'idle'
+        if getattr(self, '_window_icon_language', None) == language:
+            return
+        self._window_icon_language = language
+        try:
+            from tray_win32 import _icon_files
+            self.root.iconbitmap(str(_icon_files()[language]))
+        except (OSError, RuntimeError, tk.TclError) as error:
+            if DEBUG_ENABLED:
+                self.emit('diagnostic', 'taskbar-language-icon:' + type(error).__name__)
+
     def _update_tray(self) -> None:
         if self.closing:
             return
+        if getattr(self, 'hook', None) is not None:
+            self.hook.expire_native_pending()
         try:
             language = foreground_language()
         except OSError:
             language = "idle"
-        if self.tray and language != self.last_tray_language:
-            self.tray.set_language(language)
-            self.last_tray_language = language
+        self._update_taskbar_language_icon(language)
         if self.tray:
-            self.tray.observe_foreground()
+            try:
+                self.tray.maintain()
+                if language != self.last_tray_language:
+                    self.tray.set_language(language)
+                    self.last_tray_language = language
+                self.tray.observe_foreground()
+            except OSError:
+                pass  # A stale Explorer HWND must not cancel the recovery timer.
+            if self.root.state() == 'withdrawn' and not self.tray.available():
+                self.root.deiconify()
+                self.emit('info', 'Значок трея недоступен; окно восстановлено')
         indicator = self.caret_indicator
         if indicator and indicator.error and indicator.error != self.caret_indicator_error:
             self.caret_indicator_error = indicator.error
@@ -1541,10 +2628,18 @@ class TypeBridgeGui:
         self.root.after(500, self._update_tray)
 
     def hide(self) -> None:
-        if self.tray and self.tray.ready.is_set():
-            self.root.withdraw()
-        else:
-            self.emit("info", "Трей ещё недоступен; окно оставлено открытым")
+        available = bool(self.tray and self.tray.available())
+        if DEBUG_ENABLED:
+            self.emit('diagnostic', f'tray-hide:ready={bool(self.tray and self.tray.ready.is_set())}:available={available}:window={self.root.state()}')
+        # A successful Shell_NotifyIconGetRect means the icon is registered,
+        # not that Windows has made it reachable in the visible notification
+        # area. In particular, Explorer may put it in an inaccessible overflow
+        # on another PC. Never withdraw the last user-accessible GUI window.
+        # The minimized taskbar button is the unconditional recovery path.
+        self.root.iconify()
+        if DEBUG_ENABLED:
+            self.emit('diagnostic', f'tray-minimized:available={available}:window={self.root.state()}')
+        self.emit('info', 'Окно свёрнуто на панель задач; открой его кнопкой TypeBridge. Значок трея может находиться среди скрытых значков Windows')
 
     def show(self) -> None:
         self.root.deiconify()
@@ -1578,7 +2673,12 @@ class TypeBridgeGui:
         self.corrections_check.configure(
             state="disabled" if self.run_state in ("starting", "stopping") else "normal")
         if self.tray:
-            self.tray.set_state(self.run_state, self.last_start_error)
+            self.tray.set_state(*self._tray_state())
+
+    def _tray_state(self):
+        if self.run_state == 'running' and getattr(self, 'native_quarantine_message', ''):
+            return 'degraded', self.native_quarantine_message
+        return self.run_state, self.last_start_error
 
     def current_settings(self) -> Settings:
         excluded = [x.strip().casefold() for x in self.excluded.get().split(",") if x.strip()]
@@ -1627,16 +2727,23 @@ class TypeBridgeGui:
             except (ValueError, OSError):
                 write_registration(previous_registration)
                 raise
-            hook = self.hook
-            if hook:
-                hook.request_config(settings, self.lexicon)
+            lock = getattr(self, '_runtime_config_lock', None)
+            if lock is None:
+                lock = self._runtime_config_lock = threading.RLock()
+            with lock:
+                self._desired_runtime_config = (settings, self.lexicon)
+                hook = self.hook
+                if hook:
+                    hook.request_config(settings, self.lexicon)
             self.clipboard_tools.configure(settings)
             self.quick_search.configure()
             self._configure_journal(settings)
             if self.tray:
                 self.tray.configure_clipboard(settings)
             self._apply_caret_indicator(settings.show_caret_flag)
-            self.emit("info", "Настройки сохранены и применены")
+            self.emit("info", "Настройки сохранены; будут применены после загрузки" if
+                      self.run_state == 'starting' and hook is None else
+                      "Настройки сохранены и переданы переключателю")
             return settings
         except (ValueError, OSError) as error:
             messagebox.showerror("Настройки", str(error), parent=self.root)
@@ -1787,10 +2894,88 @@ class TypeBridgeGui:
             self.tray.configure_clipboard(settings)
         self.emit("info", "Настройки сохранены и применены")
 
+    def _poll_hook_watchdog(self) -> None:
+        """Tk timer runs independently of the keyboard hook and event queue."""
+        if self.closing:
+            return
+        if self._hook_watchdog is not None:
+            try:
+                active = bool(self.hook or self.run_state in ('starting', 'running', 'paused', 'stopping'))
+                if active or not self._watchdog_idle_logged:
+                    self._hook_watchdog.poll(self.hook, self.worker)
+                    self._watchdog_idle_logged = not active
+            except Exception as error:
+                from dictionary_diagnostics import record_debug_event
+                from pipeline_probe import emit_pipeline
+                emit_pipeline(self._hook_watchdog, 'callback-error', method='watchdog',
+                              reason=type(error).__name__)
+        # Metadata for comparing the two PCs is collected by the GUI timer,
+        # NEVER during the low-level keyboard callback. Limit to a single
+        # Notepad/Notepad++ focus per debug run; no document content is read.
+        if (DEBUG_ENABLED and self.hook is not None
+                and not getattr(self, '_comparison_captured', False)):
+            try:
+                ctx = self.hook.context()
+                if ctx is not None and ctx.process_name in ('notepad.exe', 'notepad++.exe'):
+                    from comparison_diagnostics import capture_context
+                    details = capture_context(self.hook.user32, ctx, '')
+                    self._comparison_captured = True
+                    self.emit('comparison', details)
+            except (OSError, ValueError, AttributeError) as error:
+                self.emit('diagnostic', 'comparison-capture-error:' + type(error).__name__)
+        self.root.after(4000, self._poll_hook_watchdog)
+
     def _drain(self) -> None:
         try:
             while True:
                 kind, message = self.events.get_nowait()
+                if kind == 'native-trace':
+                    if DEBUG_ENABLED:
+                        from dictionary_diagnostics import record_debug_event
+                        for line in message:
+                            record_debug_event(USER_DIR, 'diagnostic', line)
+                    continue
+                if kind == 'deferred-native-read':
+                    hook, context = message
+                    if hook is self.hook and DEBUG_WORDS_ENABLED:
+                        hook._trace_native_after_boundary(context)
+                    else:
+                        hook._native_observation_pending = False
+                    continue
+                if kind == 'browser-readback-request':
+                    service = getattr(self, '_browser_readback', None)
+                    hook, context, details, revision, created = message
+                    if (DEBUG_WORDS_ENABLED and hook is self.hook
+                            and not self.closing and service is not None):
+                        service.request(hook, context, details, revision, created)
+                    continue
+                if kind == 'browser-readback-result':
+                    hook, context, details = message
+                    if DEBUG_WORDS_ENABLED and hook is self.hook and not self.closing:
+                        hook._trace_word('browser-readback', context, **details)
+                    continue
+                if kind == 'word-trace':
+                    if DEBUG_WORDS_ENABLED:
+                        from word_trace import record_word_event
+                        record_word_event(USER_DIR, message)
+                    continue
+                if kind == 'comparison':
+                    if DEBUG_ENABLED:
+                        from comparison_diagnostics import context_report
+                        from dictionary_diagnostics import record_debug_event
+                        try:
+                            record_debug_event(USER_DIR, 'diagnostic', context_report(message))
+                        except Exception as error:
+                            record_debug_event(USER_DIR, 'diagnostic', 'comparison-error:' + type(error).__name__)
+                    continue
+                if kind == 'probe':
+                    if DEBUG_ENABLED:
+                        from dictionary_diagnostics import record_debug_event
+                        record_debug_event(USER_DIR, kind, message)
+                    continue
+                if DEBUG_ENABLED:
+                    from dictionary_diagnostics import record_debug_event
+                    record_debug_event(USER_DIR, kind, message)
                 if kind == "diagnostic":
                     from ui_diagnostics import record_runtime_event
                     try:
@@ -1827,6 +3012,11 @@ class TypeBridgeGui:
                     continue
                 if kind == "tray":
                     if isinstance(message, tuple):
+                        if message[0] == 'tray-diagnostic':
+                            # Recovery is background maintenance, not a request
+                            # to activate the settings window on every retry.
+                            self.emit('probe', 'tray-registration:' + message[1])
+                            continue
                         if message[0] == "quick-search":
                             self.quick_search.request(message[1], self.clipboard_tools.settings, self.tray.layouts)
                             continue
@@ -1842,15 +3032,37 @@ class TypeBridgeGui:
                         if message[0] == "layout-changed":
                             kind, message = "info", f"Раскладка: {message[1]}"
                         else:
-                            self.show()
+                            # Permanent tray resource failures may repeat on
+                            # every retry. Keep the taskbar recovery button;
+                            # never bring a visible editor's GUI to front.
+                            if getattr(self, '_last_tray_error', None) == message[1]:
+                                continue
+                            self._last_tray_error = message[1]
+                            if self.root.state() == 'withdrawn':
+                                self.root.iconify()
                             kind, message = "error", f"Трей: {message[1]}"
                     else:
                         action = {"open": self.show, "snippets": self.open_snippets, "toggle": self.toggle_corrections,
                                   "toggle-caret-flag": self.toggle_caret_flag, "journal": self.open_journal,
+                                  "restore-native-input": lambda: self.hook.restore_native_pending() if self.hook else None,
                                   "exit": self.close}.get(message)
                         if action:
                             action()
                         continue
+                if kind == 'transport-quarantine':
+                    self.native_quarantine_message = message
+                elif kind == 'native-recovery-available':
+                    if self.tray:
+                        self.tray.set_native_recovery(bool(message))
+                    continue
+                elif kind == 'native-recovery-complete':
+                    hook = getattr(self, 'hook', None)
+                    if (hook is None or
+                            not getattr(hook, 'native_edit_disabled', False)
+                            and not getattr(hook, 'native_blocked_scopes', set())):
+                        self.native_quarantine_message = ''
+                    if self.tray:
+                        self.tray.set_native_recovery(False)
                 if kind == "ready":
                     self.run_state = "running"
                     self.last_start_error = ""
@@ -1860,12 +3072,13 @@ class TypeBridgeGui:
                     self.run_state = "error"
                     self.last_start_error = message
                 elif kind == "stopped":
+                    self.native_quarantine_message = ""
                     if self.run_state == "error":
                         message = self.last_start_error
                     else:
                         self.run_state = "stopped"
                 self._sync_tray_state()
-                self.status.set(message)
+                self.status.set(getattr(self, 'native_quarantine_message', '') or message)
                 self.log.configure(state="normal")
                 self.log.insert("end", tr(message) + "\n")
                 if int(self.log.index("end-1c").split(".")[0]) > 300:
@@ -1893,6 +3106,8 @@ class TypeBridgeGui:
             self._sync_tray_state()
             return
         self.run_state = "starting"
+        self._watchdog_idle_logged = False
+        self._comparison_captured = False
         self.last_start_error = ""
         self._sync_tray_state()
         self.cancel_start.clear()
@@ -1902,17 +3117,38 @@ class TypeBridgeGui:
             try:
                 require_no_original_switcher()
                 with exclusive_live_hook():
+                    data_path = source_data_dir()
+                    if DEBUG_ENABLED:
+                        import platform
+                        import hashlib
+                        from diagnostic_identity import computer_id
+                        self.emit('info', f'Диагностика: компьютер {computer_id()}')
+                        self.emit("info", f"Диагностика: Windows {platform.version()} · {platform.machine()} · EXE {sys.executable}")
+                        if getattr(sys, 'frozen', False):
+                            digest = hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest()
+                            self.emit('info', f'Диагностика: SHA256 EXE {digest}')
+                    self.emit("info", f"Загрузка словарей из {data_path.resolve()}")
                     engine = LanguageEngine(
-                        source_data_dir(), conservative=settings.conservative,
+                        data_path, conservative=settings.conservative,
                         user_lexicon=lexicon)
-                    self.hook = LiveHook(engine, settings, self.emit, snippets=self.snippet_config)
+                    for message in dictionary_report(engine, data_path):
+                        self.emit("info", message)
+                    self.emit("info", "Системные раскладки RU/EN/HE: " +
+                              ', '.join(f"{lang.upper()}={int(hkl) & 0xFFFFFFFF:08X}" for lang, hkl in engine.mapper.layouts.items()))
+                    with self._runtime_config_lock:
+                        current, current_lexicon = self._desired_runtime_config or (settings, lexicon)
+                        engine.conservative = current.conservative
+                        engine.user_lexicon = current_lexicon
+                        self.hook = LiveHook(engine, current, self.emit,
+                                             snippets=self.snippet_config)
                     if self.cancel_start.is_set():
                         self.hook.request_stop()
                     self.hook.run()
             except Exception as error:
                 self.emit("error", f"Ошибка запуска: {error}")
             finally:
-                self.hook = None
+                with self._runtime_config_lock:
+                    self.hook = None
                 self.emit("stopped", "Остановлен")
 
         self.status.set("Загрузка словарей…")
@@ -1921,6 +3157,14 @@ class TypeBridgeGui:
 
     def stop(self) -> None:
         self.cancel_start.set()
+        hook = getattr(self, 'hook', None)
+        native_worker = getattr(hook, 'native_worker', None) if hook else None
+        if native_worker is not None and native_worker.is_alive():
+            # The RichEdit commit may already have started. Do not unhook and
+            # let the daemon worker be killed mid-word while the GUI exits.
+            self.status.set('Завершение нативной замены…')
+            self.root.after(50, self.stop)
+            return
         if self.run_state != "error":
             self.run_state = "stopping" if self.worker and self.worker.is_alive() else "stopped"
         self._sync_tray_state()
@@ -1930,10 +3174,25 @@ class TypeBridgeGui:
             hook.request_stop()
 
     def close(self) -> None:
+        hook = getattr(self, 'hook', None)
+        native_worker = getattr(hook, 'native_worker', None) if hook else None
+        if native_worker is not None and native_worker.is_alive():
+            # Postpone shutdown while the input barrier is still active.
+            # Hook removal before the worker drains its held keys can result
+            # in mixed old/new layout output or lost key releases.
+            self.status.set('Завершение нативной замены…')
+            self.root.after(50, self.close)
+            return
         editor = getattr(self, 'snippets_editor', None)
         if editor and editor.window.winfo_exists() and not editor.close():
             return
         self.closing = True
+        if getattr(self, '_browser_readback', None) is not None:
+            self._browser_readback.close()
+        if self._raw_probe is not None:
+            self._raw_probe.stop()
+        if self._control_probe is not None:
+            self._control_probe.stop()
         self.quick_search.configure()
         self.clipboard_tools.close()
         self.journal_service.close()
@@ -2013,8 +3272,6 @@ def main(argv=None) -> int:
                      snippets=SnippetConfig.load(USER_DIR / 'snippets.json')).run()
         return 0
     root = tk.Tk()
-    if args.autostart:
-        root.withdraw()
     try:
         migrate_user_data()
         gui = TypeBridgeGui(root)
@@ -2023,6 +3280,11 @@ def main(argv=None) -> int:
         messagebox.showerror("TypeBridge: ошибка настроек", str(error), parent=root)
         root.destroy()
         return 1
+    if args.autostart:
+        # Never launch into an inaccessible withdrawn window. Allow Tk and
+        # the tray helper to initialize, then minimize to the taskbar with
+        # a reliable taskbar button even if Explorer hides our tray icon.
+        root.after(1200, gui.hide)
     root.mainloop()
     return 0
 

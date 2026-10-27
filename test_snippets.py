@@ -111,6 +111,33 @@ class HookTests(unittest.TestCase):
         self.assertEqual(key(self.hook,ord('L')),0)
         self.hook.user32.SendInput.assert_not_called()
 
+    def test_changed_focus_after_snippet_preflight_cannot_delete_new_field(self):
+        self.f.type('//emai')
+        original = self.hook.context
+        calls = 0
+        def context():
+            nonlocal calls
+            calls += 1
+            return original() if calls < 3 else None
+        self.hook.context = context
+        self.assertEqual(key(self.hook, ord('L')), 0)
+        self.hook.user32.SendInput.assert_not_called()
+        self.assertTrue(self.hook.token_blocked)
+
+    def test_partial_snippet_does_not_replay_accepted_keydown_and_releases_it(self):
+        self.f.type('//emai')
+        calls = []
+        def partial(count, events, size):
+            calls.append([(events[i].u.ki.wVk, events[i].u.ki.dwFlags) for i in range(count)])
+            return 1 if len(calls) in (1, 3) else 0
+        self.hook.user32.SendInput.side_effect = partial
+        self.assertEqual(key(self.hook, ord('L')), 1)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[0][0], (VK_BACK, 0))
+        self.assertEqual(calls[2], [(VK_BACK, 2)])
+        self.assertTrue(self.hook.token_blocked)
+        self.assertIn(ord('L'), self.hook.suppressed_keyups)
+
     def test_multiline_template_uses_no_synthetic_enter_or_tab_commands(self):
         self.hook.snippets=SnippetMatcher(SnippetConfig(True,(Snippet('//m','Первая\nשנייה\ttext'),)))
         self.f.type('//m')

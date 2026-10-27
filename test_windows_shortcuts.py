@@ -21,14 +21,28 @@ class WindowsShortcutsTests(unittest.TestCase):
         self.assertEqual(self.read({"Language Hotkey": "1", "Layout Hotkey": "2"}),
                          ("Левый Alt+Shift", "Ctrl+Shift"))
 
-    def test_missing_or_unsupported_does_not_guess_from_legacy_value(self):
+    def test_legacy_value_is_labelled_and_never_used_for_layout_shortcut(self):
         self.assertEqual(self.read({"Hotkey": "2", "Layout Hotkey": "4"}),
-                         (shortcuts.UNKNOWN, shortcuts.UNKNOWN))
+                         ("Ctrl+Shift (сохранено в Hotkey; применение Windows не подтверждено)", shortcuts.UNKNOWN))
 
     def test_access_failure(self):
         with patch.object(shortcuts.winreg, "OpenKey", side_effect=PermissionError):
             self.assertEqual(shortcuts.read_windows_shortcuts(),
-                             (shortcuts.UNKNOWN, shortcuts.UNKNOWN))
+                             (shortcuts.WIN_SPACE + ' (параметры недоступны)', shortcuts.UNKNOWN))
+
+    def test_unset_optional_hotkeys_show_system_default_not_fake_error(self):
+        self.assertEqual(self.read({}),
+                         (shortcuts.DEFAULT_LANGUAGE,
+                          shortcuts.NOT_CONFIGURED))
+        self.assertEqual(self.read({'Language Hotkey': '3'}),
+                         ('Не назначено (дополнительно; Win+Space доступно)',
+                          shortcuts.NOT_CONFIGURED))
+
+    def test_absent_toggle_branch_keeps_built_in_windows_shortcut_visible(self):
+        with patch.object(shortcuts.winreg, 'OpenKey', side_effect=FileNotFoundError):
+            self.assertEqual(shortcuts.read_windows_shortcuts(),
+                             (shortcuts.DEFAULT_LANGUAGE,
+                              shortcuts.NOT_CONFIGURED))
 
     def test_opener_uses_settings_uri_without_changing_registry(self):
         with patch.object(shortcuts.os, "startfile") as launch:
@@ -39,6 +53,7 @@ class WindowsShortcutsTests(unittest.TestCase):
         from typebridge_app import TypeBridgeGui
 
         gui = TypeBridgeGui.__new__(TypeBridgeGui)
+        gui.emit = Mock()
         gui.windows_language_shortcut = Mock()
         gui.windows_layout_shortcut = Mock()
         with patch("typebridge_app.read_windows_shortcuts", side_effect=[
@@ -49,6 +64,26 @@ class WindowsShortcutsTests(unittest.TestCase):
             gui.refresh_windows_shortcuts()
             gui.windows_language_shortcut.set.assert_called_with("Левый Alt+Shift")
             gui.windows_layout_shortcut.set.assert_called_with("Ctrl+Shift")
+
+    def test_explicit_disabled_setting_never_falls_back_to_alt_shift(self):
+        language, _ = self.read({'Language Hotkey': '3', 'Hotkey': '1'})
+        self.assertNotIn('Alt+Shift', language)
+        self.assertIn('Не назначено', language)
+
+    def test_unknown_setting_never_claims_default_is_active(self):
+        language, _ = self.read({'Language Hotkey': 'unexpected'})
+        self.assertIn('параметры недоступны', language)
+        self.assertNotEqual(language, shortcuts.DEFAULT_LANGUAGE)
+
+    def test_unreadable_legacy_value_is_not_treated_as_absent(self):
+        def query(_key, name):
+            if name == 'Hotkey':
+                raise PermissionError('denied')
+            raise FileNotFoundError(name)
+        with patch.object(shortcuts.winreg, 'OpenKey', return_value=MagicMock()), \
+                patch.object(shortcuts.winreg, 'QueryValueEx', side_effect=query):
+            language, _ = shortcuts.read_windows_shortcuts()
+        self.assertIn('параметры недоступны', language)
 
 
 if __name__ == "__main__":

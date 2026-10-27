@@ -4,6 +4,7 @@ import hashlib
 from importlib import metadata
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,11 +13,34 @@ import urllib.request
 import zipfile
 
 
-def run(*args, cwd=None):
-    subprocess.run([str(a) for a in args],cwd=cwd,check=True)
+def run(*args, cwd=None, env=None):
+    subprocess.run([str(a) for a in args],cwd=cwd,env=env,check=True)
 
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def require_clean_source_snapshot(root):
+    """Never label git archive HEAD as a snapshot of uncommitted fixes."""
+    dirty = subprocess.check_output(
+        ['git', 'status', '--porcelain', '--untracked-files=normal'],
+        cwd=root, text=True)
+    if dirty.strip():
+        raise RuntimeError(
+            'Public release refused: the working tree contains uncommitted or '
+            'untracked files. git archive HEAD would silently omit current '
+            'TypeBridge fixes. Commit and review the complete source first.')
+
+
+def run_isolated_tests(source, env):
+    """Run each unittest module in its own process to bound dictionary RAM use."""
+    modules = sorted(path.stem for path in source.glob('test_*.py'))
+    if not modules:
+        raise RuntimeError('Public release refused: no unittest modules in source snapshot')
+    for number, module in enumerate(modules, 1):
+        print(f'RELEASE_TEST [{number}/{len(modules)}] {module}', flush=True)
+        run(sys.executable, '-m', 'unittest', module, '-q', cwd=source, env=env)
+    return modules
 
 
 def main():
@@ -30,6 +54,7 @@ def main():
         parser.error('Output must be a new directory outside the repository')
     if any(c not in '0123456789abcdefghijklmnopqrstuvwxyz.-' for c in args.version):
         parser.error('Invalid version')
+    require_clean_source_snapshot(root)
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
     archive=subprocess.check_output(['git','archive','--format=zip',commit],cwd=root)
     out.mkdir(parents=True)
@@ -41,9 +66,12 @@ def main():
         z.extractall(source)
     if any((source/'data').glob('*.txt')):
         raise ValueError('Source snapshot already contains dictionary text; refusing release build')
-    run(sys.executable,source/'prepare_dictionaries.py',cwd=source)
-    # Release gate: every background regression test must pass on public data.
-    run(sys.executable,'-m','unittest','discover','-p','test_*.py','-q',cwd=source)
+    run(sys.executable,source/'prepare_open_data.py','--output-dir',source/'data',cwd=source)
+    # Release gate: all background regressions on public data, with a fresh
+    # process per module so large dictionary/early-index fixtures cannot
+    # accumulate across the entire test suite on the Windows CI runner.
+    tested_modules = run_isolated_tests(
+        source, {**os.environ, 'TYPEBRIDGE_DICTIONARY_TEST_DIR':str(source/'data')})
     # Fail visibly before freezing if the runner lacks the required layouts/data.
     run(sys.executable,source/'typebridge_app.py','--self-test',cwd=source)
     package=out/'portable'/'TypeBridge'; package.mkdir(parents=True)
@@ -78,7 +106,7 @@ def main():
     log=out/'pyinstaller.log'
     command=[sys.executable,'-m','PyInstaller','--noconfirm','--onefile','--windowed',
              '--name','TypeBridge','--distpath',str(package),'--workpath',str(out/'build'),
-             '--add-data','data;data','--add-data','dictionary_packs;dictionary_packs','typebridge_app.py']
+             '--add-data','dictionary_packs;dictionary_packs','typebridge_app.py']
     with log.open('w',encoding='utf-8') as stream:
         subprocess.run(command,cwd=source,stdout=stream,stderr=subprocess.STDOUT,check=True)
     # A hidden self-test only; no GUI event loop, migration or keyboard hooks.
@@ -92,9 +120,12 @@ def main():
     manifest={'version':args.version,'source_commit':commit,'python':sys.version.split()[0],
               'packages':{n:metadata.version(n) for n in ('Pillow','psutil','pywin32','pyinstaller')},
               'dictionary_sources':json.loads((package/'data'/'SOURCES.json').read_text(encoding='utf-8')),
+              'russian_sources':json.loads((package/'data'/'RU-SOURCES.json').read_text(encoding='utf-8')),
+              'frequency_sources':json.loads((package/'data'/'FREQUENCY-SOURCES.json').read_text(encoding='utf-8')),
               'self_test_exit':result.returncode,
               'self_test_report':report,
               'unittest_suite':'passed',
+              'unittest_module_count':len(tested_modules),
               'files':{p.relative_to(package).as_posix():sha(p) for p in sorted(package.rglob('*')) if p.is_file()}}
     (package/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     destination=out/f'TypeBridge-{args.version}-windows-x64.zip'

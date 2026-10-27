@@ -219,8 +219,78 @@ def self_test(*, include_runtime=False):
                     raise AssertionError('native-replacement-undo-group')
                 checks.append({'replacement': replacement, 'state': outcome.state, 'undo_restores_source': undo_ok,
                                'fixture_undo_text': undo_text.decode() if not undo_ok else None})
+        # Simulate repeated manual Pause cycles with real RichEdit ranges,
+        # including a space suffix and RTL Hebrew, on the inactive desktop.
+        # This is a transaction test, NOT a physical global-hotkey test.
+        with NativeEditBridge(ctx, lambda: True) as bridge:
+            initial = ctypes.create_unicode_buffer('tree ')
+            answer = ctypes.c_size_t()
+            if not bridge.u.SendMessageTimeoutW(ctx.focus, 0xC, 0, ctypes.addressof(initial),
+                                                 3, 500, ctypes.byref(answer)):
+                raise TimeoutError('manual-cycle-fixture-setup')
+            bridge.msg(0xB1, 5, 5)
+        manual_steps = [('tree ', 'ארקק '), ('ארקק ', 'екуу '), ('екуу ', 'tree ')]
+        for source, destination in manual_steps:
+            with NativeEditBridge(ctx, lambda: True) as bridge:
+                outcome = replace_prefix(bridge, source, destination, lambda: True)
+                actual, caret = bridge.snapshot()
+                if (outcome.state != 'verified' or actual != destination.encode()
+                        or caret != len(destination.encode())):
+                    raise AssertionError('native-manual-cycle-' + outcome.state + '-' + outcome.reason)
+        with NativeEditBridge(ctx, lambda: True) as bridge:
+            outcome = replace_prefix(bridge, 'ארקק ', 'екуу ', lambda: True)
+            if outcome.state != 'refused' or bridge.snapshot()[0] != b'tree ':
+                raise AssertionError('native-manual-cycle-stale-source-mutated')
+        # The production off-hook path admits longer words than the old 12-char
+        # inline guard. Check actual RichEdit result and Undo on this private
+        # inactive control, without installing a keyboard hook.
+        worker_length_checks = []
+        for source, destination in (
+                ('abcdefghijklmno', 'абвгдежзийклмнопр'),
+                ('qwertyuiopasdfg', 'אבגדהוזחטיכלמנס')):
+            with NativeEditBridge(ctx, lambda: True) as bridge:
+                initial = ctypes.create_unicode_buffer(source)
+                answer = ctypes.c_size_t()
+                if not bridge.u.SendMessageTimeoutW(ctx.focus, 0xC, 0,
+                        ctypes.addressof(initial), 3, 500, ctypes.byref(answer)):
+                    raise TimeoutError('long-worker-fixture-setup')
+                bridge.msg(0xB1, len(source), len(source))
+                bridge.msg(0xCD)
+            with NativeEditBridge(ctx, lambda: True, off_hook=True) as bridge:
+                outcome = replace_prefix(bridge, source, destination, lambda: True)
+                if outcome.state != 'verified' or bridge.snapshot()[0] != destination.encode():
+                    raise AssertionError('long-worker-result-' + outcome.state + '-' + outcome.reason)
+                if not bridge.msg(0xC7) or bridge.snapshot(allow_selection=True)[0] != source.encode():
+                    raise AssertionError('long-worker-undo-failed')
+                worker_length_checks.append({'from_chars': len(source),
+                                             'to_chars': len(destination),
+                                             'undo_restores_source': True})
+        # Read-only comparison of the current WM_CHAR transport with a single
+        # EM_REPLACESEL transaction on a DISPOSABLE private desktop control.
+        # Never substitute it in production until Undo/Redo agrees for RTL.
+        bulk_probe = []
+        for source, destination in [('ghbdtn', 'привет'), ('akuo', 'שלום')]:
+            with NativeEditBridge(ctx, lambda: True) as bridge:
+                initial = ctypes.create_unicode_buffer(source)
+                answer = ctypes.c_size_t()
+                if not bridge.u.SendMessageTimeoutW(ctx.focus, 0xC, 0,
+                        ctypes.addressof(initial), 3, 500, ctypes.byref(answer)):
+                    raise TimeoutError('bulk-probe-setup')
+                bridge.msg(0xCD)  # EM_EMPTYUNDOBUFFER
+                bridge.msg(0xB1, 0, len(source))
+                replacement = ctypes.create_unicode_buffer(destination)
+                ok = bool(bridge.u.SendMessageTimeoutW(ctx.focus, 0xC2, 1,
+                    ctypes.addressof(replacement), 3, 500, ctypes.byref(answer)))
+                changed = bridge.snapshot(allow_selection=True)[0] if ok else b''
+                undo_ok = bool(bridge.msg(0xC7)) if ok else False
+                restored = bridge.snapshot(allow_selection=True)[0] if ok else b''
+                bulk_probe.append({'target': 'ru' if destination == 'привет' else 'he',
+                                   'text_correct': changed == destination.encode(),
+                                   'undo_restores_source': undo_ok and restored == source.encode()})
         with NativeEditBridge(ctx, lambda: True, pending_char='x') as bridge:
             bridge.msg(0xB1, 0, 2)
+        # Fixture selection is not a mutation by the transaction under test.
+        with NativeEditBridge(ctx, lambda: True, pending_char='x') as bridge:
             outcome = replace_prefix(bridge, 'xx', 'yy', lambda: True)
             if outcome.state != 'refused' or bridge.write_started:
                 raise AssertionError('selection-not-refused')
@@ -231,6 +301,9 @@ def self_test(*, include_runtime=False):
                 'undo_restores_source': all(check['undo_restores_source'] for check in checks),
                 'integration_gate': ('BLOCKED_PENDING_PHYSICAL_INPUT' if all(check['undo_restores_source'] for check in checks)
                                      else 'BLOCKED_PENDING_UNDO_AND_PHYSICAL_INPUT'),
+                'manual_cycle_native': 'three-verified-with-stale-source-refused',
+                'offhook_long_word_checks': worker_length_checks,
+                'bulk_replace_research_only': bulk_probe,
                 'runtime_cases': runtime, 'checks': checks}
     finally:
         u.SetThreadDesktop(original)

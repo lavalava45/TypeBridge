@@ -16,6 +16,22 @@ MAX_TEXT = 100_000
 MAX_TOTAL = 1_000_000
 
 
+def plain_paste_release_inputs(events, accepted):
+    """Release ONLY the unmatched accepted downs from one Ctrl+V attempt.
+
+    Returning keyups alone avoids re-injecting a potentially accepted paste.
+    The caller still must confirm that Windows accepted the cleanup packet.
+    """
+    from input_transport import unmatched_keydowns
+    from typebridge_app import Input, KeyInput, OWN_INPUT_MARKER
+    dangling = unmatched_keydowns(events, accepted)
+    release = (Input * len(dangling))()
+    for dest, (vk, scan, flags) in zip(release, reversed(dangling)):
+        dest.type = 1
+        dest.u.ki = KeyInput(vk, scan, flags | 2, 0, OWN_INPUT_MARKER)
+    return release
+
+
 class TextHistory:
     def __init__(self, limit=30):
         self.limit = limit
@@ -265,9 +281,16 @@ class ClipboardTools:
             api.SendInput.restype = ctypes.c_uint
             sent = api.SendInput(4, events, ctypes.sizeof(Input))
             if sent != 4:
-                # Release only our Ctrl; never replay a possibly delivered paste.
-                release = (Input * 1)(events[3])
-                api.SendInput(1, release, ctypes.sizeof(Input))
+                # A short SendInput can accept CtrlDown + VDown without any
+                # matching releases. Send only KEYUP for each accepted,
+                # unmatched KEYDOWN; never reissue Ctrl+V (it may have pasted).
+                if not 0 <= sent <= 4:
+                    raise OSError('Неверное число событий SendInput; вставка не подтверждена')
+                release = plain_paste_release_inputs(events, int(sent))
+                if len(release):
+                    released = api.SendInput(len(release), release, ctypes.sizeof(Input))
+                    if released != len(release):
+                        self.notify(('paste-error', 'Отпускание клавиш после неполной вставки не подтверждено'))
                 raise OSError('Вставка не подтверждена; повтор автоматически отменён')
             self.pending = False
         except Exception as error:

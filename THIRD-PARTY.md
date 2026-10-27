@@ -24,11 +24,13 @@ length checks, frequency thresholds, removal of Hebrew internal final forms,
 and selection of high-frequency confidence lists. Frequency lists may still
 contain errors; they are not a verified orthographic dictionary.
 
-The portable public ZIP includes these open dictionaries both inside the EXE
-and as plain text in `data/`, with attribution, source hashes, the full CC BY-SA
-4.0 license, dependency notices and a matching source-code archive. Public
-packages are built in an isolated directory using `build_public_release.py`;
-the private working dictionaries are never copied into that build.
+The already published alpha.5 ZIP includes these open dictionaries both inside
+the EXE and as plain text in `data/`. The **unreleased** build preparation now
+places the generated lists and verified frequency indices **only** in `data/`
+beside the EXE, with attribution, source hashes, the CC BY-SA 4.0 license,
+dependency notices and a matching source-code archive. Public packages are
+prepared in an isolated directory using `build_public_release.py`; the private
+working dictionaries are never copied into that build.
 
 ### Three-language distribution verified on 24 October 2026
 
@@ -135,3 +137,86 @@ Runtime dependencies are listed in `requirements.txt`: psutil, pywin32 and
 Pillow. PyInstaller is used for local builds. Each retains its upstream license;
 refer to the installed package metadata and upstream license files. Python and
 Tcl/Tk retain their respective licenses as well.
+
+## Russian open-data candidate — 24 October 2026
+
+`prepare_russian_dictionary.py --output-dir build/russian-open-candidate-NEW`
+independently prepares a candidate from the pinned FrequencyWords source above
+and Alexander I. Lebedev's Russian Hunspell data mirrored by wooorm/dictionaries
+at `8cfea406b505e4d7df52d5a19bce525df98c54ab`. Each downloaded input is SHA-256
+verified. The generator supports and validates the suffix-only grammar of that
+snapshot; it is not a general Hunspell implementation.
+
+The original Lebedev notice permits redistribution and modification with its
+copyright, conditions and disclaimer retained, modifications marked, and no
+implied author endorsement. The candidate retains that full notice and credits
+Laszlo Nemeth's 2012 changes. The combined/modified frequency-derived dataset
+is marked CC BY-SA 4.0, retaining both components' attributions and the original
+Lebedev notice; TypeBridge's generator code remains MIT.
+
+Generation expands suffixes before casefolding, retains Russian-letter forms
+of length 1–40, and deduplicates the union. Results: 212,414 frequency entries,
+1,436,553 orthographic forms, 163,955 shared entries, 1,485,012 combined entries.
+The 40,008 confidence entries remain frequency-derived; orthographic membership
+alone is not evidence of high frequency. Raw sources and their hashes,
+transformation notes, notices and separate component word lists are retained
+alongside the candidate. No extracted local Russian dictionary is used.
+
+**Historical initial candidate check.** In 26 in-memory recognition cases,
+the plain union blocked EN `zvc` → HE `זהב` because it also recognized RU
+`ямс`. The orthographic word is valid; deleting it as a typo would have hidden
+an ambiguity-policy problem. This candidate was **not installed at that stage**.
+Subsequent frequency resolution made that case decidable without special rules.
+These observations alone do not establish live-input compatibility.
+
+### Frequency-aware, pinned public candidate (source implementation)
+
+`prepare_frequency_indices.py` independently reads the **full** FrequencyWords
+2018 tables at commit `525f9b560de45753a5ea01069454e72e9aa541c6`:
+RU SHA-256 `32dfd94138aea2667ec455dcc8512029e39bd4b8ea70b09410d569b69d511a30`,
+EN `7fea67ab954e2c01df6c608c9826e594cf36f8823b3243554f88245fb75dc506`,
+and HE `a69a3f390eb53183bf191c4eac18282592992aef9ff184c5dcf8919f5ea0f773`.
+It rejects source hash mismatch. Per-language frequencies are counts per million
+of **every row's count in that unfiltered language corpus**, including tokens
+excluded later by script, word length or dictionary validity checks. Unicode
+NFKC, casefold and combining-mark removal are shared with the runtime. Russian
+`ё` and `е` share one index key; counts for distinct original corpus rows
+are summed once rather than duplicated into alternative spellings.
+
+`prepare_open_data.py` builds a public distributable candidate using that data
+and the pinned RU Hunspell snapshot, with the complete Lebedev notice in
+`data/RU-DATA-LICENSE.txt`. The distribution includes `data/ru.txt`,
+`data/confident_ru.txt`, EN/HE word and confidence lists,
+`data/frequency_{ru,en,he}.tsv`, `data/FREQUENCY-SOURCES.json`,
+`data/RU-SOURCES.json`, and associated license notices. After rate
+normalization, indices are restricted to the words recognized by the
+corresponding dictionary; **denominators do not change**. Their hashes are
+preserved in the offline manifest for reproducible verification. **The live
+TypeBridge engine no longer loads or verifies the numeric frequency tables at
+startup**; only word-membership and confidence lists are read at runtime.
+The previous unidentified local Russian data is not used as an input.
+
+**Retired research policy (not active in the program):** the former 20×
+frequency-ratio tie-breaker required known rates for every competing candidate
+and at least 2 occurrences per million for the winner. In the historical
+research case, the RU
+`ямс` was excluded by the earlier high-count dictionary filter, but is
+*present in the full FrequencyWords counts* at 0.174574 per million.
+HE `זהב` is 50.395527 per million; the approximately 289-fold advantage
+would have selected EN `zvc` → HE `זהב` under that historical policy.
+The **current** choice is based instead on valid word forms, confidence,
+source-word/exclusion checks and the configured target-language priority.
+Statistical ratios between subtitle corpora from different languages are
+heuristics, not calibrated probabilities.
+
+**Local installation, 24 October 2026:** verified `data/` and `dist/data/`
+contain the regenerated 1,485,012-line Russian dictionary, the 40,008-line
+FrequencyWords-derived Russian confidence list, all three frequency tables,
+`RU-SOURCES.json`, `FREQUENCY-SOURCES.json`, `SOURCES.json`, and
+`RU-DATA-LICENSE.txt`, `FREQUENCY-DATA-LICENSE.txt`, `DATA-LICENSE.txt`.
+The existing local EN/HE dictionaries and personal files were preserved.
+The canonical `dist/TypeBridge.exe` was rebuilt and passed its six-direction
+frozen self-test. Each of two isolated data variants passed 383 regression
+tests; source self-test also passed. No physical input, global hook or foreground
+focus test was run for this change. This **is not** a published ZIP or release.
+Earlier case studies and observations remain historical.

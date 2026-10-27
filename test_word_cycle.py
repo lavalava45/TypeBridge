@@ -169,6 +169,30 @@ class WordCycleTests(unittest.TestCase):
         self.cycle()
         self.hook.user32.SendInput.assert_not_called()
 
+    def test_cycle_rechecks_original_focus_before_generic_sendinput(self):
+        self.type('xyzzy ')
+        original_text = self.text
+        original_context = self.hook.context
+        self.hook.context = lambda: None
+        self.hook.user32.SendInput.reset_mock()
+        self.hook._cycle_word(original_context())
+        self.hook.user32.SendInput.assert_not_called()
+        self.assertEqual(self.text, original_text)
+
+    def test_cycle_partial_keydown_gets_only_release_not_replay(self):
+        self.type('xyzzy ')
+        calls = []
+        def partial(count, events, size):
+            calls.append([(events[i].u.ki.wVk, events[i].u.ki.dwFlags) for i in range(count)])
+            return 1 if len(calls) in (1, 3) else 0
+        self.hook.user32.SendInput.side_effect = partial
+        self.cycle()
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[0][0], (VK_BACK, 0))
+        self.assertEqual(calls[2], [(VK_BACK, 2)])
+        self.assertTrue(self.hook.token_blocked)
+        self.assertIsNone(self.hook.last_word)
+
     def test_hotkey_settings_roundtrip_and_invalid_value_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "settings.json"

@@ -14,6 +14,41 @@ HE_LEGACY = 0x040D040D
 
 
 class WindowsLayoutTests(unittest.TestCase):
+    def test_mapper_uses_only_verified_loaded_hkls_when_preferences_missing(self):
+        loaded = [EN, RU, HE_NATIVE64]
+        api = Mock()
+        def enumerate_hkls(count, output):
+            if count:
+                for i, hkl in enumerate(loaded):
+                    output[i] = hkl
+            return len(loaded)
+        api.GetKeyboardLayoutList.side_effect = enumerate_hkls
+        def unicode_map(vk, sc, state, output, capacity, flags, hkl):
+            output.value = {0x0409: 'a', 0x0419: 'ф', 0x040D: 'ש'}[hkl & 0xFFFF]
+            return 1
+        api.ToUnicodeEx.side_effect = unicode_map
+        with patch('engine.ctypes.WinDLL', return_value=api), \
+                patch('engine.configured_layout_entries', return_value={}):
+            mapper = LayoutMapper()
+        self.assertEqual(mapper.layouts, {'en':EN,'ru':RU,'he':HE_NATIVE64})
+        api.LoadKeyboardLayoutW.assert_not_called()
+
+    def test_mapper_refuses_unverifiable_fallback_without_loading(self):
+        loaded = [EN, RU, HE_NATIVE64]
+        api = Mock()
+        def enumerate_hkls(count, output):
+            if count:
+                for i, hkl in enumerate(loaded):
+                    output[i] = hkl
+            return len(loaded)
+        api.GetKeyboardLayoutList.side_effect = enumerate_hkls
+        api.ToUnicodeEx.return_value = 0
+        with patch('engine.ctypes.WinDLL', return_value=api), \
+                patch('engine.configured_layout_entries', return_value={}):
+            with self.assertRaisesRegex(OSError, 'cannot be verified'):
+                LayoutMapper()
+        api.LoadKeyboardLayoutW.assert_not_called()
+
     def test_user_configured_hebrew_standard_wins_even_if_legacy_is_first(self):
         layouts = select_loaded_layouts(
             [HE_LEGACY, RU, EN, HE_NATIVE64], {0x040D: HE_STANDARD})

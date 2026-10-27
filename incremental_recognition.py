@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from engine import Decision, LANGS, _one_script_letters, _valid_typed
+from frequency_rank import normalize_word
 
 
 MIN_EARLY_LENGTH = 5
@@ -66,7 +67,7 @@ def _suggest(engine, keys: list[tuple[int, bool]], current: str,
     if (len(typed) != len(keys) or typed != typed.lower()
             or not _valid_typed(keys, typed, current)):
         return None
-    source = typed.casefold()
+    source = normalize_word(typed, current)
     excluded = getattr(engine, "_excluded", lambda lang, word: word.casefold() in engine.exclusions)
     if excluded(current, typed) or _prefix_matches(index[current], source, 1):
         return None
@@ -79,7 +80,7 @@ def _suggest(engine, keys: list[tuple[int, bool]], current: str,
         if (len(candidate) != len(keys) or not candidate.isalpha()
                 or candidate != candidate.lower() or not _one_script_letters(candidate)):
             continue
-        normalized = candidate.casefold()
+        normalized = normalize_word(candidate, language)
         if excluded(language, candidate):
             continue
         # Check the complete lexicon before quality filtering: even a rare
@@ -88,14 +89,26 @@ def _suggest(engine, keys: list[tuple[int, bool]], current: str,
         if matches:
             possible.append((language, candidate, matches))
     if len(possible) != 1:
-        return None
-    language, candidate, matches = possible[0]
+        # Never rank *unfinished* alternatives. In particular, a prefix of a
+        # rare but longer word must not disappear merely for lacking counts.
+        if (len(possible) < 2
+                or any(matches != (normalize_word(candidate, language),)
+                       for language, candidate, matches in possible)):
+            return None
+        resolver = getattr(engine, "resolve_ambiguity", None)
+        selected = resolver([(lang, word) for lang, word, _ in possible], current) if resolver else None
+        if selected is None:
+            return None
+        language, candidate = selected
+        matches = (normalize_word(candidate, language),)
+    else:
+        language, candidate, matches = possible[0]
     if unique_language:
         # Evaluation only: a four-character token must be a complete,
         # confidently known word. Longer prefixes need an eligible confident
         # completion; this does not establish confidence in future keystrokes.
         if len(keys) == 4:
-            if candidate.casefold() not in engine.confident[language]:
+            if normalize_word(candidate, language) not in engine.confident[language]:
                 return None
         elif not any(word in engine.confident[language]
                      and len(word) - len(candidate) <= MAX_UNFINISHED_LETTERS
@@ -108,7 +121,7 @@ def _suggest(engine, keys: list[tuple[int, bool]], current: str,
         if (completion not in engine.confident[language]
                 or len(completion) - len(candidate) > MAX_UNFINISHED_LETTERS):
             return None
-    return Decision(typed, candidate, language, "unique confident early prefix")
+    return Decision(typed, candidate, language, "confident early prefix")
 
 
 def suggest_early(engine, keys: list[tuple[int, bool]], current: str) -> Decision | None:
@@ -121,12 +134,61 @@ def evaluate_unique_language(engine, keys: list[tuple[int, bool]], current: str)
     return _suggest(engine, keys, current, unique_language=True)
 
 
-def suggest_live_early(engine, keys, current):
-    """Opt-in policy: exact confident word from four letters, unique prefix from five.
+def _suggest_rare_exact(engine, keys: list[tuple[int, bool]], current: str) -> Decision | None:
+    """Opt-in rare words: only a unique COMPLETE destination word, never a guess.
 
-    Lexical confidence is independent of the editor transaction's permission.
+    The conservative prefix policy is intentionally not relaxed. The same
+    sorted full-lexicon snapshots veto both source prefixes and any competing
+    target prefix, even if the competing word is rare or unfinished. This
+    check has logarithmic lookup cost and performs no indexing on the hook.
+    """
+    if (getattr(engine, 'conservative', True) or current not in LANGS
+            or len(keys) < MIN_EARLY_LENGTH or len(keys) > 40
+            or any(shift or not isinstance(vk, int) or vk < 0 or vk > 255
+                   for vk, shift in keys)):
+        return None
+    index = getattr(engine, '_early_prefix_index', None)
+    if index is None or any(language not in index for language in LANGS):
+        return None
+    typed = engine.mapper.word(keys, current)
+    if (len(typed) != len(keys) or typed != typed.lower()
+            or not _valid_typed(keys, typed, current)):
+        return None
+    excluded = getattr(engine, '_excluded', lambda lang, word: word.casefold() in engine.exclusions)
+    if (excluded(current, typed)
+            or _prefix_matches(index[current], normalize_word(typed, current), 1)):
+        return None
+    exact_targets = []
+    for language in LANGS:
+        if language == current:
+            continue
+        candidate = engine.mapper.word(keys, language)
+        if (len(candidate) != len(keys) or not candidate.isalpha()
+                or candidate != candidate.lower() or not _one_script_letters(candidate)):
+            continue
+        normalized = normalize_word(candidate, language)
+        matches = _prefix_matches(index[language], normalized, 1)
+        if not matches:
+            continue
+        # A competing target prefix, even of a different rare/longer word,
+        # makes correction before a delimiter unsafe.
+        if excluded(language, candidate) or matches[0] != normalized:
+            return None
+        exact_targets.append((language, candidate))
+    if len(exact_targets) != 1:
+        return None
+    language, replacement = exact_targets[0]
+    return Decision(typed, replacement, language, 'unique rare exact word')
+
+
+def suggest_live_early(engine, keys, current):
+    """Confident early prefixes; optional rare words ONLY as unique exact tokens.
+
+    The checkbox controls dictionary eligibility, not the safety of an editor
+    write. For rare words, no incomplete-prefix or short-token guess is made.
     """
     exact = _suggest(engine, keys, current, unique_language=True)
     if exact is not None and engine._confident(exact.language, exact.replacement):
         return exact
-    return suggest_early(engine, keys, current)
+    confident = suggest_early(engine, keys, current)
+    return confident if confident is not None else _suggest_rare_exact(engine, keys, current)

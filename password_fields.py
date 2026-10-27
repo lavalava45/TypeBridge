@@ -38,6 +38,24 @@ public static class PasswordMetadata {
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint tid, ref GUI info);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder text, int capacity);
+    [DllImport("user32.dll", SetLastError=true)] static extern IntPtr GetWindowLongPtrW(IntPtr hwnd, int index);
+    [DllImport("kernel32.dll")] static extern void SetLastError(uint code);
+    public static int NativeStyleState(string name, long style) {
+        name = name.ToLowerInvariant();
+        if (name != "edit" && name != "richedit20w" && name != "richedit50w" && name != "richeditd2dpt") return -1;
+        return (style & 0x20) != 0 ? 1 : 0;
+    }
+    static int NativeState(long[] scope) {
+        if (scope == null) return -1;
+        var name = new System.Text.StringBuilder(128);
+        if (GetClassName(new IntPtr(scope[1]), name, name.Capacity) == 0) return -1;
+        if (NativeStyleState(name.ToString(), 0) < 0) return -1;
+        SetLastError(0);
+        long style = GetWindowLongPtrW(new IntPtr(scope[1]), -16).ToInt64();
+        if (style == 0 && Marshal.GetLastWin32Error() != 0) return -1;
+        return NativeStyleState(name.ToString(), style);
+    }
     static readonly object Sync = new object();
     public static readonly AutoResetEvent Wake = new AutoResetEvent(false);
     public static long Version;
@@ -107,7 +125,24 @@ public static class PasswordMetadata {
         long[] scope = null; string state = "unknown"; string reason = "unsupported-field";
         AutomationElement checkedElement = null;
         try {
-            scope = Scope(); AutomationElement element = AutomationElement.FocusedElement;
+            scope = Scope();
+            int native = NativeState(scope);
+            if (native >= 0) {
+                bool blocked = native == 1;
+                try {
+                    AutomationElement nativeElement = AutomationElement.FromHandle(new IntPtr(scope[1]));
+                    object flag = nativeElement.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, true);
+                    if (flag is bool && (bool)flag) blocked = true;
+                } catch { } // Native EDIT metadata remains authoritative when UIA is unsupported.
+                long[] after = Scope();
+                if (after != null && after[0] == scope[0] && after[1] == scope[1] && NativeState(after) == native) {
+                    state = blocked ? "password" : "safe";
+                    reason = blocked ? "native-password" : "native-edit-style";
+                } else reason = "focus-changed-during-check";
+            } else {
+            AutomationElement element = AutomationElement.FocusedElement;
+            if (scope == null) reason = "missing-scope";
+            else if (element == null) reason = "no-focused-element";
             if (scope != null && element != null) {
                 if (watched == null || !watched.Equals(element)) {
                     if (watched != null) {
@@ -120,6 +155,7 @@ public static class PasswordMetadata {
                     watched = element;
                 }
                 object password = element.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, true);
+                if (!(password is bool)) reason = "password-property-unsupported";
                 if (password is bool) {
                     bool blocked = (bool)password; bool inScope = false; bool reachedRoot = false;
                     AutomationElement ancestor = element;
@@ -132,12 +168,19 @@ public static class PasswordMetadata {
                         ancestor = TreeWalker.RawViewWalker.GetParent(ancestor);
                     }
                     long[] after = Scope();
+                    reason = !inScope ? "scope-mismatch" : !reachedRoot ? "ancestor-limit" : "focus-changed-during-check";
                     if (inScope && reachedRoot && after != null && scope[0] == after[0]
                         && scope[1] == after[1] && element.Equals(AutomationElement.FocusedElement))
                         { state = blocked ? "password" : "safe"; reason = "checked"; checkedElement = element; }
                 }
             }
+            }
         } catch { state = "unknown"; reason = "provider-error"; }
+        if (state == "unknown" && scope != null) {
+            var name = new System.Text.StringBuilder(128);
+            if (GetClassName(new IntPtr(scope[1]), name, name.Capacity) > 0)
+                reason += ":class=" + name.ToString();
+        }
         lock(Sync) {
             lastSafe = version == Version && scope != null && state == "safe";
             verified = lastSafe ? checkedElement : null;

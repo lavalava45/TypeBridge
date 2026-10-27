@@ -9,6 +9,23 @@ from ctypes import wintypes as w
 from time import perf_counter
 
 MAX_UNITS = 32768
+# Keep fast failing reads fast. A timed-out native mutation cannot be retried:
+# the editor may apply the message after SendMessageTimeoutW returns. Windows
+# Notepad has repeatedly exceeded the old 10 ms WM_CHAR limit under physical
+# typing (ERROR_TIMEOUT/1460); allow bounded scheduling slack only for writes.
+NATIVE_READ_TIMEOUT_MS = 10
+NATIVE_MUTATION_TIMEOUT_MS = 35
+# A native WM_CHAR is sent once per UTF-16 code unit from inside WH_KEYBOARD_LL.
+# With a slow yet responsive RichEdit, each may consume the full 35 ms, so
+# accepting 40 characters could stall the hook for >1 s without any timeout.
+# Fail BEFORE the first mutating message instead of abandoning a half-written
+# word. This is a conservative admission limit, not a real-time guarantee:
+# the host thread can still be descheduled by Windows after admission.
+NATIVE_MAX_INLINE_CHARS = 12
+NATIVE_MAX_INLINE_ESTIMATE_MS = 700
+NATIVE_MAX_WORKER_CHARS = 32
+NATIVE_MAX_WORKER_ESTIMATE_MS = 1500
+NATIVE_WORKER_PREFLIGHT_SECONDS = 0.15
 
 
 def supports_native_edit(class_name):
@@ -32,14 +49,19 @@ def utf8_position(text, byte_offset):
 
 
 class NativeEditBridge:
-    def __init__(self, context, still_valid=lambda: False, *, pending_char=''):
+    def __init__(self, context, still_valid=lambda: False, *, pending_char='', off_hook=False):
         self.context, self.still_valid = context, still_valid
+        self.off_hook = bool(off_hook)
         if pending_char and (len(pending_char) != 1 or not pending_char.isprintable() or ord(pending_char) > 0xFFFF):
             raise ValueError('held-character-required')
         self.pending_char = pending_char
         self.timeout = self.budget_exceeded = self.write_started = False
         self.started = perf_counter()
         self.prepared = None
+        self.phase = 'preflight'
+        self.failure = ''
+        self.trace = []
+        self.last_snapshot = None
         self.u = ctypes.WinDLL('user32', use_last_error=True)
         self.u.GetClassNameW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
         self.u.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
@@ -61,8 +83,19 @@ class NativeEditBridge:
         pass
 
     def check_deadline(self):
-        if perf_counter() - self.started > .045:
+        # The 45 ms inline admission budget is only for reads / preflight.
+        # The dedicated worker can allow more scheduling slack without
+        # blocking the low-level keyboard callback. Once a
+        # selection or character has been submitted, stopping midway through
+        # the native typing group would leave a truncated word. The remaining
+        # bounded Win32 messages must finish or report a genuine message
+        # timeout; an uncertain result is then quarantined by LiveHook.
+        limit = (NATIVE_WORKER_PREFLIGHT_SECONDS if getattr(self, 'off_hook', False)
+                 else .045)
+        if not getattr(self, 'write_started', False) and perf_counter() - self.started > limit:
             self.budget_exceeded = True
+            label = 'budget-150ms' if getattr(self, 'off_hook', False) else 'budget-45ms'
+            self.failure = f'native:{getattr(self, "phase", "unknown")}:{label}'
             raise TimeoutError('native-edit-budget')
 
     def check_identity(self):
@@ -85,13 +118,32 @@ class NativeEditBridge:
             raise ValueError('password-or-readonly')
 
     def msg(self, command, wp=0, lp=0):
-        self.check_deadline()
+        started = perf_counter()
         result = ctypes.c_size_t()
-        if not self.u.SendMessageTimeoutW(self.context.focus, command, wp, lp, 3, 10, ctypes.byref(result)):
-            self.timeout = True
-            raise TimeoutError(f'native-edit-message-{command:x}-{ctypes.get_last_error()}')
-        self.check_deadline()
-        return result.value
+        ok, error, timeout_ms = False, 0, 0
+        try:
+            self.check_deadline()
+            ctypes.set_last_error(0)
+            if command in (0x102, 0xB1):  # WM_CHAR / EM_SETSEL.
+                # Set only after the deadline precheck, immediately before send.
+                # A timeout from this send can still mean delayed execution.
+                self.write_started = True
+            timeout_ms = (NATIVE_MUTATION_TIMEOUT_MS if command in (0x102, 0xB1)
+                          else NATIVE_READ_TIMEOUT_MS)
+            ok = bool(self.u.SendMessageTimeoutW(self.context.focus, command, wp, lp, 3,
+                                                 timeout_ms, ctypes.byref(result)))
+            if not ok:
+                error = ctypes.get_last_error()
+                self.timeout = True
+                self.failure = f'native:{getattr(self, "phase", "unknown")}:message-{command:x}:error-{error}'
+                raise TimeoutError(f'native-edit-message-{command:x}-{error}')
+            self.check_deadline()
+            return result.value
+        finally:
+            trace = getattr(self, 'trace', None)
+            if trace is not None and len(trace) < 128:
+                trace.append(f'native-step:phase={self.phase}:msg={command:x}:limit={timeout_ms}:ms={(perf_counter()-started)*1000:.3f}'
+                             f':ok={int(ok)}:error={error}:write={int(self.write_started)}')
 
     def selection(self):
         start, end = w.DWORD(), w.DWORD()
@@ -116,15 +168,34 @@ class NativeEditBridge:
         text = text.replace('\r\n', '\r')
         if self.selection() != (start, end) or self.msg(0x000E) != length or not self.still_valid():
             raise ValueError('snapshot-changed')
-        return text.encode('utf-8'), utf16_position(text, end if allow_selection else start)
+        result = text.encode('utf-8'), utf16_position(text, end if allow_selection else start)
+        self.last_snapshot = result
+        return result
 
     def prepare(self, start, end, target):
+        self.phase = 'prepare'
         if not target or len(target) > 256:
             raise ValueError('replacement-limit')
         replacement = target.decode('utf-8', 'strict')
         if len(replacement) > 64 or any(not ch.isprintable() or ord(ch) > 0xFFFF for ch in replacement):
             raise ValueError('unsupported-replacement-character')
-        original, caret = self.snapshot()
+        # Admission is performed before EM_SETSEL / WM_CHAR, while refusing is
+        # still safe. Worst-case message latency must fit an explicit budget,
+        # including a held physical character, selection, readback, and HKL.
+        # No partial truncation or approximate replacement is permitted.
+        preflight_ms = (int(NATIVE_WORKER_PREFLIGHT_SECONDS * 1000)
+                        if getattr(self, 'off_hook', False) else 45)
+        predicted = (NATIVE_MUTATION_TIMEOUT_MS * (len(replacement) + 2)
+                     + NATIVE_READ_TIMEOUT_MS * 10 + preflight_ms + 30)
+        size_limit = NATIVE_MAX_WORKER_CHARS if getattr(self, 'off_hook', False) else NATIVE_MAX_INLINE_CHARS
+        time_limit = (NATIVE_MAX_WORKER_ESTIMATE_MS if getattr(self, 'off_hook', False)
+                      else NATIVE_MAX_INLINE_ESTIMATE_MS)
+        if len(replacement) > size_limit or predicted > time_limit:
+            self.failure = 'native:prepare:callback-admission-too-large'
+            raise ValueError('callback-admission-too-large')
+        # replace_prefix always takes a fresh snapshot again before committing;
+        # use its first snapshot for offset preparation, without a duplicate read.
+        original, caret = getattr(self, 'last_snapshot', None) or self.snapshot()
         if end != caret:
             raise ValueError('range-not-at-caret')
         text = original.decode('utf-8', 'strict')
@@ -134,6 +205,7 @@ class NativeEditBridge:
                          end + len(self.pending_char.encode()))
 
     def replace(self, start, end, target):
+        self.phase = 'precommit'
         if self.prepared is None or not self.still_valid():
             raise ValueError('context-changed-before-write')
         first, last, value, delivered, delivered_caret = self.prepared
@@ -141,17 +213,19 @@ class NativeEditBridge:
         self.check_deadline()
         # First materialize the held source character at the existing caret.
         # Otherwise native Undo would restore a word missing that character.
-        if self.selection() != (last, last):
-            raise ValueError('caret-changed')
-        self.write_started = True
         if self.pending_char:
+            if self.selection() != (last, last):
+                raise ValueError('caret-changed')
+            self.phase = 'deliver-held'
             self.msg(0x102, ord(self.pending_char), 1)  # WM_CHAR to the fixed field.
+        self.phase = 'verify-source'
         if self.snapshot() != (delivered, delivered_caret):
             raise ValueError('held-character-not-confirmed')
         last += len(self.pending_char.encode('utf-16-le')) // 2
         self.msg(0x458)  # EM_STOPGROUPTYPING: replacement is separate from typed source.
         # Selection is also observable. Never forward/replay a possibly already
         # inserted physical character after any uncertain phase of this commit.
+        self.phase = 'select-range'
         self.msg(0xB1, first, last)  # EM_SETSEL; no focus change.
         if self.selection() != (first, last) or not self.still_valid():
             raise ValueError('selection-not-confirmed')
@@ -159,6 +233,7 @@ class NativeEditBridge:
             # EM_REPLACESEL loses the replaced source in native Undo for our
             # Hebrew cases. Native typing records the deletion plus insertion
             # together, without unbounded TOM/COM edit collections.
+            self.phase = 'write-replacement'
             for char in value:
                 if not self.still_valid():
                     raise ValueError('context-changed-during-write')
@@ -167,3 +242,4 @@ class NativeEditBridge:
             # A following physical character must be its own Undo operation.
             if not self.timeout and not self.budget_exceeded:
                 self.msg(0x458)  # EM_STOPGROUPTYPING.
+        self.phase = 'verify-result'

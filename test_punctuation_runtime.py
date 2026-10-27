@@ -134,12 +134,15 @@ class PunctuationRuntimeTests(unittest.TestCase):
 
     def test_ambiguity_and_personal_exclusions_survive_punctuation_fallback(self):
         from user_lexicon import UserLexicon
-        self.assertEqual(self.type_text("(rfc) "), "(rfc) ")
+        # Configured language priority now resolves a recognized RU/HE tie.
+        self.assertEqual(self.type_text("(rfc) "), "(кас) ")
         lexicon = UserLexicon()
+        lexicon.add("exclusions", "ru", "кас")
         lexicon.add("exclusions", "ru", "привет")
         previous = self.engine.user_lexicon
         try:
             self.engine.user_lexicon = lexicon
+            self.assertEqual(self.type_text("(rfc) "), "(rfc) ")
             self.assertEqual(self.type_text("(ghbdtn) "), "(ghbdtn) ")
         finally:
             self.engine.user_lexicon = previous
@@ -150,12 +153,14 @@ class PunctuationRuntimeTests(unittest.TestCase):
         gui.caret_indicator = None
         gui.tray = Mock()
         gui.root = Mock()
-        for hook in (None, SimpleNamespace(paused=True)):
+        for hook in (None, SimpleNamespace(paused=True, expire_native_pending=Mock())):
             gui.hook = hook
             gui.last_tray_language = None
             with patch("typebridge_app.foreground_language", return_value="he"):
                 gui._update_tray()
             gui.tray.set_language.assert_called_with("he")
+            if hook is not None:
+                hook.expire_native_pending.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -42,15 +42,20 @@ class RecognitionTests(unittest.TestCase):
         model.type('yt ')
         self.assertEqual(model.text, 'hello не ')
 
-    def test_single_letter_ambiguity_is_not_hidden_by_confidence(self):
+    def test_single_letter_ambiguity_uses_configured_language_priority(self):
         with patch.dict(self.engine.words, {"he": self.engine.words["he"] | {"ז"}}):
-            self.assertIsNone(self.engine.decide_token(self.keys("z"), "en"))
+            result = self.engine.decide_token(self.keys("z"), "en")
+            self.assertIsNotNone(result)
+            self.assertEqual((result.language, result.reason),
+                             ('ru', 'configured language priority'))
 
     def test_yo_variants_match_dictionary_without_rewriting_spelling(self):
         with tempfile.TemporaryDirectory() as folder:
             data = Path(folder)
             for name in ("ru", "en", "he", "he_custom", "confident_ru", "confident_en", "confident_he", "exclude"):
-                (data / (name + ".txt")).write_text("ещё\nёлка\n" if name in ("ru", "confident_ru") else "", encoding="utf-8")
+                fixture = {'ru': 'ещё\nёлка\n', 'confident_ru': 'ещё\nёлка\n',
+                           'confident_en': 'hello\n', 'confident_he': 'שלום\n'}
+                (data / (name + ".txt")).write_text(fixture.get(name, ''), encoding="utf-8")
             engine = LanguageEngine(data)
             for physical, expected in (("tot", "еще"), ("tkrf", "елка")):
                 result = engine.decide_token(self.keys(physical), "en")

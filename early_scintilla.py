@@ -10,6 +10,22 @@ from dataclasses import dataclass
 from time import perf_counter
 
 
+_SAFE_FAILURE_CODES = frozenset({
+    'native-edit-budget', 'early-read-budget', 'editor-total-budget',
+    'context-changed', 'snapshot-changed', 'selection-not-confirmed',
+    'held-character-not-confirmed', 'prefix-not-delivered',
+})
+
+
+def failure_reason(error):
+    """Only diagnostic codes, never arbitrary editor/user text, leave the hook."""
+    label = type(error).__name__
+    detail = str(error)
+    if detail in _SAFE_FAILURE_CODES:
+        return label + ':' + detail
+    return label
+
+
 @dataclass(frozen=True)
 class EarlyResult:
     state: str  # refused / verified / uncertain
@@ -44,6 +60,10 @@ def replace_prefix(bridge, expected: str, replacement: str, still_valid) -> Earl
             return EarlyResult("uncertain", "context-changed-after-write")
         return EarlyResult("verified", "native-replacement-confirmed")
     except Exception as error:
+        # Retain a sanitized preflight failure for metadata-only diagnostics.
+        # Never record arbitrary exception text: it can contain document data.
+        if not getattr(bridge, 'failure', ''):
+            bridge.failure = failure_reason(error)
         attempted = mutation_attempted and getattr(bridge, "write_started", True)
         return EarlyResult("uncertain" if attempted else "refused", type(error).__name__)
 
@@ -87,7 +107,12 @@ class ScintillaEarlyBridge:
             raise TimeoutError("early-read-budget")
 
     def msg(self, command, wp=0, lp=0):
-        if perf_counter() - self.started > (0.09 if self.write_started else 0.045):
+        # SCI_ENDUNDOACTION (2079) must be attempted after a successful
+        # SCI_BEGINUNDOACTION even when a late but successful write exhausted
+        # the transaction budget. This is cleanup, NOT a repeated text edit;
+        # it retains the individual bounded SendMessageTimeoutW limit below.
+        if (command != 2079 and
+                perf_counter() - self.started > (0.09 if self.write_started else 0.045)):
             self.budget_exceeded = True
             raise TimeoutError("editor-total-budget")
         result = ctypes.c_size_t()

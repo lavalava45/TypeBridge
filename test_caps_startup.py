@@ -101,11 +101,11 @@ class StartupTests(unittest.TestCase):
                 p.write_text('{"'+flag+'":"false"}',encoding='utf-8')
                 with self.assertRaises(ValueError): load_settings(p)
 
-    def test_autostart_hides_window_and_does_not_override_saved_correction_state(self):
+    def test_autostart_schedules_recoverable_iconify_without_hiding_window(self):
         with patch('typebridge_app.tk.Tk') as root, patch('typebridge_app.TypeBridgeGui') as gui, patch('typebridge_app.migrate_user_data'):
             self.assertEqual(main(['--autostart']),0)
-            root.return_value.withdraw.assert_called_once()
-            root.return_value.after.assert_not_called()
+            root.return_value.withdraw.assert_not_called()
+            root.return_value.after.assert_called_once_with(1200, gui.return_value.hide)
 
 
 class GuiTests(unittest.TestCase):
@@ -129,7 +129,7 @@ class GuiTests(unittest.TestCase):
                         values.extend(labels(child))
                     return values
                 text=labels(root)
-                self.assertEqual(text.count('Включить автоисправление'),1)
+                self.assertEqual(text.count('Автоматически переключать раскладку'),1)
                 self.assertNotIn('Остановить',text)
                 self.assertFalse(any('Ctrl + Alt + Pause' in t for t in text))
                 for state in ('running','paused','stopped','starting','error'):

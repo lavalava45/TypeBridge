@@ -232,14 +232,17 @@ class ServiceTests(unittest.TestCase):
         tools.native.write_plain.return_value = 21
         tools.native.sequence.return_value = 21
         api = Mock()
-        api.SendInput.return_value = 2
+        api.SendInput.side_effect = [2, 2]
         with (patch('tray_layouts.WindowsLayouts', return_value=layouts),
               patch('clipboard_tools.target_allowed', return_value=True),
               patch('win32gui.GetWindowLong', return_value=0),
               patch('win32api.GetAsyncKeyState', return_value=0),
               patch('ctypes.WinDLL', return_value=api)):
             tools._paste_when_released(target, 'test', time.monotonic(), 20, tools.generation)
-        self.assertEqual([call.args[0] for call in api.SendInput.call_args_list], [4, 1])
+        self.assertEqual([call.args[0] for call in api.SendInput.call_args_list], [4, 2])
+        cleanup = api.SendInput.call_args_list[-1].args[1]
+        self.assertEqual([(item.u.ki.wVk, item.u.ki.dwFlags)
+                          for item in cleanup], [(0x56, 2), (0x11, 2)])
         self.assertEqual(tools.notify.call_args.args[0][0], 'paste-error')
         tools.close()
 

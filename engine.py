@@ -7,11 +7,14 @@ from functools import lru_cache
 from pathlib import Path
 import ctypes
 from ctypes import wintypes
+import sys
 import unicodedata
 import winreg
+from frequency_rank import normalize_word
 
 
 LANGS = {"ru": 0x0419, "en": 0x0409, "he": 0x040D}
+ALTERNATIVE_PRIORITY = {"ru": ("en", "he"), "en": ("ru", "he"), "he": ("ru", "en")}
 # Physical OEM keys used for letters in another supported layout.
 LETTER_PUNCTUATION_KEYS = {0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0,
                            0xDB, 0xDC, 0xDD, 0xDE}
@@ -78,9 +81,10 @@ SAMPLE_HEBREW = {
 }
 
 
-def read_words(path: Path) -> set[str]:
-    return {line.strip().casefold() for line in path.read_text(encoding="utf-8-sig").splitlines()
-            if line.strip() and not line.startswith("#")}
+def read_words(path: Path, language: str | None = None) -> set[str]:
+    return {(normalize_word(line.strip(), language) if language else line.strip().casefold())
+            for line in path.read_text(encoding="utf-8-sig").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")}
 
 
 @dataclass(frozen=True)
@@ -216,7 +220,17 @@ class LayoutMapper:
         for language, langid in LANGS.items():
             entry = configured.get(langid)
             if entry is None or (self.layouts[language] & 0xFFFFFFFF) != entry[1]:
-                raise OSError(f"No matching user-configured {language.upper()} layout is loaded")
+                # On Windows 11 the legacy Preload/Substitutes entries may be
+                # absent even though an input profile's HKL is already loaded.
+                # Do NOT invent an old KLID or load another Hebrew layout.
+                # Use the enumerated HKL only if ToUnicodeEx confirms its
+                # expected writing system. Otherwise refuse the entire startup.
+                sample = self.char(0x41, language)
+                expected = {'ru': 'CYRILLIC', 'en': 'LATIN', 'he': 'HEBREW'}[language]
+                if len(sample) != 1 or _script(sample) != expected:
+                    raise OSError(f"Loaded {language.upper()} layout cannot be verified "
+                                  'without matching Windows layout preferences')
+                continue
             bound = int(self.user32.LoadKeyboardLayoutW(entry[0], 0x80) or 0)
             if (bound & 0xFFFFFFFF) != entry[1]:
                 raise OSError(f"Windows did not bind the configured {language.upper()} layout")
@@ -252,16 +266,27 @@ class LanguageEngine:
         self.user_lexicon = user_lexicon
         self.mapper = LayoutMapper()
         self.words = {
-            "ru": read_words(data_dir / "ru.txt"),
-            "en": read_words(data_dir / "en.txt"),
-            "he": read_words(data_dir / "he.txt") | read_words(data_dir / "he_custom.txt") | SAMPLE_HEBREW,
+            "ru": read_words(data_dir / "ru.txt", "ru"),
+            "en": read_words(data_dir / "en.txt", "en"),
+            "he": read_words(data_dir / "he.txt", "he") | read_words(data_dir / "he_custom.txt", "he") | SAMPLE_HEBREW,
         }
         self.conservative = conservative
+        # An incomplete portable data/ folder silently disabled most
+        # conservative corrections. Refuse startup before installing hooks.
+        missing_confidence = [f'confident_{lang}.txt' for lang in LANGS
+                              if not (data_dir / f'confident_{lang}.txt').is_file()]
+        if missing_confidence:
+            raise ValueError('Missing required confidence dictionaries: '
+                             + ', '.join(missing_confidence))
         self.confident = {
-            lang: read_words(data_dir / f"confident_{lang}.txt")
-            if (data_dir / f"confident_{lang}.txt").exists() else set()
+            lang: read_words(data_dir / f"confident_{lang}.txt", lang)
             for lang in LANGS
         }
+        empty_confidence = [f'confident_{lang}.txt' for lang in LANGS
+                            if not self.confident[lang]]
+        if empty_confidence:
+            raise ValueError('Empty required confidence dictionaries: '
+                             + ', '.join(empty_confidence))
         # Explicit user additions are always accepted as intentional words.
         self.confident["he"] |= read_words(data_dir / "he_custom.txt") | SAMPLE_HEBREW
         self.exclusions = read_words(data_dir / "exclude.txt")
@@ -288,15 +313,11 @@ class LanguageEngine:
             return False
 
     def _known(self, language: str, word: str) -> bool:
-        folded = word.casefold()
-        if language == "ru":
-            folded = folded.replace("ё", "е")
+        folded = normalize_word(word, language)
         return folded in self.words[language] or self._user_contains("words", language, word)
 
     def _confident(self, language: str, word: str) -> bool:
-        folded = word.casefold()
-        if language == "ru":
-            folded = folded.replace("ё", "е")
+        folded = normalize_word(word, language)
         return folded in self.confident[language] or self._user_contains("words", language, word)
 
     def decide_token(self, keys: list[tuple[int, bool]], current: str,
@@ -363,21 +384,42 @@ class LanguageEngine:
             if (len(candidate) == len(keys) and _one_script_letters(candidate)
                     and self._known(lang, candidate)):
                 matches.append((lang, candidate))
-        if len(matches) != 1:
-            return None
-        lang, replacement = matches[0]
-        # Critically, rank/quality filtering comes AFTER broad ambiguity
-        # detection: a weak valid candidate must not vanish and allow a
-        # competing strong candidate to overwrite it.
-        # Frequency lists commonly omit standalone particles/pronouns. For a
-        # single letter, a unique dictionary word is enough; ambiguity and
-        # source-word/exclusion checks above still apply in every language.
+        if len(matches) == 1:
+            lang, replacement = matches[0]
+        else:
+            selected = self.resolve_ambiguity(matches, current, allow_rare=allow_rare)
+            if selected is None:
+                return None
+            lang, replacement = selected
+        # Priority selects only eligible destinations; the existing confidence
+        # requirement is also enforced here for the single-candidate path.
+        # For a single letter, a unique dictionary word is enough; ambiguity
+        # and source-word/exclusion checks above still apply in every language.
         if self.conservative and len(keys) > 1 and not allow_rare and not self._confident(lang, replacement):
             return None
         if self._excluded(lang, replacement):
             return None
-        return Decision(typed, replacement, lang, "unique dictionary match")
+        return Decision(typed, replacement, lang,
+                        "unique dictionary match" if len(matches) == 1
+                        else "configured language priority")
+
+    def resolve_ambiguity(self, matches: list[tuple[str, str]], current: str,
+                         *, allow_rare: bool = False) -> tuple[str, str] | None:
+        """Only ambiguity handling; known source and confidence checks stay outside."""
+        if any(self._excluded(lang, word) for lang, word in matches):
+            return None
+        matches = [(lang, word) for lang, word in matches
+                   if allow_rare or not self.conservative or len(word) == 1 or self._confident(lang, word)]
+        for language in ALTERNATIVE_PRIORITY.get(current, ()):
+            candidates = [(lang, word) for lang, word in matches if lang == language]
+            if len(candidates) == 1:
+                return candidates[0]
+            if candidates:
+                return None
+        return None
 
 
 def source_data_dir() -> Path:
-    return Path(__file__).resolve().parent / "data"
+    """Dictionaries stay external to frozen executables for independent updates."""
+    base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    return base / "data"
