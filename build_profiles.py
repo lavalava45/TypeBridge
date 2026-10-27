@@ -114,7 +114,8 @@ def build_one(source, output_root, profile, *, commit, version):
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean',
                '--onefile', '--windowed', '--name', 'TypeBridge',
                '--distpath', str(folder), '--workpath', str(work),
-               '--specpath', str(spec), '--add-data', 'dictionary_packs;dictionary_packs']
+               '--specpath', str(spec), '--add-data',
+               str(stage / 'dictionary_packs') + ';dictionary_packs']
     if profile == 'public':
         for module in PUBLIC_EXCLUDED_MODULES:
             command.extend(('--exclude-module', module))
