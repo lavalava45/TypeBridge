@@ -200,5 +200,10 @@ class ScintillaEarlyBridge:
                 raise OSError("replacement-count")
             self.msg(2160, start + len(target), start + len(target))
         finally:
-            if not self.timeout:
-                self.msg(2079)
+            # BEGINUNDOACTION was confirmed above. Even if REPLACETARGET or
+            # the caret update timed out, leaving this group open may merge
+            # *future user typing* into our Undo action. ENDUNDOACTION is a
+            # single bounded cleanup message, never a repeat text mutation.
+            # Keep self.timeout set: the write remains uncertain, and remote
+            # memory must not be freed while a late edit may still use it.
+            self.msg(2079)
