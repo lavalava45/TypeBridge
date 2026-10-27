@@ -144,6 +144,37 @@ class HookTests(unittest.TestCase):
         self.assertEqual(self.f.text,'Первая\rשנייה\ttext')
         _,events,_=self.hook.user32.SendInput.call_args.args
         self.assertFalse(any(e.u.ki.wVk in (9,13) for e in events))
+        # A host can still interpret these WM_CHAR values as actions, even
+        # without receiving actual VK_RETURN/VK_TAB key events. This is NOT
+        # a claim of safe insertion in messaging apps or web forms.
+        unicode_down = [e.u.ki.wScan for e in events
+                        if e.u.ki.dwFlags & 4 and not e.u.ki.dwFlags & 2]
+        self.assertIn(ord('\r'), unicode_down)
+        self.assertIn(ord('\t'), unicode_down)
+
+    def test_single_line_snippet_does_not_emit_unicode_cr_or_tab(self):
+        self.f.type('//email')
+        _,events,_=self.hook.user32.SendInput.call_args.args
+        unicode_down = [e.u.ki.wScan for e in events
+                        if e.u.ki.dwFlags & 4 and not e.u.ki.dwFlags & 2]
+        self.assertNotIn(ord('\r'), unicode_down)
+        self.assertNotIn(ord('\t'), unicode_down)
+
+    def test_explicit_enter_or_tab_delimiter_emits_real_hotkey_events(self):
+        from typebridge_app import VK_RETURN, VK_TAB
+        for separator in (VK_RETURN, VK_TAB):
+            with self.subTest(separator=separator):
+                self.setUp()
+                self.hook.snippets = SnippetMatcher(SnippetConfig(
+                    True, (Snippet('brb', 'Ответ', False, False),)))
+                self.f.type('brb')
+                # No mock editor behavior is assumed for Enter/Tab. Capture
+                # the actual SendInput packet only.
+                self.hook.user32.SendInput.side_effect = lambda count, *args: count
+                self.assertEqual(key(self.hook, separator), 1)
+                _,events,_=self.hook.user32.SendInput.call_args.args
+                downs = [e.u.ki.wVk for e in events if not e.u.ki.dwFlags & 2]
+                self.assertIn(separator, downs)
 
 
 class GuiTests(unittest.TestCase):

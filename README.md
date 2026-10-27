@@ -10,6 +10,12 @@ TypeBridge corrects words typed in the wrong layout, offers manual last-word
 conversion and direct layout shortcuts, and expands abbreviations into literal
 text templates. It runs locally in the notification area.
 
+**Multiline template warning:** Line breaks and tabs are injected as Unicode
+characters, but recipient applications may interpret them as Enter/Tab and
+submit a chat message or form, or move focus. Enter/Tab delimiters for
+separator-triggered templates are sent as actual keys. Test multiline templates
+with harmless text in each application before using them in chats or web forms.
+
 **Alpha security limitation (current source):** The UI Automation password-field
 guard is **not connected to the correction hook**. A native Win32 `EDIT`
 password check and exclusions for known password-manager programs remain, but

@@ -1144,8 +1144,10 @@ class LiveHook:
             self.clear_token()
             return False, False
         events = correction_inputs(expansion.delete, '', None, '')
-        # Template line breaks/tabs are literal Unicode characters, not commands
-        # that could submit a form or move focus to another field.
+        # Text is injected as Unicode packets, not physical VK_RETURN/VK_TAB.
+        # This is NOT a guarantee against app actions: a host may interpret
+        # Unicode CR (from LF) or TAB as submit/navigation. Preserve existing
+        # alpha behavior pending real editor/chat acceptance tests.
         events.extend(unicode_inputs(expansion.text.replace('\n', '\r')))
         if expansion.separator in ('\n', '\t'):
             code = VK_RETURN if expansion.separator == '\n' else VK_TAB
