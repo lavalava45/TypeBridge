@@ -56,7 +56,9 @@ class ProfileContractTests(unittest.TestCase):
             (source / 'typebridge-settings.json').write_text('{}', encoding='utf-8')
             package = root / 'Public'; package.mkdir()
             install_public_data(source, package)
-            self.assertFalse((package / 'data' / 'he_custom.txt').exists())
+            self.assertEqual((package / 'data' / 'he_custom.txt').read_text(encoding='utf-8'),
+                             'מחשב\n')
+            self.assertTrue((package / 'data' / 'exclude.txt').exists())
             self.assertTrue((package / 'data' / 'he.txt').exists())
 
     def test_build_both_uses_identical_source_revision(self):

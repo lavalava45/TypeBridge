@@ -88,6 +88,15 @@ def install_public_data(source, folder):
                      'confident_en.txt', 'confident_he.txt'):
         if not (destination / required).is_file():
             raise ValueError('Missing required dictionary: ' + required)
+    # The engine requires these two files even when no personal overlays are
+    # configured. NEVER copy the developer's ignored local he_custom/exclude:
+    # those can contain private words. Match prepare_open_data.py defaults.
+    defaults = {'he_custom.txt': 'מחשב\n',
+                'exclude.txt': '# Optional local exclusions, one per line.\n'}
+    for name, content in defaults.items():
+        target = destination / name
+        if not target.exists():
+            target.write_text(content, encoding='utf-8')
     default_settings = source / 'typebridge-settings.json'
     if not (folder / default_settings.name).exists():
         shutil.copy2(default_settings, folder / default_settings.name)
