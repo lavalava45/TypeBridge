@@ -106,12 +106,12 @@ class JournalStore:
             with self.connection() as conn:
                 self._prune(conn, self.clock() - days * 86400)
 
-    def list(self, limit=200):
+    def list(self, limit=200, offset=0):
         if not self.path.exists():
             return []
         with self.connection() as conn:
-            return conn.execute('SELECT id,created,app FROM snapshots ORDER BY id DESC LIMIT ?',
-                                (min(MAX_RECORDS, max(1, int(limit))),)).fetchall()
+            return conn.execute('SELECT id,created,app FROM snapshots ORDER BY id DESC LIMIT ? OFFSET ?',
+                                (min(MAX_RECORDS, max(1, int(limit))), max(0, int(offset)))).fetchall()
 
     def text(self, identifier):
         if not self.path.exists():
@@ -261,17 +261,30 @@ class JournalService:
         self.failed = False
         self.maintenance_error = False
         self.state = None
+        self.capture_requested = threading.Event()
+        self.stop_requested = threading.Event()
 
     @property
     def enabled(self):
-        return bool(not self.closed and not self.failed and self.settings and self.settings.journal_enabled)
+        return bool(not self.closed and not self.stop_requested.is_set() and not self.failed
+                    and self.capture_requested.is_set() and self.settings and self.settings.journal_enabled)
 
-    def configure(self, settings):
+    def request_capture(self, enabled):
+        (self.capture_requested.set if enabled else self.capture_requested.clear)()
+
+    def request_stop(self):
+        self.stop_requested.set()
+        self.request_capture(False)
+        self.wake.set()
+
+    def configure(self, settings, *, update_request=True):
         validate_journal(settings.journal_days, settings.journal_apps)
+        if update_request:
+            self.request_capture(settings.journal_enabled)
         # A disabled installation without a database stays fully dormant.
         needs_worker = settings.journal_enabled or self.store.exists()
         with self.lock:
-            if self.closed:
+            if self.closed or self.stop_requested.is_set():
                 return
             self.settings = settings
             self.generation += 1
@@ -323,7 +336,7 @@ class JournalService:
 
     def _poll(self):
         with self.lock:
-            if self.closed or self.settings is None:
+            if self.closed or self.stop_requested.is_set() or self.settings is None:
                 return
             settings, generation = self.settings, self.generation
             enabled = self.enabled
@@ -409,6 +422,7 @@ class JournalService:
             # Keep the last hash, so unchanged text isn't immediately re-added.
 
     def close(self):
+        self.request_stop()
         with self.lock:
             self.closed = True
             self.generation += 1

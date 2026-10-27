@@ -2,7 +2,7 @@
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk
-from ui_i18n import localize_window, messagebox
+from ui_i18n import localize_window, messagebox, LocalizedStringVar
 
 
 class JournalWindow:
@@ -14,6 +14,11 @@ class JournalWindow:
         self.window.minsize(720, 680)
         self.limit = 200
         self.rows = {}
+        self.loaded = 0
+        self.loading = False
+        self.view_serial = 0
+        self.text_serial = 0
+        self.list_request = self.text_request = None
         frame = ttk.Frame(self.window, padding=14)
         frame.pack(fill='both', expand=True)
         ttk.Label(frame, textvariable=app.journal_status,
@@ -51,9 +56,11 @@ class JournalWindow:
         for title, action in (('Обновить', self.refresh), ('Показать ещё', self.more),
                               ('Копировать текст', self.copy), ('Удалить все записи', self.clear)):
             ttk.Button(row, text=title, command=action).pack(side='left', padx=(0, 5))
-        ttk.Label(frame, text='База: TypeBridge-data\\journal\\journal.sqlite3. '
+        self.base_status = ('База: TypeBridge-data\\journal\\journal.sqlite3. '
                   'До 50 МБ зашифрованных данных / 20 000 снимков. Срок в днях — верхняя граница; '
-                  'при достижении объёма или количества старые снимки удаляются раньше.', wraplength=750).pack(anchor='w', pady=(8, 0))
+                  'при достижении объёма или количества старые снимки удаляются раньше.')
+        self.operation_status = LocalizedStringVar(master=self.window, value=self.base_status)
+        ttk.Label(frame, textvariable=self.operation_status, wraplength=750).pack(anchor='w', pady=(8, 0))
         self.refresh()
         localize_window(self.window)
 
@@ -65,32 +72,82 @@ class JournalWindow:
         except (ValueError, OSError) as error:
             messagebox.showerror('Дневник', str(error), parent=self.window)
 
-    def refresh(self):
-        self.rows.clear()
-        self.list.delete(*self.list.get_children())
+    def _alive(self):
         try:
-            for identifier, created, app in self.app.journal_service.store.list(self.limit):
+            return bool(self.window.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def refresh(self):
+        self.view_serial += 1
+        self.text_serial += 1
+        if self.text_request is not None:
+            self.app.journal_io.cancel(self.text_request)
+            self.text_request = None
+        if self.list_request is not None:
+            self.app.journal_io.cancel(self.list_request)
+        self.rows.clear()
+        self.loaded = 0
+        self.list.delete(*self.list.get_children())
+        self._display_text('')
+        self._load_page(0)
+
+    def _load_page(self, offset):
+        serial = self.view_serial
+        self.loading = True
+        self.operation_status.set('Загрузка записей…')
+        def complete(rows, error):
+            if not self._alive() or serial != self.view_serial:
+                return
+            self.loading = False
+            self.operation_status.set(self.base_status)
+            if error:
+                messagebox.showerror('Дневник', 'Не удалось прочитать записи дневника.', parent=self.window)
+                return
+            # One page, never re-render all 20,000 rows on every More click.
+            for identifier, created, app in rows:
                 row = self.list.insert('', 'end', values=(datetime.fromtimestamp(created).strftime('%Y-%m-%d %H:%M:%S'), app))
                 self.rows[row] = identifier
-        except Exception:
-            messagebox.showerror('Дневник', 'Не удалось прочитать записи дневника.', parent=self.window)
+            self.loaded += len(rows)
+        try:
+            self.list_request = self.app.journal_io.submit('list', (200, offset), complete)
+        except OSError:
+            self.loading = False
+            self.operation_status.set('Очередь дневника занята; повтори команду позже')
 
     def more(self):
-        self.limit = min(20_000, self.limit + 200)
-        self.refresh()
+        if not self.loading and self.loaded < 20_000:
+            self._load_page(self.loaded)
 
-    def select(self, event=None):
-        selected = self.list.selection()
-        text = ''
-        if selected and selected[0] in self.rows:
-            try:
-                text = self.app.journal_service.store.text(self.rows[selected[0]])
-            except Exception:
-                messagebox.showerror('Дневник', 'Не удалось расшифровать запись в этой учётной записи Windows.', parent=self.window)
+    def _display_text(self, text):
         self.text.configure(state='normal')
         self.text.delete('1.0', 'end')
         self.text.insert('1.0', text)
         self.text.configure(state='disabled')
+
+    def select(self, event=None):
+        self.text_serial += 1
+        serial = self.text_serial
+        if self.text_request is not None:
+            self.app.journal_io.cancel(self.text_request)
+        self._display_text('')
+        selected = self.list.selection()
+        if not selected or selected[0] not in self.rows:
+            return
+        identifier = self.rows[selected[0]]
+        self.operation_status.set('Чтение записи…')
+        def complete(text, error):
+            if not self._alive() or serial != self.text_serial:
+                return
+            self.operation_status.set(self.base_status)
+            if error:
+                messagebox.showerror('Дневник', 'Не удалось расшифровать запись в этой учётной записи Windows.', parent=self.window)
+            else:
+                self._display_text(text)
+        try:
+            self.text_request = self.app.journal_io.submit('text', identifier, complete)
+        except OSError:
+            self.operation_status.set('Очередь дневника занята; повтори команду позже')
 
     def copy(self):
         text = self.text.get('1.0', 'end-1c')
@@ -99,10 +156,18 @@ class JournalWindow:
             self.window.clipboard_append(text)
 
     def clear(self):
-        if messagebox.askyesno('Дневник', 'Удалить все сохранённые записи дневника?', parent=self.window):
-            try:
-                self.app.journal_service.clear()
-                self.refresh()
-                self.select()
-            except Exception:
+        if not messagebox.askyesno('Дневник', 'Удалить все сохранённые записи дневника?', parent=self.window):
+            return
+        self.operation_status.set('Удаление записей…')
+        def complete(result, error):
+            if not self._alive():
+                return
+            self.operation_status.set(self.base_status)
+            if error:
                 messagebox.showerror('Дневник', 'Не удалось очистить дневник.', parent=self.window)
+            else:
+                self.refresh()
+        try:
+            self.app.journal_io.submit('clear', None, complete)
+        except OSError:
+            self.operation_status.set('Очередь дневника занята; повтори команду позже')

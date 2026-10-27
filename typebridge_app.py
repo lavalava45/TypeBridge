@@ -8,6 +8,11 @@ never writes typed words to disk, and ignores injected input.
 
 from __future__ import annotations
 
+# PyInstaller multiprocessing children must divert before importing the GUI.
+if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
+
 import argparse
 import ctypes
 from ctypes import wintypes
@@ -2388,7 +2393,10 @@ class TypeBridgeGui:
         self.journal_status = LocalizedStringVar(value="Дневник включён" if settings.journal_enabled else "Дневник выключен")
         self.journal_service = JournalService(JournalStore(USER_DIR / 'journal' / 'journal.sqlite3'),
                                             lambda message: self.events.put(("journal", message)))
-        self.journal_service.configure(settings)
+        from journal_io import JournalIo
+        self.journal_io = JournalIo(self.journal_service,
+                                    lambda message: self.events.put(('journal-io', message)))
+        self._configure_journal(settings)
         self.clipboard_window = None
         from clipboard_tools import ClipboardTools
         self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
@@ -2660,10 +2668,18 @@ class TypeBridgeGui:
         self._configure_journal(settings)
 
     def _configure_journal(self, settings):
-        self.journal_service.configure(settings)
-        self.journal_status.set("Дневник включён" if self.journal_service.enabled else "Дневник выключен")
+        self.journal_io.submit('configure', settings, self._journal_config_applied)
+        self.journal_status.set('Дневник: применяются настройки…')
+
+    def _journal_config_applied(self, result, error):
+        if error:
+            self.journal_status.set('Не удалось применить настройки дневника')
+            return
+        enabled = self.journal_service.enabled
+        self.journal_status.set((self.journal_service.state or 'Дневник включён')
+                                if enabled else 'Дневник выключен')
         if self.tray:
-            self.tray.set_journal_enabled(self.journal_service.enabled)
+            self.tray.set_journal_enabled(enabled)
 
     def open_exclusions(self):
         from exclusions_gui import ExclusionsWindow
@@ -3052,6 +3068,11 @@ class TypeBridgeGui:
                 if perf_counter() - started >= .008:
                     break
                 kind, message = self.events.get_nowait()
+                if kind == 'journal-io':
+                    io = getattr(self, 'journal_io', None)
+                    if io is not None:
+                        io.receive(message)
+                    continue  # Decrypted journal replies must never enter logs.
                 if kind == 'native-trace':
                     if DEBUG_ENABLED:
                         for line in message:
@@ -3107,6 +3128,9 @@ class TypeBridgeGui:
                     continue
                 if kind == "journal":
                     generation, text = message
+                    io = getattr(self, 'journal_io', None)
+                    if io is not None and io.pending_config is not None:
+                        continue
                     if generation != self.journal_service.generation:
                         continue
                     self.journal_status.set(text)
@@ -3199,6 +3223,14 @@ class TypeBridgeGui:
             pass
         pending = not self.events.empty()
         if self.closing and not (self.worker and self.worker.is_alive()) and not pending:
+            io = getattr(self, 'journal_io', None)
+            if io is not None and not io.finished.is_set():
+                deadline = getattr(self, '_journal_close_deadline', None)
+                if deadline is None:
+                    deadline = self._journal_close_deadline = monotonic() + 2
+                if monotonic() < deadline:
+                    self.root.after(20, self._drain)
+                    return
             writer = getattr(self, '_diagnostic_writer', None)
             if writer is not None:
                 writer.close()
@@ -3254,7 +3286,10 @@ class TypeBridgeGui:
                     self.emit("info", f"Загрузка словарей из {data_path.resolve()}")
                     engine = LanguageEngine(
                         data_path, conservative=settings.conservative,
-                        user_lexicon=lexicon)
+                        user_lexicon=lexicon, cache_dir=USER_DIR / 'dictionary-cache',
+                        cache_progress=lambda state: self.emit('info',
+                            'Словари: кэш проверен' if state == 'hit' else
+                            'Словари: подготовка нового кэша'))
                     for message in dictionary_report(engine, data_path):
                         self.emit("info", message)
                     self.emit("info", "Системные раскладки RU/EN/HE: " +
@@ -3319,7 +3354,11 @@ class TypeBridgeGui:
             self._control_probe.stop()
         self.quick_search.configure()
         self.clipboard_tools.close()
-        self.journal_service.close()
+        io = getattr(self, 'journal_io', None)
+        if io is not None:
+            io.close()
+        else:
+            self.journal_service.request_stop()
         if self.tray:
             self.tray.stop()
         if self.caret_indicator:
@@ -3331,6 +3370,8 @@ def self_test() -> dict:
     # Import the optional GUI dependencies without creating windows or hooks.
     from tray_win32 import TrayController
     from PIL import Image, ImageDraw
+    from caret_process import smoke_test as caret_helper_smoke_test
+    caret_helper_ok = caret_helper_smoke_test()
     engine = LanguageEngine(source_data_dir())
     cases = (("ru", "hello", "en", "hello"),
              ("en", "ghbdtn", "ru", "привет"),
@@ -3349,7 +3390,8 @@ def self_test() -> dict:
         'build_profile': BUILD_PROFILE,
         'word_trace_enabled': DEBUG_WORDS_ENABLED,
         "ok": all(item["passed"] for item in results)
-              and ctypes.sizeof(Input) == 40,
+              and ctypes.sizeof(Input) == 40 and caret_helper_ok,
+        'caret_helper_ok': caret_helper_ok,
         "input_size": ctypes.sizeof(Input),
         "tray_dependencies": all((TrayController, Image, ImageDraw)),
         "dictionary_sizes": {name: len(words)

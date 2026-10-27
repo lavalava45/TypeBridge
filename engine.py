@@ -251,9 +251,45 @@ class LayoutMapper:
         return "".join(self.char(vk, language, shift) for vk, shift in keys)
 
 
+def _read_lexical_data(data_dir):
+    words = {
+        "ru": read_words(data_dir / "ru.txt", "ru"),
+        "en": read_words(data_dir / "en.txt", "en"),
+        "he": read_words(data_dir / "he.txt", "he") | read_words(data_dir / "he_custom.txt", "he") | SAMPLE_HEBREW,
+    }
+    # An incomplete portable data/ folder silently disabled most
+    # conservative corrections. Refuse startup before installing hooks.
+    missing_confidence = [f'confident_{lang}.txt' for lang in LANGS
+                          if not (data_dir / f'confident_{lang}.txt').is_file()]
+    if missing_confidence:
+        raise ValueError('Missing required confidence dictionaries: '
+                         + ', '.join(missing_confidence))
+    confident = {
+        lang: read_words(data_dir / f"confident_{lang}.txt", lang)
+        for lang in LANGS
+    }
+    empty_confidence = [f'confident_{lang}.txt' for lang in LANGS
+                        if not confident[lang]]
+    if empty_confidence:
+        raise ValueError('Empty required confidence dictionaries: '
+                         + ', '.join(empty_confidence))
+    # Explicit user additions are always accepted as intentional words.
+    confident["he"] |= read_words(data_dir / "he_custom.txt") | SAMPLE_HEBREW
+    exclusions = read_words(data_dir / "exclude.txt")
+    # Russian spelling commonly omits the dots; preserve output spelling.
+    for bucket in (words["ru"], confident["ru"]):
+        bucket.update({word.replace("ё", "е") for word in bucket})
+    # Small, explicit spelling supplement; not a relaxed ambiguity threshold.
+    words["ru"].update(("а", "и", "поясни"))
+    confident["ru"].update(("а", "и", "поясни"))
+    words["en"].update(("a", "i"))
+    return {'words': words, 'confident': confident, 'exclusions': exclusions}
+
+
 class LanguageEngine:
     def __init__(self, data_dir: Path, *, conservative: bool = True,
-                 user_lexicon=None, user_lexicon_dir: Path | None = None):
+                 user_lexicon=None, user_lexicon_dir: Path | None = None,
+                 cache_dir: Path | None = None, cache_progress=None):
         if user_lexicon is not None and user_lexicon_dir is not None:
             raise ValueError("choose lexicon instance or directory")
         if user_lexicon_dir is not None:
@@ -265,38 +301,24 @@ class LanguageEngine:
                 raise ValueError("invalid user lexicon")
         self.user_lexicon = user_lexicon
         self.mapper = LayoutMapper()
-        self.words = {
-            "ru": read_words(data_dir / "ru.txt", "ru"),
-            "en": read_words(data_dir / "en.txt", "en"),
-            "he": read_words(data_dir / "he.txt", "he") | read_words(data_dir / "he_custom.txt", "he") | SAMPLE_HEBREW,
-        }
         self.conservative = conservative
-        # An incomplete portable data/ folder silently disabled most
-        # conservative corrections. Refuse startup before installing hooks.
-        missing_confidence = [f'confident_{lang}.txt' for lang in LANGS
-                              if not (data_dir / f'confident_{lang}.txt').is_file()]
-        if missing_confidence:
-            raise ValueError('Missing required confidence dictionaries: '
-                             + ', '.join(missing_confidence))
-        self.confident = {
-            lang: read_words(data_dir / f"confident_{lang}.txt", lang)
-            for lang in LANGS
-        }
-        empty_confidence = [f'confident_{lang}.txt' for lang in LANGS
-                            if not self.confident[lang]]
-        if empty_confidence:
-            raise ValueError('Empty required confidence dictionaries: '
-                             + ', '.join(empty_confidence))
-        # Explicit user additions are always accepted as intentional words.
-        self.confident["he"] |= read_words(data_dir / "he_custom.txt") | SAMPLE_HEBREW
-        self.exclusions = read_words(data_dir / "exclude.txt")
-        # Russian spelling commonly omits the dots; preserve output spelling.
-        for bucket in (self.words["ru"], self.confident["ru"]):
-            bucket.update({word.replace("ё", "е") for word in bucket})
-        # Small, explicit spelling supplement; not a relaxed ambiguity threshold.
-        self.words["ru"].update(("а", "и", "поясни"))
-        self.confident["ru"].update(("а", "и", "поясни"))
-        self.words["en"].update(("a", "i"))
+        if cache_dir is None:
+            data = _read_lexical_data(data_dir)
+            self.cache_status = 'disabled'
+        else:
+            from dictionary_cache import load_or_build, policy_digest
+            from frequency_rank import normalize_word
+            filenames = ('ru.txt', 'en.txt', 'he.txt', 'confident_ru.txt',
+                         'confident_en.txt', 'confident_he.txt', 'he_custom.txt', 'exclude.txt')
+            policy = policy_digest((_read_lexical_data, normalize_word, read_words),
+                                   ['lexicon-v1', sorted(SAMPLE_HEBREW)])
+            data, self.cache_status = load_or_build(
+                data_dir, filenames, policy, lambda: _read_lexical_data(data_dir),
+                cache_dir, progress=cache_progress)
+            self._startup_base_index = {lang: tuple(data['words'][lang]) for lang in LANGS}
+        self.words = data['words'] if cache_dir is None else {lang: set(data['words'][lang]) for lang in LANGS}
+        self.confident = data['confident'] if cache_dir is None else {lang: set(data['confident'][lang]) for lang in LANGS}
+        self.exclusions = set(data['exclusions'])
 
     def _excluded(self, language: str, word: str) -> bool:
         return word.casefold() in self.exclusions or self._user_contains("exclusions", language, word)

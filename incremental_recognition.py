@@ -38,7 +38,9 @@ def prepare_early(engine) -> None:
     """
     # Base dictionaries are immutable after engine construction. Sort them
     # once, before installing the hook; personal words stay in a small overlay.
-    engine._early_base_index = build_early_index(SimpleNamespace(words=engine.words))
+    prepared = engine.__dict__.pop('_startup_base_index', None)
+    engine._early_base_index = (prepared if prepared is not None else
+                               build_early_index(SimpleNamespace(words=engine.words)))
     engine._early_cached_key = None
     engine._early_prefix_index = cached_early_index(engine, getattr(engine, 'user_lexicon', None))
 

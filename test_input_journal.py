@@ -245,7 +245,7 @@ class SettingsAndGuiTests(unittest.TestCase):
             journal_enabled=tk.BooleanVar(master=root, value=False),
             journal_days=tk.StringVar(master=root, value='7'),
             journal_apps=tk.StringVar(master=root, value='notepad.exe, notepad++.exe'),
-            journal_service=service, apply_journal_settings=Mock())
+            journal_service=service, journal_io=Mock(), apply_journal_settings=Mock())
         try:
             viewer = JournalWindow(root, app)
             viewer.window.withdraw()

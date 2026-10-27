@@ -1,5 +1,19 @@
 """Russian source phrases and English/Hebrew UI translations."""
 
+# Background journal and dictionary preparation status (no document contents).
+BACKGROUND_STATUS = {
+    'Дневник: применяются настройки…': {'en': 'Journal: applying settings…', 'he': 'יומן: מחיל הגדרות…'},
+    'Не удалось применить настройки дневника': {'en': 'Could not apply journal settings', 'he': 'לא ניתן להחיל את הגדרות היומן'},
+    'Дневник завершает работу': {'en': 'Journal is shutting down', 'he': 'היומן נסגר'},
+    'Очередь дневника занята; повтори команду позже': {'en': 'Journal queue is full; try again later', 'he': 'תור היומן מלא; נסה שוב מאוחר יותר'},
+    'Не удалось запустить очередь дневника': {'en': 'Could not start the journal worker', 'he': 'לא ניתן להפעיל את תהליך העבודה של היומן'},
+    'Загрузка записей…': {'en': 'Loading entries…', 'he': 'טוען רשומות…'},
+    'Чтение записи…': {'en': 'Reading entry…', 'he': 'קורא רשומה…'},
+    'Удаление записей…': {'en': 'Deleting entries…', 'he': 'מוחק רשומות…'},
+    'Словари: кэш проверен': {'en': 'Dictionaries: cache verified', 'he': 'מילונים: המטמון אומת'},
+    'Словари: подготовка нового кэша': {'en': 'Dictionaries: preparing a new cache', 'he': 'מילונים: מכין מטמון חדש'},
+}
+
 CATALOG = {'30 последних фрагментов, только до выхода из TypeBridge. Вставка и копирование заменяют буфер выбранным чистым текстом.': {'en': 'Last '
                                                                                                                                    '30 '
                                                                                                                                    'items, '
@@ -1447,3 +1461,5 @@ CATALOG.update({
     "he": "מסד הנתונים: TypeBridge-data\\journal\\journal.sqlite3. עד 50 מ״ב נתונים מוצפנים או 20,000 צילומים. מספר הימים הוא גיל מרבי; מגבלות האחסון עשויות למחוק צילומים מוקדם יותר."
   }
 })
+
+CATALOG.update(BACKGROUND_STATUS)

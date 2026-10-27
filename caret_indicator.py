@@ -224,26 +224,31 @@ class CaretFlagIndicator:
                 pass
 
     def _read_loop(self):
-        initialized = False
+        from caret_process import CaretProcess
+        reader = CaretProcess()
         try:
-            pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
-            initialized = True
-            reader = CaretReader()
             while not self.closed.is_set():
                 sample = None
-                if self.enabled.is_set():
-                    try:
-                        sample = reader.snapshot()
-                    except Exception:
-                        pass  # Unsupported/disappearing caret: always hide.
+                try:
+                    top = win32gui.GetForegroundWindow() if self.enabled.is_set() else 0
+                    if top:
+                        sample = reader.snapshot(scope=top, cancelled=lambda:
+                            self.closed.is_set() or not self.enabled.is_set()
+                            or win32gui.GetForegroundWindow() != top)
+                        self.reader_error = reader.last_error
+                    else:
+                        reader.cancel()
+                        reader.scope = None
+                except Exception as error:
+                    self.reader_error = type(error).__name__
+                    reader.cancel()
                 with self.lock:
                     self.sample = sample
                 self.closed.wait(0.10)
         except Exception as error:
             self.error = type(error).__name__
         finally:
-            if initialized:
-                pythoncom.CoUninitialize()
+            reader.close()
 
     def _tick(self):
         with self.lock:

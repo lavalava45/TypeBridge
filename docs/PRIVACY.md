@@ -58,7 +58,9 @@ exception arguments, variable values, document text or search queries.
 Journal defaults allow Notepad and Notepad++ only. Retention is configurable
 from 1 to 365 days (default 7). While TypeBridge runs, expiry cleanup also
 runs with recording disabled if a database already exists. Disabling recording
-stops editor reads and new snapshots, but does not immediately erase previous
+immediately cancels further captures. The UI shows settings being applied until
+an already-started commit finishes; only then is disabling confirmed. Once
+confirmed, no further editor reads or new snapshots occur. This does not erase previous
 entries. Age is an upper bound: the oldest entries are also evicted at 20,000
 snapshots or 50 MB of encrypted payload (not total SQLite file size). Use its **Delete all entries** button to clear them. The encrypted
 payload does not hide timestamps or application names. DPAPI is not protection
@@ -150,8 +152,10 @@ TypeBridge получает события клавиатуры Windows, что�
 - Дневник сохраняет снимки разрешённых редакторов на диск с Windows DPAPI для
   текущего пользователя. По умолчанию разрешены только Блокнот и Notepad++.
   Срок хранения — 1–365 дней, исходно 7; пока TypeBridge работает, автоочистка
-  существующей базы выполняется и при выключенной записи. Отключение останавливает
-  чтение редакторов и добавление снимков. Возраст — верхняя граница: при достижении
+  существующей базы выполняется и при выключенной записи. Запрос выключения сразу
+  отменяет дальнейшие снимки. До завершения уже начатого commit интерфейс показывает
+  применение настроек; после подтверждения выключения новые чтения и записи
+  не выполняются. Старые записи сохраняются. Возраст — верхняя граница: при достижении
   20 000 снимков или 50 МБ зашифрованных данных старые записи удаляются раньше
   (это не предел размера всего файла SQLite). Для немедленного удаления есть кнопка «Удалить все записи». Время и имя приложения не
   зашифрованы. DPAPI не защищает от программы, уже работающей от твоего имени.
@@ -227,7 +231,9 @@ TypeBridge מקבל אירועי מקלדת מ־Windows כדי לזהות מיל
 - היומן שומר צילומי טקסט מעורכים מורשים בדיסק, עם Windows DPAPI למשתמש
   הנוכחי. כברירת מחדל מורשים רק פנקס הרשימות ו־Notepad++. זמן השמירה הוא
   1–365 ימים, כברירת מחדל 7. כל עוד TypeBridge פועל, ניקוי מסד קיים ממשיך גם
-  כשההקלטה כבויה, ללא קריאת עורכים או הוספת צילומים. זהו גיל מרבי: רשומות
+  כשההקלטה כבויה. בקשת כיבוי מבטלת מיד צילומים נוספים. עד לסיום שמירה שכבר
+  החלה, הממשק מציג החלת הגדרות; רק אז מוצג אישור הכיבוי. לאחר האישור אין
+  קריאת עורכים או הוספת צילומים. זהו גיל מרבי: רשומות
   ישנות נמחקות גם בהגעה ל־20,000 צילומים או 50 מ״ב של נתונים מוצפנים
   (לא הגודל הכולל של קובץ SQLite). כיבוי אינו מוחק מיד רשומות ישנות; ניתן למחוק אותן בחלון היומן. זמן הצילום ושם היישום אינם
   מוצפנים. DPAPI אינו מגן מפני תוכנה שכבר פועלת בשם המשתמש שלך.
@@ -309,3 +315,23 @@ buffers retained after a timeout are not freed unsafely; retries are bounded.
 После трёх таймаутов поле приостанавливается до выключения и включения дневника.
 Причина пропуска снимка показывается без содержимого документа. Память Scintilla,
 оставшаяся после таймаута, не освобождается небезопасным способом.
+
+
+### Local dictionary cache / Локальный кэш словарей / מטמון מילונים מקומי
+
+Prepared dictionary data is cached in `TypeBridge-data/dictionary-cache`.
+Source contents are verified on every launch; missing required sources still
+prevent startup. This cache contains dictionary entries, not captured input or
+journal snapshots. It is local, unencrypted data, like the source dictionaries;
+custom dictionary additions are included. Deleting it forces preparation again.
+
+Подготовленные словари сохраняются в `TypeBridge-data/dictionary-cache`.
+Содержимое исходников проверяется при каждом запуске; отсутствие обязательных
+файлов по-прежнему останавливает запуск. Кэш содержит словарные записи,
+включая дополнения, без перехваченного ввода и снимков дневника. Как исходные
+словари, это локальные незашифрованные данные. Удаление вызывает пересоздание.
+
+נתוני מילונים מוכנים נשמרים ב־`TypeBridge-data/dictionary-cache`.
+תוכן קובצי המקור נבדק בכל הפעלה; מקור חובה חסר עדיין מונע הפעלה.
+המטמון מכיל ערכי מילון, לרבות תוספות, ללא קלט שנלכד או צילומי יומן.
+זהו מידע מקומי לא מוצפן, כמו המילונים המקוריים. מחיקתו מחייבת הכנה מחדש.
