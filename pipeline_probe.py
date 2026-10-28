@@ -21,6 +21,7 @@ FIELDS = frozenset({'reason', 'app', 'language', 'target', 'hkl', 'observed',
                     'callbacks', 'keydowns', 'mice', 'errors', 'wininput'})
 FIELDS = FIELDS | frozenset({'raw', 'raw_events', 'raw_errors', 'raw_error',
                              'raw_alive', 'slow', 'max_ms', 'raw_delta', 'll_delta'})
+FIELDS = FIELDS | frozenset({'mouse_max_us', 'mouse_slow'})
 FIELDS = FIELDS | frozenset({
     'raw_wm', 'raw_pump', 'raw_pump_input', 'raw_reg', 'raw_reg_error',
     'raw_flags', 'control', 'control_error', 'control_alive',

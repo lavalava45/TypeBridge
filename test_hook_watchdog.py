@@ -12,6 +12,33 @@ from typebridge_app import LiveHook, TypeBridgeGui
 
 
 class HookWatchdogTests(unittest.TestCase):
+    def test_mouse_timing_counts_slow_calls_without_per_move_logging(self):
+        hook = LiveHook.__new__(LiveHook)
+        hook.debug_mouse_callbacks = 0
+        hook.handle_mouse = Mock(return_value=0)
+        with patch('typebridge_app.perf_counter', side_effect=[0, .006, 1, 1.001]), \
+             patch('typebridge_app.emit_pipeline') as emit:
+            hook._mouse_probe_callback(0, 0x200, 0)
+            hook._mouse_probe_callback(0, 0x200, 0)
+        self.assertEqual(hook.debug_mouse_callbacks, 2)
+        self.assertEqual(hook.debug_mouse_max_us, 6000)
+        self.assertEqual(hook.debug_mouse_slow, 1)
+        emit.assert_not_called()
+
+    def test_watchdog_exports_numeric_mouse_timing(self):
+        hook = Mock()
+        hook.debug_mouse_max_us, hook.debug_mouse_slow = 7200, 3
+        # Supply the existing numeric counters without installing any hook.
+        for name in ('debug_keyboard_callbacks','debug_keydowns','debug_mouse_callbacks',
+                     'debug_probe_pongs','debug_callback_errors','debug_keyboard_slow',
+                     'debug_keyboard_max_ms'):
+            setattr(hook, name, 0)
+        watchdog = HookWatchdog(Mock(), input_tick=lambda: 1)
+        with patch('hook_watchdog.emit_pipeline') as emit:
+            watchdog.poll(hook, Mock())
+        self.assertEqual(emit.call_args.kwargs['mouse_max_us'], 7200)
+        self.assertEqual(emit.call_args.kwargs['mouse_slow'], 3)
+
     def test_slow_successful_callback_does_not_quarantine_future_native_edits(self):
         hook = LiveHook.__new__(LiveHook)
         hook.emit = Mock()

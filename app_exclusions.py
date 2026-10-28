@@ -1,4 +1,5 @@
 """Named exclusion presets; exact executable basenames, never path wildcards."""
+from functools import lru_cache
 
 PASSWORD_PROCESSES = (
     '1password.exe', 'bitwarden.exe', 'credentialuibroker.exe', 'keepass.exe',
@@ -31,9 +32,16 @@ DEFAULT_CATEGORIES = tuple(CATEGORIES)
 
 
 def effective_exclusions(settings):
+    return _exclusions_for(tuple(settings.excluded_processes),
+                           tuple(settings.excluded_categories))
+
+
+@lru_cache(maxsize=64)
+def _exclusions_for(processes, categories):
+    """Bounded immutable snapshots keyed only by settings that affect exclusions."""
     result = set(PASSWORD_PROCESSES)
-    result.update(name.casefold() for name in settings.excluded_processes)
-    for category in settings.excluded_categories:
+    result.update(name.casefold() for name in processes)
+    for category in categories:
         result.update(CATEGORIES[category][1])
     return frozenset(result)
 

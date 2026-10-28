@@ -407,6 +407,8 @@ class LiveHook:
         self.debug_keyboard_callbacks = 0
         self.debug_keydowns = 0
         self.debug_mouse_callbacks = 0
+        self.debug_mouse_max_us = 0
+        self.debug_mouse_slow = 0
         self.debug_probe_pongs = 0
         self.debug_callback_errors = 0
         self.debug_keyboard_slow = 0
@@ -541,9 +543,9 @@ class LiveHook:
             return None
         process = self.process_name(focus_pid.value)
         host_process = self.process_name(pid.value)
+        excluded = effective_exclusions(self.settings)
         if (not process or not host_process
-                or process in effective_exclusions(self.settings)
-                or host_process in effective_exclusions(self.settings)):
+                or process in excluded or host_process in excluded):
             emit_pipeline(self, 'context-rejected', reason='process-unavailable-or-excluded', interval=4)
             return None
         title_buffer = ctypes.create_unicode_buffer(512)
@@ -2252,6 +2254,7 @@ class LiveHook:
                 emit_pipeline(self, 'slow-keyboard-callback', elapsed_ms=elapsed)
 
     def _mouse_probe_callback(self, code, message, param):
+        started = perf_counter()
         self.debug_mouse_callbacks += 1
         try:
             return self.handle_mouse(code, message, param)
@@ -2260,6 +2263,13 @@ class LiveHook:
             emit_pipeline(self, 'callback-error', method='mouse',
                           reason=type(error).__name__)
             return self.user32.CallNextHookEx(self.mouse_hook, code, message, param)
+        finally:
+            # Diagnostic wrapper only. No per-movement I/O or coordinates.
+            # This excludes time waiting for the GIL before Python entry.
+            elapsed_us = max(0, int((perf_counter() - started) * 1_000_000))
+            self.debug_mouse_max_us = max(getattr(self, 'debug_mouse_max_us', 0), elapsed_us)
+            if elapsed_us >= 5_000:
+                self.debug_mouse_slow = getattr(self, 'debug_mouse_slow', 0) + 1
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused

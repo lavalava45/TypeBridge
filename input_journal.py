@@ -69,13 +69,27 @@ class JournalStore:
     @staticmethod
     def _prune(conn, cutoff):
         conn.execute('DELETE FROM snapshots WHERE created < ?', (cutoff,))
-        rows = conn.execute('SELECT id, length(payload) FROM snapshots ORDER BY id DESC').fetchall()
-        size = 0
-        for index, (identifier, length) in enumerate(rows):
-            size += length
-            if index >= MAX_RECORDS or size > MAX_PAYLOAD_BYTES:
-                conn.execute('DELETE FROM snapshots WHERE id <= ?', (identifier,))
-                break
+        # Keep aggregation inside SQLite: do not allocate/process up to 20,000
+        # Python tuples on every append. No new persistent schema/counters.
+        count, size = conn.execute(
+            'SELECT count(*), coalesce(sum(length(payload)),0) FROM snapshots').fetchone()
+        if count <= MAX_RECORDS and size <= MAX_PAYLOAD_BYTES:
+            return
+        # On overflow, stream only the oldest rows needed to restore both caps.
+        # This retains the same largest suffix of newest snapshots as before.
+        remove_through = None
+        cursor = conn.execute('SELECT id, length(payload) FROM snapshots ORDER BY id')
+        try:
+            for identifier, length in cursor:
+                count -= 1
+                size -= length
+                remove_through = identifier
+                if count <= MAX_RECORDS and size <= MAX_PAYLOAD_BYTES:
+                    break
+        finally:
+            cursor.close()
+        if remove_through is not None:
+            conn.execute('DELETE FROM snapshots WHERE id <= ?', (remove_through,))
 
     def exists(self):
         return self.path.is_file()

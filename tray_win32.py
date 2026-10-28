@@ -13,6 +13,7 @@ import threading
 from time import monotonic
 import ctypes
 from ctypes import wintypes
+from functools import lru_cache
 
 import win32api
 import win32con
@@ -40,19 +41,29 @@ STATE_LABELS = {"stopped": "Автоисправление выключено", 
                 "degraded": "Автоисправление ограничено (RichEdit)"}
 
 
+ICON_HEALTH_TTL = 5.0
+
+
+class IconIdentifier(ctypes.Structure):
+    _fields_ = [('cbSize', wintypes.DWORD), ('hWnd', wintypes.HWND),
+                ('uID', wintypes.UINT), ('guidItem', ctypes.c_ubyte * 16)]
+
+
+@lru_cache(maxsize=1)
+def _icon_rect_query():
+    query = ctypes.WinDLL('shell32').Shell_NotifyIconGetRect
+    query.argtypes = [ctypes.POINTER(IconIdentifier), ctypes.POINTER(wintypes.RECT)]
+    query.restype = ctypes.c_long
+    return query
+
+
 def icon_registered(hwnd):
-    """Ask Explorer about this exact icon; a live helper thread is insufficient."""
-    class Identifier(ctypes.Structure):
-        _fields_ = [('cbSize', wintypes.DWORD), ('hWnd', wintypes.HWND),
-                    ('uID', wintypes.UINT), ('guidItem', ctypes.c_ubyte * 16)]
-    identifier = Identifier()
+    """Ask Explorer on the tray thread, never from GUI availability checks."""
+    identifier = IconIdentifier()
     identifier.cbSize = ctypes.sizeof(identifier)
     identifier.hWnd = hwnd
     rect = wintypes.RECT()
-    query = ctypes.WinDLL('shell32').Shell_NotifyIconGetRect
-    query.argtypes = [ctypes.POINTER(Identifier), ctypes.POINTER(wintypes.RECT)]
-    query.restype = ctypes.c_long
-    return query(ctypes.byref(identifier), ctypes.byref(rect)) == 0
+    return _icon_rect_query()(ctypes.byref(identifier), ctypes.byref(rect)) == 0
 
 
 def menu_items(state: str, detail: str = "", caret_flag: bool = False,
@@ -159,6 +170,7 @@ class TrayController:
         self.tray_start_failures = 0
         self.last_fatal_error = None
         self.last_icon_status = None
+        self.last_icon_check = None
 
     def configure_clipboard(self, settings):
         self.clipboard_settings = settings
@@ -238,6 +250,7 @@ class TrayController:
                     win32gui.Shell_NotifyIcon(win32gui.NIM_MODIFY, self._icon_data())
                 present = icon_registered(self.hwnd)
             if present:
+                self.last_icon_check = monotonic()
                 self.ready.set()
                 self.tray_start_failures = 0
                 self._icon_status('Значок трея подтверждён Explorer')
@@ -250,10 +263,13 @@ class TrayController:
                               + str(error) + '; повтор через 2 с')
 
     def available(self):
+        """Read a short-lived health snapshot; a hung Explorer cannot block Tk."""
         try:
+            checked = getattr(self, 'last_icon_check', None)
             return bool(not self.closing and self.ready.is_set() and self.worker
                         and self.worker.is_alive() and self.hwnd
-                        and win32gui.IsWindow(self.hwnd) and icon_registered(self.hwnd))
+                        and checked is not None and 0 <= monotonic() - checked <= ICON_HEALTH_TTL
+                        and win32gui.IsWindow(self.hwnd))
         except (OSError, Win32Error, AttributeError):
             return False
 

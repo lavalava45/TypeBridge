@@ -61,6 +61,8 @@ class HookWatchdog:
         errors = int(getattr(hook, 'debug_callback_errors', 0))
         slow = int(getattr(hook, 'debug_keyboard_slow', 0))
         max_ms = int(getattr(hook, 'debug_keyboard_max_ms', 0))
+        mouse_max_us = int(getattr(hook, 'debug_mouse_max_us', 0))
+        mouse_slow = int(getattr(hook, 'debug_mouse_slow', 0))
         ping = 'not-sent'
         if thread and installed:
             try:
@@ -71,6 +73,7 @@ class HookWatchdog:
                       keyboard=installed, mouse=mouse, callbacks=callbacks,
                       keydowns=keydowns, mice=mice, pongs=pongs, errors=errors,
                       ping=ping, wininput=input_changed, slow=slow, max_ms=max_ms,
+                      mouse_max_us=mouse_max_us, mouse_slow=mouse_slow,
                       ll_delta=ll_delta,
                       **self._raw_fields(), **self._control_fields())
 

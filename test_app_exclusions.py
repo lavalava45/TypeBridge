@@ -16,6 +16,21 @@ import test_short_words_settings
 
 
 class PresetTests(unittest.TestCase):
+    def test_unchanged_exclusions_reuse_immutable_snapshot(self):
+        from app_exclusions import _exclusions_for
+        _exclusions_for.cache_clear()
+        settings = Settings()
+        original = effective_exclusions(settings)
+        changed_ui = replace(settings, show_caret_flag=True)
+        self.assertIs(original, effective_exclusions(changed_ui))
+        self.assertEqual(_exclusions_for.cache_info().misses, 1)
+        disabled = effective_exclusions(replace(settings, excluded_categories=()))
+        self.assertNotIn('code.exe', disabled)
+        self.assertIn('keepass.exe', disabled)
+        custom = effective_exclusions(replace(settings, excluded_processes=('Custom.EXE',)))
+        self.assertIn('custom.exe', custom)
+        self.assertNotIn('custom.exe', original)
+
     def test_defaults_cover_passwords_ide_terminals_and_creative_software(self):
         names = effective_exclusions(Settings())
         for name in ('keepassxc.exe', 'enpass.exe', 'code.exe', 'idea64.exe',
