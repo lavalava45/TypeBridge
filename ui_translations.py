@@ -1463,3 +1463,95 @@ CATALOG.update({
 })
 
 CATALOG.update(BACKGROUND_STATUS)
+
+# Import/startup and tray recovery diagnostics.
+CATALOG.update({
+  "Личный словарь": {
+    "en": "Personal dictionary",
+    "he": "מילון אישי"
+  },
+  "Личный словарь: {v0}": {
+    "en": "Personal dictionary: {v0}",
+    "he": "מילון אישי: {v0}"
+  },
+  "Место ошибки: {v0}": {
+    "en": "Error location: {v0}",
+    "he": "מיקום השגיאה: {v0}"
+  },
+  "Причина: {v0}": {
+    "en": "Reason: {v0}",
+    "he": "סיבה: {v0}"
+  },
+  "Сохранить полную резервную копию .bad и начать с пустым личным словарём? Личные слова и исключения не будут действовать до восстановления из копии. Ответ «Нет» завершит запуск без изменения файла.": {
+    "en": "Save a complete .bad backup and start with an empty personal dictionary? Personal words and exclusions will not apply until restored from the backup. No will exit without changing the file.",
+    "he": "לשמור גיבוי מלא בקובץ .bad ולהתחיל במילון אישי ריק? מילים אישיות והחרגות לא יחולו עד לשחזור מהגיבוי. בחירה בלא תסיים את ההפעלה בלי לשנות את הקובץ."
+  },
+  "Резервная копия проверена: {v0}": {
+    "en": "Backup verified: {v0}",
+    "he": "הגיבוי אומת: {v0}"
+  },
+  "Размер файла превышает 2 МБ": {
+    "en": "The file exceeds 2 MB",
+    "he": "גודל הקובץ עולה על 2 מ״ב"
+  },
+  "Неподдерживаемый формат словаря": {
+    "en": "Unsupported dictionary format",
+    "he": "פורמט המילון אינו נתמך"
+  },
+  "Неверные разделы словаря": {
+    "en": "Invalid dictionary sections",
+    "he": "מדורי המילון אינם תקינים"
+  },
+  "Неверные языки словаря": {
+    "en": "Invalid dictionary languages",
+    "he": "שפות המילון אינן תקינות"
+  },
+  "Неверные режимы регистра": {
+    "en": "Invalid case matching modes",
+    "he": "מצבי התאמת אותיות אינם תקינים"
+  },
+  "Неверный список слов": {
+    "en": "Invalid word list",
+    "he": "רשימת המילים אינה תקינה"
+  },
+  "Неканоническая или повторяющаяся запись": {
+    "en": "Noncanonical or duplicate entry",
+    "he": "רשומה לא תקנית או כפולה"
+  },
+  "Недопустимая структура или запись словаря": {
+    "en": "Invalid dictionary structure or entry",
+    "he": "מבנה המילון או הרשומה אינם תקינים"
+  },
+  "Файл должен иметь кодировку UTF-8": {
+    "en": "The file must use UTF-8 encoding",
+    "he": "הקובץ חייב להיות בקידוד UTF-8"
+  },
+  "Автовосстановление недоступно: сохрани файл словаря вручную": {
+    "en": "Automatic recovery is unavailable; back up the dictionary file manually",
+    "he": "שחזור אוטומטי אינו זמין; יש לגבות את קובץ המילון ידנית"
+  },
+  "Файл словаря изменился; перезапусти программу для повторной проверки": {
+    "en": "The dictionary file changed; restart the application to check again",
+    "he": "קובץ המילון השתנה; יש להפעיל מחדש את התוכנה לבדיקה נוספת"
+  },
+  "Не удалось проверить резервную копию; исходный словарь сохранён": {
+    "en": "Could not verify the backup; the original dictionary was preserved",
+    "he": "לא ניתן לאמת את הגיבוי; המילון המקורי נשמר"
+  },
+  "Папка профиля недоступна для записи: {v0}\nРаспакуй всю папку TypeBridge в место с правом записи, например «Документы». Не требуется запуск от администратора. Существующие данные не удалены.": {
+    "en": "The profile folder is not writable: {v0}\nExtract the entire TypeBridge folder to a writable location such as Documents. Administrator privileges are not required. Existing data was not deleted.",
+    "he": "אין הרשאת כתיבה לתיקיית הפרופיל: {v0}\nיש לחלץ את כל תיקיית TypeBridge למקום עם הרשאת כתיבה, למשל מסמכים. אין צורך בהרשאות מנהל. הנתונים הקיימים לא נמחקו."
+  },
+  "Неполная папка словарей: {v0}\nОтсутствуют файлы: {v1}\nРаспакуй архив TypeBridge целиком, сохранив папку data рядом с EXE.": {
+    "en": "Incomplete dictionary folder: {v0}\nMissing files: {v1}\nExtract the entire TypeBridge archive, keeping data beside the EXE.",
+    "he": "תיקיית המילונים אינה שלמה: {v0}\nקבצים חסרים: {v1}\nיש לחלץ את כל ארכיון TypeBridge ולשמור את תיקיית data לצד קובץ EXE."
+  },
+  "Не удалось прочитать словарь: {v0}\nПроверь доступ к файлу и распакуй архив TypeBridge целиком.": {
+    "en": "Could not read dictionary: {v0}\nCheck file permissions and extract the entire TypeBridge archive.",
+    "he": "לא ניתן לקרוא את המילון: {v0}\nיש לבדוק הרשאות גישה ולחלץ את כל ארכיון TypeBridge."
+  },
+  "Ошибка обработчика трея; подробности: TypeBridge-data\\replacement-diagnostics.log": {
+    "en": "Tray callback error; details: TypeBridge-data\\replacement-diagnostics.log",
+    "he": "שגיאה במטפל של מגש המערכת; פרטים: TypeBridge-data\\replacement-diagnostics.log"
+  }
+})

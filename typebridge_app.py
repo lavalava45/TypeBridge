@@ -33,7 +33,7 @@ from ui_i18n import (messagebox, tr, localize_window, LocalizedStringVar, Choice
 from engine import LANGS, WORD_AFFIXES, LanguageEngine, candidate_token_key, source_data_dir
 from runtime_safety import require_no_original_switcher
 from single_instance import exclusive_live_hook
-from user_lexicon import UserLexicon
+from user_lexicon import UserLexicon, LexiconLoadError, recover_lexicon
 from tray_layouts import layout_owner, WindowsLayouts
 from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bindings
 from word_cycle import CYCLE_KEYS, RecentWord, remember_word
@@ -266,6 +266,34 @@ def save_settings(settings: Settings, path: Path = SETTINGS_PATH) -> None:
 def load_user_lexicon(folder: Path = USER_DIR) -> UserLexicon:
     folder.mkdir(parents=True, exist_ok=True)
     return UserLexicon.load(folder.resolve())
+
+
+class StartupCancelled(Exception):
+    """The user declined recovery; close without a second error dialog."""
+
+
+def lexicon_error_text(error):
+    return '\n'.join((tr('Личный словарь: {v0}').format(v0=error.path),
+                      tr('Место ошибки: {v0}').format(v0=error.location),
+                      tr('Причина: {v0}').format(v0=tr(error.reason))))
+
+
+def load_startup_lexicon(root):
+    """Never silently drop personal words or exclusions after a read failure."""
+    try:
+        return load_user_lexicon()
+    except LexiconLoadError as error:
+        if error.digest is None:
+            raise  # Oversized files require manual preservation, not a partial backup.
+        accepted = messagebox.askyesno('Личный словарь',
+            lexicon_error_text(error) + '\n\n' + tr('Сохранить полную резервную копию .bad и начать с пустым личным словарём? '
+                'Личные слова и исключения не будут действовать до восстановления из копии. '
+                'Ответ «Нет» завершит запуск без изменения файла.'), parent=root)
+        if not accepted:
+            raise StartupCancelled() from error
+        lexicon, backup = recover_lexicon(error)
+        messagebox.showinfo('Личный словарь', tr('Резервная копия проверена: {v0}').format(v0=backup), parent=root)
+        return lexicon
 
 
 def foreground_language() -> str:
@@ -2378,7 +2406,7 @@ class TypeBridgeGui:
         settings = load_settings()
         set_language(settings.ui_language)
         self.ui_language = tk.StringVar(value=LANGUAGES[settings.ui_language])
-        self.lexicon = load_user_lexicon()
+        self.lexicon = load_startup_lexicon(root)
         self.snippet_config = SnippetConfig.load(USER_DIR / 'snippets.json')
         self.snippets_editor = None
         self.dictionary_import_window = None
@@ -3146,6 +3174,10 @@ class TypeBridgeGui:
                     continue
                 if kind == "tray":
                     if isinstance(message, tuple):
+                        if message[0] == 'tray-callback-error':
+                            self._queue_diagnostic('runtime', message[1])
+                            self.status.set('Ошибка обработчика трея; подробности: TypeBridge-data\\replacement-diagnostics.log')
+                            continue
                         if message[0] == 'tray-diagnostic':
                             # Recovery is background maintenance, not a request
                             # to activate the settings window on every retry.
@@ -3443,9 +3475,13 @@ def main(argv=None) -> int:
     try:
         migrate_user_data()
         gui = TypeBridgeGui(root)
+    except StartupCancelled:
+        root.destroy()
+        return 1
     except (ValueError, OSError) as error:
         root.withdraw()
-        messagebox.showerror("TypeBridge: ошибка настроек", str(error), parent=root)
+        text = lexicon_error_text(error) if isinstance(error, LexiconLoadError) else str(error)
+        messagebox.showerror("TypeBridge: ошибка настроек", text, parent=root)
         root.destroy()
         return 1
     if args.autostart:

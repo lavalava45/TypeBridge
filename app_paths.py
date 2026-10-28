@@ -13,8 +13,29 @@ LEGACY_USER_DIR = LOCAL_DATA / 'LayoutSwitch'
 DATA_FILES = ('settings.json', 'user_lexicon.json', 'snippets.json')
 
 
+class ProfileWriteError(OSError):
+    def __init__(self, folder):
+        super().__init__(f'Папка профиля недоступна для записи: {Path(folder)}\n'
+                         'Распакуй всю папку TypeBridge в место с правом записи, например «Документы». '
+                         'Не требуется запуск от администратора. Существующие данные не удалены.')
+
+
+def ensure_writable_profile(folder):
+    folder = Path(folder)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        # Test actual create/write/delete permissions rather than os.access or
+        # the Windows read-only attribute on directories. Keep no probe file.
+        with tempfile.NamedTemporaryFile(dir=folder, prefix='.write-check-') as stream:
+            stream.write(b'0')
+            stream.flush()
+    except OSError as error:
+        raise ProfileWriteError(folder) from error
+
+
 def migrate_user_data(destination=USER_DIR, source=None):
     """Copy missing personal files only; never overwrite or remove either copy."""
+    ensure_writable_profile(destination)
     if source is None:
         marker = destination / '.migration-complete'
         if marker.exists():

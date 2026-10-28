@@ -13,6 +13,20 @@ from typebridge_app import TypeBridgeGui
 
 
 class ParsingTests(unittest.TestCase):
+    def test_maximum_whitespace_line_completes_in_bounded_subprocess(self):
+        import subprocess, sys
+        script = ('from dictionary_import import parse_import, MAX_BYTES; '
+                  'assert not parse_import(b" " * MAX_BYTES).entries; '
+                  'assert parse_import(b"a" + b" " * (MAX_BYTES-1)).entries[0].word == "a"')
+        result = subprocess.run([sys.executable, '-c', script], capture_output=True,
+                                timeout=5, cwd=Path(__file__).resolve().parent)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+    def test_comment_marker_requires_whitespace_and_keeps_line_numbers(self):
+        preview = parse_import('hello\t# comment\nC#\n\u2003# comment\nworld\u2003# comment'.encode())
+        self.assertEqual([e.word for e in preview.entries], ['hello', 'world'])
+        self.assertEqual(preview.skipped[0][0], 2)
+
     def test_auto_language_bom_comments_canonical_duplicates_and_invalid_tokens(self):
         text = '\ufeff# comment\nHello\nHELLO # duplicate\nПривет\nשלום\nstd::vector\n__init__\nC++\nC#\nCOVID19\nhello world\n'
         preview = parse_import(text.encode('utf-8'))

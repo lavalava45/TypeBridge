@@ -7,6 +7,7 @@ No SwitchER files or application settings are read.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,40 @@ _FILENAME = "user_lexicon.json"
 _MAX_BYTES = 2_000_000
 _MAX_WORDS = 50_000
 _LOCK = threading.RLock()
+
+
+class LexiconLoadError(ValueError):
+    """Location and controlled reason only; never include a personal word."""
+    def __init__(self, path, location, reason, digest=None):
+        self.path, self.location, self.reason, self.digest = Path(path), location, reason, digest
+        super().__init__(f'Личный словарь: {self.path}\nМесто ошибки: {location}\nПричина: {reason}')
+
+
+def recover_lexicon(error):
+    """Explicit recovery only: verify a complete backup BEFORE replacing data."""
+    if not isinstance(error, LexiconLoadError) or error.digest is None:
+        raise ValueError('Автовосстановление недоступно: сохрани файл словаря вручную')
+    with _LOCK:
+        folder, target = _check_dir(error.path.parent)
+        with target.open('rb') as stream:
+            raw = stream.read(_MAX_BYTES + 1)
+        if len(raw) > _MAX_BYTES or hashlib.sha256(raw).hexdigest() != error.digest:
+            raise ValueError('Файл словаря изменился; перезапусти программу для повторной проверки')
+        with tempfile.NamedTemporaryFile(dir=folder, prefix='user_lexicon-', suffix='.bad', delete=False) as stream:
+            backup = Path(stream.name)
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if hashlib.sha256(backup.read_bytes()).hexdigest() != error.digest:
+            raise OSError('Не удалось проверить резервную копию; исходный словарь сохранён')
+        _check_dir(folder)
+        with target.open('rb') as stream:
+            current = stream.read(_MAX_BYTES + 1)
+        if current != raw:
+            raise ValueError('Файл словаря изменился; перезапусти программу для повторной проверки')
+        result = UserLexicon()
+        result.save(folder)
+        return result, backup
 
 
 def normalize(word: str, language: str, *, sensitive: bool = False) -> str:
@@ -143,36 +178,57 @@ class UserLexicon:
             _, target = _check_dir(folder)
             if not target.exists():
                 return cls()
-            if target.stat().st_size > _MAX_BYTES:
-                raise ValueError("lexicon too large")
+            location, raw = '$', None
             try:
-                raw = target.read_bytes()
+                with target.open('rb') as stream:
+                    raw = stream.read(_MAX_BYTES + 1)
                 if len(raw) > _MAX_BYTES:
                     raise ValueError("lexicon too large")
                 doc = json.loads(raw.decode("utf-8"))
                 if set(doc) != {"version", "entries"} or doc["version"] != 1:
                     raise ValueError("unsupported lexicon schema")
                 entries = doc["entries"]
+                location = 'entries'
                 if set(entries) != set(_KINDS):
                     raise ValueError("invalid kinds")
                 result = cls()
                 for kind in _KINDS:
+                    location = f'entries.{kind}'
                     if set(entries[kind]) != set(_LANGS):
                         raise ValueError("invalid languages")
                     for lang in _LANGS:
+                        location = f'entries.{kind}.{lang}'
                         if set(entries[kind][lang]) != set(_MODES):
                             raise ValueError("invalid modes")
                         for mode in _MODES:
+                            location = f'entries.{kind}.{lang}.{mode}'
                             items = entries[kind][lang][mode]
                             if not isinstance(items, list) or len(items) > _MAX_WORDS:
                                 raise ValueError("invalid word list")
                             seen = set()
-                            for word in items:
+                            for index, word in enumerate(items, 1):
+                                location = f'entries.{kind}.{lang}.{mode}[{index}]'
                                 normalized = normalize(word, lang, sensitive=mode == "sensitive")
                                 if word != normalized or normalized in seen:
                                     raise ValueError("noncanonical or duplicate word")
                                 seen.add(normalized)
                             result.data[kind][lang][mode] = seen
                 return result
-            except (UnicodeError, json.JSONDecodeError, TypeError, KeyError, AttributeError) as exc:
-                raise ValueError("malformed lexicon") from exc
+            except (ValueError, UnicodeError, TypeError, KeyError, AttributeError, RecursionError) as exc:
+                reasons = {
+                    'lexicon too large': 'Размер файла превышает 2 МБ',
+                    'unsupported lexicon schema': 'Неподдерживаемый формат словаря',
+                    'invalid kinds': 'Неверные разделы словаря',
+                    'invalid languages': 'Неверные языки словаря',
+                    'invalid modes': 'Неверные режимы регистра',
+                    'invalid word list': 'Неверный список слов',
+                    'noncanonical or duplicate word': 'Неканоническая или повторяющаяся запись',
+                }
+                reason = reasons.get(str(exc), 'Недопустимая структура или запись словаря')
+                if isinstance(exc, json.JSONDecodeError):
+                    location = f'JSON: {exc.lineno}:{exc.colno}'
+                    reason = 'Некорректный JSON'
+                elif isinstance(exc, UnicodeError):
+                    reason = 'Файл должен иметь кодировку UTF-8'
+                digest = hashlib.sha256(raw).hexdigest() if raw is not None and len(raw) <= _MAX_BYTES else None
+                raise LexiconLoadError(target, location, reason, digest) from exc

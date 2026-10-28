@@ -5,6 +5,17 @@ import traceback
 from diagnostic_identity import computer_id
 
 
+def tray_callback_code(message, exception_type, tb):
+    """Detach bounded frame locations without reading source or retaining frames."""
+    frames = []
+    while tb is not None and len(frames) < 12:
+        code = tb.tb_frame.f_code
+        frames.append(f'{Path(code.co_filename).name}:{tb.tb_lineno}:{code.co_name}')
+        tb = tb.tb_next
+    return (f'tray-callback-error:message={int(message)}:type={exception_type.__name__}:'
+            + '|'.join(frames))[:4096]
+
+
 def record_runtime_event(folder, code):
     # Only internal outcome codes, never exception arguments, keys or word text.
     path = Path(folder) / 'replacement-diagnostics.log'

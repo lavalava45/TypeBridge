@@ -75,7 +75,10 @@ def parse_import(raw, *, filename='dictionary.txt', language='auto', sensitive=F
         if len(lines) > MAX_ENTRIES:
             raise ValueError('В словаре больше 50 000 строк')
         for index, line in enumerate(lines, 1):
-            word = '' if line.lstrip().startswith('#') else re.split(r'\s+#', line, maxsplit=1)[0].strip()
+            line = line.strip()
+            # Fixed-width lookbehind: the old \s+# retried an entire run of
+            # whitespace from each position when no comment followed (O(n²)).
+            word = '' if line.startswith('#') else re.split(r'(?<=\s)#', line, maxsplit=1)[0].rstrip()
             if word:
                 records.append((index, word, language, sensitive))
     entries, seen, skipped, duplicates = [], set(), [], 0

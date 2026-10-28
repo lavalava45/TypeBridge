@@ -308,6 +308,24 @@ class TrayController:
                 f"TypeBridge — {tr('Дневник ВКЛ · ') if self.journal_enabled else ''}{status}"[:127])
 
     def _wndproc(self, hwnd, message, wparam, lparam):
+        try:
+            return self._dispatch_message(hwnd, message, wparam, lparam)
+        except Exception as error:
+            # Never let a Python exception escape the Win32 callback. Send only
+            # detached metadata; disk writes belong to the diagnostic worker.
+            try:
+                from ui_diagnostics import tray_callback_code
+                record = tray_callback_code(message, type(error), error.__traceback__)
+                self.last_callback_failure = record
+                now = monotonic()
+                if now >= getattr(self, 'next_callback_report', 0):
+                    self.next_callback_report = now + 5
+                    self.notify(('tray-callback-error', record))
+            except Exception:
+                pass  # Diagnostics must not rethrow into Win32 either.
+            return 0
+
+    def _dispatch_message(self, hwnd, message, wparam, lparam):
         if message == WM_CLIPBOARD_CONFIG:
             self._register_clipboard_hotkeys()
             return 0
@@ -328,14 +346,16 @@ class TrayController:
             return 0
         if message == win32con.WM_DESTROY:
             self.ready.clear()
-            if self.clipboard_hotkeys:
-                self.clipboard_hotkeys.close()
             try:
-                win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
-            except (OSError, Win32Error):
-                pass  # Explorer may already be gone during shutdown.
+                if self.clipboard_hotkeys:
+                    self.clipboard_hotkeys.close()
             finally:
-                win32gui.PostQuitMessage(0)
+                try:
+                    win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
+                except (OSError, Win32Error):
+                    pass  # Explorer may already be gone during shutdown.
+                finally:
+                    win32gui.PostQuitMessage(0)
             return 0
         if message == self.taskbar_created:
             self.ready.clear()

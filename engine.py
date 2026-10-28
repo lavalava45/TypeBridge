@@ -251,6 +251,26 @@ class LayoutMapper:
         return "".join(self.char(vk, language, shift) for vk, shift in keys)
 
 
+DICTIONARY_FILES = ('ru.txt', 'en.txt', 'he.txt', 'confident_ru.txt',
+                    'confident_en.txt', 'confident_he.txt', 'he_custom.txt', 'exclude.txt')
+
+
+def require_dictionary_files(data_dir):
+    data_dir = Path(data_dir)
+    missing = [name for name in DICTIONARY_FILES if not (data_dir / name).is_file()]
+    if missing:
+        raise ValueError(f'Неполная папка словарей: {data_dir.resolve()}\n'
+                         f'Отсутствуют файлы: {", ".join(missing)}\n'
+                         'Распакуй архив TypeBridge целиком, сохранив папку data рядом с EXE.')
+    for name in DICTIONARY_FILES:
+        try:
+            with (data_dir / name).open('rb') as stream:
+                stream.read(1)
+        except OSError as error:
+            raise OSError(f'Не удалось прочитать словарь: {data_dir / name}\n'
+                          'Проверь доступ к файлу и распакуй архив TypeBridge целиком.') from error
+
+
 def _read_lexical_data(data_dir):
     words = {
         "ru": read_words(data_dir / "ru.txt", "ru"),
@@ -300,6 +320,7 @@ class LanguageEngine:
             if not isinstance(user_lexicon, UserLexicon):
                 raise ValueError("invalid user lexicon")
         self.user_lexicon = user_lexicon
+        require_dictionary_files(data_dir)
         self.mapper = LayoutMapper()
         self.conservative = conservative
         if cache_dir is None:
@@ -308,12 +329,10 @@ class LanguageEngine:
         else:
             from dictionary_cache import load_or_build, policy_digest
             from frequency_rank import normalize_word
-            filenames = ('ru.txt', 'en.txt', 'he.txt', 'confident_ru.txt',
-                         'confident_en.txt', 'confident_he.txt', 'he_custom.txt', 'exclude.txt')
             policy = policy_digest((_read_lexical_data, normalize_word, read_words),
                                    ['lexicon-v1', sorted(SAMPLE_HEBREW)])
             data, self.cache_status = load_or_build(
-                data_dir, filenames, policy, lambda: _read_lexical_data(data_dir),
+                data_dir, DICTIONARY_FILES, policy, lambda: _read_lexical_data(data_dir),
                 cache_dir, progress=cache_progress)
             self._startup_base_index = {lang: tuple(data['words'][lang]) for lang in LANGS}
         self.words = data['words'] if cache_dir is None else {lang: set(data['words'][lang]) for lang in LANGS}
