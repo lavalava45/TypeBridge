@@ -4,14 +4,9 @@ $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot
 $oldPythonPath = $env:PYTHONPATH
 try {
-    $profilesRoot = Join-Path $PSScriptRoot 'dist\profiles'
-    $runningTarget = Get-Process -Name TypeBridge -ErrorAction SilentlyContinue | Where-Object {
-        -not $_.Path -or $_.Path.StartsWith(
-            ([IO.Path]::GetFullPath($profilesRoot).TrimEnd('\') + '\'),
-            [StringComparison]::OrdinalIgnoreCase)
-    }
+    $runningTarget = Get-Process -Name TypeBridge -ErrorAction SilentlyContinue
     if ($runningTarget) {
-        throw 'Close running TypeBridge Public/Diagnostics EXEs via Exit in the tray before rebuilding.'
+        throw 'Close running TypeBridge via Exit in the tray before rebuilding.'
     }
     $deps = Join-Path $PSScriptRoot ".build-deps"
     $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
@@ -26,16 +21,10 @@ try {
     if (Test-Path (Join-Path $deps "PyInstaller")) {
         $env:PYTHONPATH = $deps
     }
-    # Both from the same commit. The old dist\TypeBridge.exe and local profile
-    # files/flags remain untouched. Only separate profile folders are updated.
-    & $python build_profiles.py --output-dir $profilesRoot
-    if ($LASTEXITCODE -ne 0) { throw "TypeBridge dual-profile build failed" }
-    foreach ($profile in @('Public','Diagnostics')) {
-        $exe = Join-Path $profilesRoot "$profile\TypeBridge.exe"
-        if (-not (Test-Path -LiteralPath $exe)) { throw "Missing $profile EXE" }
-        Write-Host "$profile EXE: $exe"
-        Write-Host "$profile manifest: $(Join-Path $profilesRoot "$profile\BUILD-PROFILE.json")"
-    }
+    # Local working-source build: main Public EXE and existing Diagnostics profile.
+    # The clean-commit versioned release builder remains a separate workflow.
+    & $python build_local.py
+    if ($LASTEXITCODE -ne 0) { throw "Local Public/Diagnostics TypeBridge build failed" }
 
 }
 finally {

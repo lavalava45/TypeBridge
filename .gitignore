@@ -15,6 +15,10 @@ __pycache__/
 # Local dictionaries remain available on disk; not licensed for redistribution.
 /data/*
 !/data/HEBREW-SOURCE.md
+# R16/4d: generated 39 MB bundled dictionaries. May contain local editable
+# overlays in the input data directory; recreate reproducibly from audited
+# open data during isolated release, never commit generated payloads.
+/bundled_language_packs/
 
 # Diagnostics and private configuration
 /logs/

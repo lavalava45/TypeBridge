@@ -1,0 +1,1538 @@
+{
+  "kind": "PUBLIC_WIKIPEDIA_RANDOM_TITLE_SNAPSHOT",
+  "version": 1,
+  "retrieved_utc": "2026-10-30T07:11:07.801220+00:00",
+  "provenance": "MediaWiki Action API, Wikipedia namespace 0, list=random",
+  "query": "action=query&list=random&rnnamespace=0&rnfilterredir=nonredirects",
+  "collection_strategy": "random API starting point, fixed contiguous batches; one-token alphabetic article titles, single script; NO filtering by TypeBridge/Windows, NO lexical truth claim",
+  "license_notes": "Wikipedia article titles and metadata; source links provided. Wikipedia article content generally CC BY-SA 4.0; see https://www.mediawiki.org/wiki/Wikimedia_APIs/Content_reuse",
+  "languages": {
+    "ru": {
+      "stats": {
+        "batches": 2,
+        "pages_seen": 700,
+        "single_script_titles_seen": 100
+      },
+      "titles": [
+        {
+          "title": "Рязанцы",
+          "pageid": 4096288,
+          "source_url": "https://ru.wikipedia.org/?curid=4096288"
+        },
+        {
+          "title": "Бику",
+          "pageid": 4250036,
+          "source_url": "https://ru.wikipedia.org/?curid=4250036"
+        },
+        {
+          "title": "Зомбодзе",
+          "pageid": 10368014,
+          "source_url": "https://ru.wikipedia.org/?curid=10368014"
+        },
+        {
+          "title": "Оманидзе",
+          "pageid": 9166550,
+          "source_url": "https://ru.wikipedia.org/?curid=9166550"
+        },
+        {
+          "title": "Карбидосталь",
+          "pageid": 7294733,
+          "source_url": "https://ru.wikipedia.org/?curid=7294733"
+        },
+        {
+          "title": "Сириса",
+          "pageid": 1053408,
+          "source_url": "https://ru.wikipedia.org/?curid=1053408"
+        },
+        {
+          "title": "Науши",
+          "pageid": 8488447,
+          "source_url": "https://ru.wikipedia.org/?curid=8488447"
+        },
+        {
+          "title": "Сюльтино",
+          "pageid": 2731703,
+          "source_url": "https://ru.wikipedia.org/?curid=2731703"
+        },
+        {
+          "title": "Мусигати",
+          "pageid": 9257281,
+          "source_url": "https://ru.wikipedia.org/?curid=9257281"
+        },
+        {
+          "title": "Гузь",
+          "pageid": 4784578,
+          "source_url": "https://ru.wikipedia.org/?curid=4784578"
+        },
+        {
+          "title": "Ёртома",
+          "pageid": 3088184,
+          "source_url": "https://ru.wikipedia.org/?curid=3088184"
+        },
+        {
+          "title": "Шильяно",
+          "pageid": 1595775,
+          "source_url": "https://ru.wikipedia.org/?curid=1595775"
+        },
+        {
+          "title": "Адажио",
+          "pageid": 144440,
+          "source_url": "https://ru.wikipedia.org/?curid=144440"
+        },
+        {
+          "title": "Волженец",
+          "pageid": 4243554,
+          "source_url": "https://ru.wikipedia.org/?curid=4243554"
+        },
+        {
+          "title": "Выжлятник",
+          "pageid": 4297390,
+          "source_url": "https://ru.wikipedia.org/?curid=4297390"
+        },
+        {
+          "title": "Битица",
+          "pageid": 2524226,
+          "source_url": "https://ru.wikipedia.org/?curid=2524226"
+        },
+        {
+          "title": "Колпь",
+          "pageid": 1499810,
+          "source_url": "https://ru.wikipedia.org/?curid=1499810"
+        },
+        {
+          "title": "Харшлевелю",
+          "pageid": 11498688,
+          "source_url": "https://ru.wikipedia.org/?curid=11498688"
+        },
+        {
+          "title": "Меркадерес",
+          "pageid": 8388087,
+          "source_url": "https://ru.wikipedia.org/?curid=8388087"
+        },
+        {
+          "title": "Пирляр",
+          "pageid": 1460818,
+          "source_url": "https://ru.wikipedia.org/?curid=1460818"
+        },
+        {
+          "title": "Хоске",
+          "pageid": 8946432,
+          "source_url": "https://ru.wikipedia.org/?curid=8946432"
+        },
+        {
+          "title": "Шаклеин",
+          "pageid": 1290934,
+          "source_url": "https://ru.wikipedia.org/?curid=1290934"
+        },
+        {
+          "title": "Нижнеяркеево",
+          "pageid": 2731713,
+          "source_url": "https://ru.wikipedia.org/?curid=2731713"
+        },
+        {
+          "title": "Рокхаузен",
+          "pageid": 564648,
+          "source_url": "https://ru.wikipedia.org/?curid=564648"
+        },
+        {
+          "title": "Редниц",
+          "pageid": 156631,
+          "source_url": "https://ru.wikipedia.org/?curid=156631"
+        },
+        {
+          "title": "Ковальская",
+          "pageid": 1443986,
+          "source_url": "https://ru.wikipedia.org/?curid=1443986"
+        },
+        {
+          "title": "Самарга",
+          "pageid": 371440,
+          "source_url": "https://ru.wikipedia.org/?curid=371440"
+        },
+        {
+          "title": "Коупавогюр",
+          "pageid": 1343441,
+          "source_url": "https://ru.wikipedia.org/?curid=1343441"
+        },
+        {
+          "title": "Сеялка",
+          "pageid": 1765029,
+          "source_url": "https://ru.wikipedia.org/?curid=1765029"
+        },
+        {
+          "title": "Гимнокладус",
+          "pageid": 1151732,
+          "source_url": "https://ru.wikipedia.org/?curid=1151732"
+        },
+        {
+          "title": "Элкшни",
+          "pageid": 6771296,
+          "source_url": "https://ru.wikipedia.org/?curid=6771296"
+        },
+        {
+          "title": "Вайнюны",
+          "pageid": 11258989,
+          "source_url": "https://ru.wikipedia.org/?curid=11258989"
+        },
+        {
+          "title": "Авалокитешвара",
+          "pageid": 102807,
+          "source_url": "https://ru.wikipedia.org/?curid=102807"
+        },
+        {
+          "title": "Учеватиха",
+          "pageid": 7521450,
+          "source_url": "https://ru.wikipedia.org/?curid=7521450"
+        },
+        {
+          "title": "Каликино",
+          "pageid": 850762,
+          "source_url": "https://ru.wikipedia.org/?curid=850762"
+        },
+        {
+          "title": "Эчкаюн",
+          "pageid": 4637964,
+          "source_url": "https://ru.wikipedia.org/?curid=4637964"
+        },
+        {
+          "title": "Каналонаполнитель",
+          "pageid": 2265215,
+          "source_url": "https://ru.wikipedia.org/?curid=2265215"
+        },
+        {
+          "title": "Итератив",
+          "pageid": 8814719,
+          "source_url": "https://ru.wikipedia.org/?curid=8814719"
+        },
+        {
+          "title": "Кипрево",
+          "pageid": 4125617,
+          "source_url": "https://ru.wikipedia.org/?curid=4125617"
+        },
+        {
+          "title": "Ужвентис",
+          "pageid": 2653109,
+          "source_url": "https://ru.wikipedia.org/?curid=2653109"
+        },
+        {
+          "title": "Биопсия",
+          "pageid": 142302,
+          "source_url": "https://ru.wikipedia.org/?curid=142302"
+        },
+        {
+          "title": "Асмик",
+          "pageid": 2187521,
+          "source_url": "https://ru.wikipedia.org/?curid=2187521"
+        },
+        {
+          "title": "Юнчжэн",
+          "pageid": 1083131,
+          "source_url": "https://ru.wikipedia.org/?curid=1083131"
+        },
+        {
+          "title": "Сливка",
+          "pageid": 1204440,
+          "source_url": "https://ru.wikipedia.org/?curid=1204440"
+        },
+        {
+          "title": "Полукровка",
+          "pageid": 2422615,
+          "source_url": "https://ru.wikipedia.org/?curid=2422615"
+        },
+        {
+          "title": "Соколовская",
+          "pageid": 1805725,
+          "source_url": "https://ru.wikipedia.org/?curid=1805725"
+        },
+        {
+          "title": "Ковылёвые",
+          "pageid": 4818870,
+          "source_url": "https://ru.wikipedia.org/?curid=4818870"
+        },
+        {
+          "title": "Алиу",
+          "pageid": 10465684,
+          "source_url": "https://ru.wikipedia.org/?curid=10465684"
+        },
+        {
+          "title": "Нейс",
+          "pageid": 2197005,
+          "source_url": "https://ru.wikipedia.org/?curid=2197005"
+        },
+        {
+          "title": "Найсеауэ",
+          "pageid": 555132,
+          "source_url": "https://ru.wikipedia.org/?curid=555132"
+        },
+        {
+          "title": "Делапорт",
+          "pageid": 6440343,
+          "source_url": "https://ru.wikipedia.org/?curid=6440343"
+        },
+        {
+          "title": "Цкордза",
+          "pageid": 10966085,
+          "source_url": "https://ru.wikipedia.org/?curid=10966085"
+        },
+        {
+          "title": "Мерчандайзинг",
+          "pageid": 664625,
+          "source_url": "https://ru.wikipedia.org/?curid=664625"
+        },
+        {
+          "title": "Посинь",
+          "pageid": 4533424,
+          "source_url": "https://ru.wikipedia.org/?curid=4533424"
+        },
+        {
+          "title": "Березнецово",
+          "pageid": 6240516,
+          "source_url": "https://ru.wikipedia.org/?curid=6240516"
+        },
+        {
+          "title": "Риттерхуде",
+          "pageid": 563472,
+          "source_url": "https://ru.wikipedia.org/?curid=563472"
+        },
+        {
+          "title": "Аланка",
+          "pageid": 3085886,
+          "source_url": "https://ru.wikipedia.org/?curid=3085886"
+        },
+        {
+          "title": "Ботафумейро",
+          "pageid": 2109245,
+          "source_url": "https://ru.wikipedia.org/?curid=2109245"
+        },
+        {
+          "title": "Порнофильм",
+          "pageid": 98642,
+          "source_url": "https://ru.wikipedia.org/?curid=98642"
+        },
+        {
+          "title": "Березины",
+          "pageid": 3256543,
+          "source_url": "https://ru.wikipedia.org/?curid=3256543"
+        },
+        {
+          "title": "Студянка",
+          "pageid": 8042989,
+          "source_url": "https://ru.wikipedia.org/?curid=8042989"
+        },
+        {
+          "title": "Балахня",
+          "pageid": 4779020,
+          "source_url": "https://ru.wikipedia.org/?curid=4779020"
+        },
+        {
+          "title": "Бесобой",
+          "pageid": 7346448,
+          "source_url": "https://ru.wikipedia.org/?curid=7346448"
+        },
+        {
+          "title": "Лоймола",
+          "pageid": 1271293,
+          "source_url": "https://ru.wikipedia.org/?curid=1271293"
+        },
+        {
+          "title": "Клюшники",
+          "pageid": 4124145,
+          "source_url": "https://ru.wikipedia.org/?curid=4124145"
+        },
+        {
+          "title": "Мэйл",
+          "pageid": 2783349,
+          "source_url": "https://ru.wikipedia.org/?curid=2783349"
+        },
+        {
+          "title": "Блаженцово",
+          "pageid": 9034405,
+          "source_url": "https://ru.wikipedia.org/?curid=9034405"
+        },
+        {
+          "title": "Тювик",
+          "pageid": 3745094,
+          "source_url": "https://ru.wikipedia.org/?curid=3745094"
+        },
+        {
+          "title": "Академическая",
+          "pageid": 809574,
+          "source_url": "https://ru.wikipedia.org/?curid=809574"
+        },
+        {
+          "title": "Мушинцы",
+          "pageid": 9015796,
+          "source_url": "https://ru.wikipedia.org/?curid=9015796"
+        },
+        {
+          "title": "Чиверёво",
+          "pageid": 5465924,
+          "source_url": "https://ru.wikipedia.org/?curid=5465924"
+        },
+        {
+          "title": "Коэру",
+          "pageid": 3507706,
+          "source_url": "https://ru.wikipedia.org/?curid=3507706"
+        },
+        {
+          "title": "Алфеева",
+          "pageid": 644544,
+          "source_url": "https://ru.wikipedia.org/?curid=644544"
+        },
+        {
+          "title": "Качайское",
+          "pageid": 3155293,
+          "source_url": "https://ru.wikipedia.org/?curid=3155293"
+        },
+        {
+          "title": "Ашокнагар",
+          "pageid": 4553261,
+          "source_url": "https://ru.wikipedia.org/?curid=4553261"
+        },
+        {
+          "title": "Тендиково",
+          "pageid": 4960686,
+          "source_url": "https://ru.wikipedia.org/?curid=4960686"
+        },
+        {
+          "title": "Лупань",
+          "pageid": 10147459,
+          "source_url": "https://ru.wikipedia.org/?curid=10147459"
+        },
+        {
+          "title": "Исовит",
+          "pageid": 6055405,
+          "source_url": "https://ru.wikipedia.org/?curid=6055405"
+        },
+        {
+          "title": "Нюша",
+          "pageid": 2499243,
+          "source_url": "https://ru.wikipedia.org/?curid=2499243"
+        },
+        {
+          "title": "Тутермаа",
+          "pageid": 2826798,
+          "source_url": "https://ru.wikipedia.org/?curid=2826798"
+        },
+        {
+          "title": "Сефирот",
+          "pageid": 92048,
+          "source_url": "https://ru.wikipedia.org/?curid=92048"
+        },
+        {
+          "title": "Вождовац",
+          "pageid": 8570747,
+          "source_url": "https://ru.wikipedia.org/?curid=8570747"
+        },
+        {
+          "title": "Лермонтовы",
+          "pageid": 1500041,
+          "source_url": "https://ru.wikipedia.org/?curid=1500041"
+        },
+        {
+          "title": "Миелотоксичность",
+          "pageid": 7324903,
+          "source_url": "https://ru.wikipedia.org/?curid=7324903"
+        },
+        {
+          "title": "Циклоалкины",
+          "pageid": 11198283,
+          "source_url": "https://ru.wikipedia.org/?curid=11198283"
+        },
+        {
+          "title": "Балбрада",
+          "pageid": 2455677,
+          "source_url": "https://ru.wikipedia.org/?curid=2455677"
+        },
+        {
+          "title": "Еремей",
+          "pageid": 905225,
+          "source_url": "https://ru.wikipedia.org/?curid=905225"
+        },
+        {
+          "title": "Сабечиси",
+          "pageid": 10761275,
+          "source_url": "https://ru.wikipedia.org/?curid=10761275"
+        },
+        {
+          "title": "Чупруново",
+          "pageid": 10035437,
+          "source_url": "https://ru.wikipedia.org/?curid=10035437"
+        },
+        {
+          "title": "Панюшкин",
+          "pageid": 647036,
+          "source_url": "https://ru.wikipedia.org/?curid=647036"
+        },
+        {
+          "title": "Раличево",
+          "pageid": 1204067,
+          "source_url": "https://ru.wikipedia.org/?curid=1204067"
+        },
+        {
+          "title": "Лукъёхан",
+          "pageid": 3139328,
+          "source_url": "https://ru.wikipedia.org/?curid=3139328"
+        },
+        {
+          "title": "Тревожность",
+          "pageid": 13217,
+          "source_url": "https://ru.wikipedia.org/?curid=13217"
+        },
+        {
+          "title": "Брусеное",
+          "pageid": 10122567,
+          "source_url": "https://ru.wikipedia.org/?curid=10122567"
+        },
+        {
+          "title": "Кёрмиг",
+          "pageid": 566420,
+          "source_url": "https://ru.wikipedia.org/?curid=566420"
+        },
+        {
+          "title": "Якун",
+          "pageid": 4038949,
+          "source_url": "https://ru.wikipedia.org/?curid=4038949"
+        },
+        {
+          "title": "Оулафсфьордюр",
+          "pageid": 2389880,
+          "source_url": "https://ru.wikipedia.org/?curid=2389880"
+        },
+        {
+          "title": "Русалим",
+          "pageid": 10288633,
+          "source_url": "https://ru.wikipedia.org/?curid=10288633"
+        },
+        {
+          "title": "Эйдлин",
+          "pageid": 4912333,
+          "source_url": "https://ru.wikipedia.org/?curid=4912333"
+        },
+        {
+          "title": "Двукаменка",
+          "pageid": 3120663,
+          "source_url": "https://ru.wikipedia.org/?curid=3120663"
+        }
+      ]
+    },
+    "en": {
+      "stats": {
+        "batches": 3,
+        "pages_seen": 1050,
+        "single_script_titles_seen": 100
+      },
+      "titles": [
+        {
+          "title": "Dobrów",
+          "pageid": 19032523,
+          "source_url": "https://en.wikipedia.org/?curid=19032523"
+        },
+        {
+          "title": "Gråkallen",
+          "pageid": 10103570,
+          "source_url": "https://en.wikipedia.org/?curid=10103570"
+        },
+        {
+          "title": "Schrondweiler",
+          "pageid": 5088356,
+          "source_url": "https://en.wikipedia.org/?curid=5088356"
+        },
+        {
+          "title": "Bieniszew",
+          "pageid": 29357401,
+          "source_url": "https://en.wikipedia.org/?curid=29357401"
+        },
+        {
+          "title": "Biophotonics",
+          "pageid": 407292,
+          "source_url": "https://en.wikipedia.org/?curid=407292"
+        },
+        {
+          "title": "Arun",
+          "pageid": 1694500,
+          "source_url": "https://en.wikipedia.org/?curid=1694500"
+        },
+        {
+          "title": "Snarf",
+          "pageid": 22120619,
+          "source_url": "https://en.wikipedia.org/?curid=22120619"
+        },
+        {
+          "title": "Binnish",
+          "pageid": 10564798,
+          "source_url": "https://en.wikipedia.org/?curid=10564798"
+        },
+        {
+          "title": "Bresle",
+          "pageid": 15497888,
+          "source_url": "https://en.wikipedia.org/?curid=15497888"
+        },
+        {
+          "title": "Ronfa",
+          "pageid": 75405215,
+          "source_url": "https://en.wikipedia.org/?curid=75405215"
+        },
+        {
+          "title": "Bktherula",
+          "pageid": 72107969,
+          "source_url": "https://en.wikipedia.org/?curid=72107969"
+        },
+        {
+          "title": "Whitebridge",
+          "pageid": 6885283,
+          "source_url": "https://en.wikipedia.org/?curid=6885283"
+        },
+        {
+          "title": "Voralpsee",
+          "pageid": 13597846,
+          "source_url": "https://en.wikipedia.org/?curid=13597846"
+        },
+        {
+          "title": "Dabaka",
+          "pageid": 21716318,
+          "source_url": "https://en.wikipedia.org/?curid=21716318"
+        },
+        {
+          "title": "Peroor",
+          "pageid": 13004596,
+          "source_url": "https://en.wikipedia.org/?curid=13004596"
+        },
+        {
+          "title": "Kamatero",
+          "pageid": 1473138,
+          "source_url": "https://en.wikipedia.org/?curid=1473138"
+        },
+        {
+          "title": "Ibrya",
+          "pageid": 71586208,
+          "source_url": "https://en.wikipedia.org/?curid=71586208"
+        },
+        {
+          "title": "Manucharyan",
+          "pageid": 21873815,
+          "source_url": "https://en.wikipedia.org/?curid=21873815"
+        },
+        {
+          "title": "Dimepregnen",
+          "pageid": 50694498,
+          "source_url": "https://en.wikipedia.org/?curid=50694498"
+        },
+        {
+          "title": "Kostajnica",
+          "pageid": 33446910,
+          "source_url": "https://en.wikipedia.org/?curid=33446910"
+        },
+        {
+          "title": "Vijayaraga",
+          "pageid": 63145667,
+          "source_url": "https://en.wikipedia.org/?curid=63145667"
+        },
+        {
+          "title": "Lixiang",
+          "pageid": 59316702,
+          "source_url": "https://en.wikipedia.org/?curid=59316702"
+        },
+        {
+          "title": "Dentice",
+          "pageid": 58638268,
+          "source_url": "https://en.wikipedia.org/?curid=58638268"
+        },
+        {
+          "title": "Yawara",
+          "pageid": 87628,
+          "source_url": "https://en.wikipedia.org/?curid=87628"
+        },
+        {
+          "title": "Teretia",
+          "pageid": 26961233,
+          "source_url": "https://en.wikipedia.org/?curid=26961233"
+        },
+        {
+          "title": "Tralkasaurus",
+          "pageid": 62479288,
+          "source_url": "https://en.wikipedia.org/?curid=62479288"
+        },
+        {
+          "title": "Suances",
+          "pageid": 43101265,
+          "source_url": "https://en.wikipedia.org/?curid=43101265"
+        },
+        {
+          "title": "Serellan",
+          "pageid": 49202355,
+          "source_url": "https://en.wikipedia.org/?curid=49202355"
+        },
+        {
+          "title": "Variscale",
+          "pageid": 1767897,
+          "source_url": "https://en.wikipedia.org/?curid=1767897"
+        },
+        {
+          "title": "WalterMart",
+          "pageid": 54260696,
+          "source_url": "https://en.wikipedia.org/?curid=54260696"
+        },
+        {
+          "title": "Xiankang",
+          "pageid": 56012407,
+          "source_url": "https://en.wikipedia.org/?curid=56012407"
+        },
+        {
+          "title": "Hardheim",
+          "pageid": 7127579,
+          "source_url": "https://en.wikipedia.org/?curid=7127579"
+        },
+        {
+          "title": "Arzonella",
+          "pageid": 67801867,
+          "source_url": "https://en.wikipedia.org/?curid=67801867"
+        },
+        {
+          "title": "Leptognatha",
+          "pageid": 32251253,
+          "source_url": "https://en.wikipedia.org/?curid=32251253"
+        },
+        {
+          "title": "Kiringul",
+          "pageid": 37831856,
+          "source_url": "https://en.wikipedia.org/?curid=37831856"
+        },
+        {
+          "title": "Sotina",
+          "pageid": 24581400,
+          "source_url": "https://en.wikipedia.org/?curid=24581400"
+        },
+        {
+          "title": "Yintai",
+          "pageid": 20740126,
+          "source_url": "https://en.wikipedia.org/?curid=20740126"
+        },
+        {
+          "title": "Afrasi",
+          "pageid": 40916570,
+          "source_url": "https://en.wikipedia.org/?curid=40916570"
+        },
+        {
+          "title": "Anklet",
+          "pageid": 1067453,
+          "source_url": "https://en.wikipedia.org/?curid=1067453"
+        },
+        {
+          "title": "Azarsetanaki",
+          "pageid": 41074205,
+          "source_url": "https://en.wikipedia.org/?curid=41074205"
+        },
+        {
+          "title": "Ryff",
+          "pageid": 61029461,
+          "source_url": "https://en.wikipedia.org/?curid=61029461"
+        },
+        {
+          "title": "Alloue",
+          "pageid": 15468140,
+          "source_url": "https://en.wikipedia.org/?curid=15468140"
+        },
+        {
+          "title": "Woorinen",
+          "pageid": 34155330,
+          "source_url": "https://en.wikipedia.org/?curid=34155330"
+        },
+        {
+          "title": "Matteis",
+          "pageid": 2051262,
+          "source_url": "https://en.wikipedia.org/?curid=2051262"
+        },
+        {
+          "title": "Mäelooga",
+          "pageid": 31932983,
+          "source_url": "https://en.wikipedia.org/?curid=31932983"
+        },
+        {
+          "title": "Vanville",
+          "pageid": 5498790,
+          "source_url": "https://en.wikipedia.org/?curid=5498790"
+        },
+        {
+          "title": "Perubólica",
+          "pageid": 81513307,
+          "source_url": "https://en.wikipedia.org/?curid=81513307"
+        },
+        {
+          "title": "Blach",
+          "pageid": 41897329,
+          "source_url": "https://en.wikipedia.org/?curid=41897329"
+        },
+        {
+          "title": "Spida",
+          "pageid": 6849504,
+          "source_url": "https://en.wikipedia.org/?curid=6849504"
+        },
+        {
+          "title": "Päivälehti",
+          "pageid": 2423507,
+          "source_url": "https://en.wikipedia.org/?curid=2423507"
+        },
+        {
+          "title": "Siegelsbach",
+          "pageid": 10037896,
+          "source_url": "https://en.wikipedia.org/?curid=10037896"
+        },
+        {
+          "title": "Howlett",
+          "pageid": 13196339,
+          "source_url": "https://en.wikipedia.org/?curid=13196339"
+        },
+        {
+          "title": "Thanda",
+          "pageid": 53951631,
+          "source_url": "https://en.wikipedia.org/?curid=53951631"
+        },
+        {
+          "title": "Nogaret",
+          "pageid": 15775464,
+          "source_url": "https://en.wikipedia.org/?curid=15775464"
+        },
+        {
+          "title": "Llanfaethlu",
+          "pageid": 32765263,
+          "source_url": "https://en.wikipedia.org/?curid=32765263"
+        },
+        {
+          "title": "Buddakan",
+          "pageid": 47894433,
+          "source_url": "https://en.wikipedia.org/?curid=47894433"
+        },
+        {
+          "title": "Pusztazámor",
+          "pageid": 17312445,
+          "source_url": "https://en.wikipedia.org/?curid=17312445"
+        },
+        {
+          "title": "Flattr",
+          "pageid": 26235832,
+          "source_url": "https://en.wikipedia.org/?curid=26235832"
+        },
+        {
+          "title": "Belovalva",
+          "pageid": 14533464,
+          "source_url": "https://en.wikipedia.org/?curid=14533464"
+        },
+        {
+          "title": "Agnotocastor",
+          "pageid": 10396312,
+          "source_url": "https://en.wikipedia.org/?curid=10396312"
+        },
+        {
+          "title": "Heliophanus",
+          "pageid": 5825995,
+          "source_url": "https://en.wikipedia.org/?curid=5825995"
+        },
+        {
+          "title": "KQED",
+          "pageid": 66866720,
+          "source_url": "https://en.wikipedia.org/?curid=66866720"
+        },
+        {
+          "title": "Jackfield",
+          "pageid": 4687225,
+          "source_url": "https://en.wikipedia.org/?curid=4687225"
+        },
+        {
+          "title": "Antigonae",
+          "pageid": 65952,
+          "source_url": "https://en.wikipedia.org/?curid=65952"
+        },
+        {
+          "title": "Shifa",
+          "pageid": 43423704,
+          "source_url": "https://en.wikipedia.org/?curid=43423704"
+        },
+        {
+          "title": "Ajegroup",
+          "pageid": 7416036,
+          "source_url": "https://en.wikipedia.org/?curid=7416036"
+        },
+        {
+          "title": "Pulyeh",
+          "pageid": 40804388,
+          "source_url": "https://en.wikipedia.org/?curid=40804388"
+        },
+        {
+          "title": "Badangi",
+          "pageid": 9729980,
+          "source_url": "https://en.wikipedia.org/?curid=9729980"
+        },
+        {
+          "title": "Fukujinzuke",
+          "pageid": 7934201,
+          "source_url": "https://en.wikipedia.org/?curid=7934201"
+        },
+        {
+          "title": "Hinlopen",
+          "pageid": 35635022,
+          "source_url": "https://en.wikipedia.org/?curid=35635022"
+        },
+        {
+          "title": "Mwayaya",
+          "pageid": 56764287,
+          "source_url": "https://en.wikipedia.org/?curid=56764287"
+        },
+        {
+          "title": "Biopace",
+          "pageid": 2460096,
+          "source_url": "https://en.wikipedia.org/?curid=2460096"
+        },
+        {
+          "title": "Chutcze",
+          "pageid": 18522246,
+          "source_url": "https://en.wikipedia.org/?curid=18522246"
+        },
+        {
+          "title": "Gorin",
+          "pageid": 48611652,
+          "source_url": "https://en.wikipedia.org/?curid=48611652"
+        },
+        {
+          "title": "Postplatyptilia",
+          "pageid": 29093756,
+          "source_url": "https://en.wikipedia.org/?curid=29093756"
+        },
+        {
+          "title": "Canaverys",
+          "pageid": 44760762,
+          "source_url": "https://en.wikipedia.org/?curid=44760762"
+        },
+        {
+          "title": "Niepars",
+          "pageid": 13203602,
+          "source_url": "https://en.wikipedia.org/?curid=13203602"
+        },
+        {
+          "title": "Dehydroemetine",
+          "pageid": 21215616,
+          "source_url": "https://en.wikipedia.org/?curid=21215616"
+        },
+        {
+          "title": "Brémoncourt",
+          "pageid": 15883772,
+          "source_url": "https://en.wikipedia.org/?curid=15883772"
+        },
+        {
+          "title": "Cerros",
+          "pageid": 3276326,
+          "source_url": "https://en.wikipedia.org/?curid=3276326"
+        },
+        {
+          "title": "Jyoshna",
+          "pageid": 28844276,
+          "source_url": "https://en.wikipedia.org/?curid=28844276"
+        },
+        {
+          "title": "Surettahorn",
+          "pageid": 18209925,
+          "source_url": "https://en.wikipedia.org/?curid=18209925"
+        },
+        {
+          "title": "Tarif",
+          "pageid": 11452312,
+          "source_url": "https://en.wikipedia.org/?curid=11452312"
+        },
+        {
+          "title": "Anantharam",
+          "pageid": 31496495,
+          "source_url": "https://en.wikipedia.org/?curid=31496495"
+        },
+        {
+          "title": "Medbed",
+          "pageid": 72589256,
+          "source_url": "https://en.wikipedia.org/?curid=72589256"
+        },
+        {
+          "title": "Jarvik",
+          "pageid": 15686695,
+          "source_url": "https://en.wikipedia.org/?curid=15686695"
+        },
+        {
+          "title": "Wildcore",
+          "pageid": 4488500,
+          "source_url": "https://en.wikipedia.org/?curid=4488500"
+        },
+        {
+          "title": "Raigiri",
+          "pageid": 31088685,
+          "source_url": "https://en.wikipedia.org/?curid=31088685"
+        },
+        {
+          "title": "Kamone",
+          "pageid": 56397437,
+          "source_url": "https://en.wikipedia.org/?curid=56397437"
+        },
+        {
+          "title": "Nalagasdeniya",
+          "pageid": 7691136,
+          "source_url": "https://en.wikipedia.org/?curid=7691136"
+        },
+        {
+          "title": "Morshikhinskaya",
+          "pageid": 61896843,
+          "source_url": "https://en.wikipedia.org/?curid=61896843"
+        },
+        {
+          "title": "Sarmolk",
+          "pageid": 38939954,
+          "source_url": "https://en.wikipedia.org/?curid=38939954"
+        },
+        {
+          "title": "Huodou",
+          "pageid": 62978019,
+          "source_url": "https://en.wikipedia.org/?curid=62978019"
+        },
+        {
+          "title": "Stollenbach",
+          "pageid": 60429893,
+          "source_url": "https://en.wikipedia.org/?curid=60429893"
+        },
+        {
+          "title": "Breshk",
+          "pageid": 82486260,
+          "source_url": "https://en.wikipedia.org/?curid=82486260"
+        },
+        {
+          "title": "Anisuthide",
+          "pageid": 48135558,
+          "source_url": "https://en.wikipedia.org/?curid=48135558"
+        },
+        {
+          "title": "McCrorie",
+          "pageid": 35954471,
+          "source_url": "https://en.wikipedia.org/?curid=35954471"
+        },
+        {
+          "title": "Ertapenem",
+          "pageid": 254724,
+          "source_url": "https://en.wikipedia.org/?curid=254724"
+        },
+        {
+          "title": "Maharishi",
+          "pageid": 1821263,
+          "source_url": "https://en.wikipedia.org/?curid=1821263"
+        },
+        {
+          "title": "Abakelia",
+          "pageid": 23453220,
+          "source_url": "https://en.wikipedia.org/?curid=23453220"
+        }
+      ]
+    },
+    "he": {
+      "stats": {
+        "batches": 3,
+        "pages_seen": 1050,
+        "single_script_titles_seen": 100
+      },
+      "titles": [
+        {
+          "title": "תרמי",
+          "pageid": 870065,
+          "source_url": "https://he.wikipedia.org/?curid=870065"
+        },
+        {
+          "title": "קונדיאבה",
+          "pageid": 1172095,
+          "source_url": "https://he.wikipedia.org/?curid=1172095"
+        },
+        {
+          "title": "אדרת",
+          "pageid": 118591,
+          "source_url": "https://he.wikipedia.org/?curid=118591"
+        },
+        {
+          "title": "בלטונבוגלאר",
+          "pageid": 2020993,
+          "source_url": "https://he.wikipedia.org/?curid=2020993"
+        },
+        {
+          "title": "קלוגה",
+          "pageid": 193699,
+          "source_url": "https://he.wikipedia.org/?curid=193699"
+        },
+        {
+          "title": "לאטמה",
+          "pageid": 687911,
+          "source_url": "https://he.wikipedia.org/?curid=687911"
+        },
+        {
+          "title": "בוגדת",
+          "pageid": 996563,
+          "source_url": "https://he.wikipedia.org/?curid=996563"
+        },
+        {
+          "title": "סנון",
+          "pageid": 714207,
+          "source_url": "https://he.wikipedia.org/?curid=714207"
+        },
+        {
+          "title": "אוורט",
+          "pageid": 968485,
+          "source_url": "https://he.wikipedia.org/?curid=968485"
+        },
+        {
+          "title": "כנתריה",
+          "pageid": 604989,
+          "source_url": "https://he.wikipedia.org/?curid=604989"
+        },
+        {
+          "title": "סלון",
+          "pageid": 1037045,
+          "source_url": "https://he.wikipedia.org/?curid=1037045"
+        },
+        {
+          "title": "פוליהימניה",
+          "pageid": 103234,
+          "source_url": "https://he.wikipedia.org/?curid=103234"
+        },
+        {
+          "title": "אברדין",
+          "pageid": 475090,
+          "source_url": "https://he.wikipedia.org/?curid=475090"
+        },
+        {
+          "title": "המנחם",
+          "pageid": 247124,
+          "source_url": "https://he.wikipedia.org/?curid=247124"
+        },
+        {
+          "title": "שברק",
+          "pageid": 638710,
+          "source_url": "https://he.wikipedia.org/?curid=638710"
+        },
+        {
+          "title": "גומייסה",
+          "pageid": 1545805,
+          "source_url": "https://he.wikipedia.org/?curid=1545805"
+        },
+        {
+          "title": "אנליזה",
+          "pageid": 30558,
+          "source_url": "https://he.wikipedia.org/?curid=30558"
+        },
+        {
+          "title": "מולהוזן",
+          "pageid": 1326043,
+          "source_url": "https://he.wikipedia.org/?curid=1326043"
+        },
+        {
+          "title": "הסנדפייפרס",
+          "pageid": 2525041,
+          "source_url": "https://he.wikipedia.org/?curid=2525041"
+        },
+        {
+          "title": "קסטלאבאטה",
+          "pageid": 2453581,
+          "source_url": "https://he.wikipedia.org/?curid=2453581"
+        },
+        {
+          "title": "סימארגל",
+          "pageid": 1755412,
+          "source_url": "https://he.wikipedia.org/?curid=1755412"
+        },
+        {
+          "title": "פרזנטור",
+          "pageid": 472707,
+          "source_url": "https://he.wikipedia.org/?curid=472707"
+        },
+        {
+          "title": "פילום",
+          "pageid": 427214,
+          "source_url": "https://he.wikipedia.org/?curid=427214"
+        },
+        {
+          "title": "אייבס",
+          "pageid": 485576,
+          "source_url": "https://he.wikipedia.org/?curid=485576"
+        },
+        {
+          "title": "בוראן",
+          "pageid": 71090,
+          "source_url": "https://he.wikipedia.org/?curid=71090"
+        },
+        {
+          "title": "תיאסטס",
+          "pageid": 264921,
+          "source_url": "https://he.wikipedia.org/?curid=264921"
+        },
+        {
+          "title": "פודי",
+          "pageid": 1825139,
+          "source_url": "https://he.wikipedia.org/?curid=1825139"
+        },
+        {
+          "title": "הירקאטה",
+          "pageid": 2153047,
+          "source_url": "https://he.wikipedia.org/?curid=2153047"
+        },
+        {
+          "title": "בינגל",
+          "pageid": 2016879,
+          "source_url": "https://he.wikipedia.org/?curid=2016879"
+        },
+        {
+          "title": "טריניטיט",
+          "pageid": 388968,
+          "source_url": "https://he.wikipedia.org/?curid=388968"
+        },
+        {
+          "title": "לקיאנובה",
+          "pageid": 547592,
+          "source_url": "https://he.wikipedia.org/?curid=547592"
+        },
+        {
+          "title": "הרטפורד",
+          "pageid": 432716,
+          "source_url": "https://he.wikipedia.org/?curid=432716"
+        },
+        {
+          "title": "אוסטלוטיטאן",
+          "pageid": 2259435,
+          "source_url": "https://he.wikipedia.org/?curid=2259435"
+        },
+        {
+          "title": "שחיתות",
+          "pageid": 856933,
+          "source_url": "https://he.wikipedia.org/?curid=856933"
+        },
+        {
+          "title": "מולטיגרף",
+          "pageid": 618388,
+          "source_url": "https://he.wikipedia.org/?curid=618388"
+        },
+        {
+          "title": "דוגן",
+          "pageid": 1376936,
+          "source_url": "https://he.wikipedia.org/?curid=1376936"
+        },
+        {
+          "title": "ויקינגים",
+          "pageid": 6352,
+          "source_url": "https://he.wikipedia.org/?curid=6352"
+        },
+        {
+          "title": "רטנאפורה",
+          "pageid": 1976252,
+          "source_url": "https://he.wikipedia.org/?curid=1976252"
+        },
+        {
+          "title": "מגרפטוריים",
+          "pageid": 1646877,
+          "source_url": "https://he.wikipedia.org/?curid=1646877"
+        },
+        {
+          "title": "פרנטיפיקציה",
+          "pageid": 2509626,
+          "source_url": "https://he.wikipedia.org/?curid=2509626"
+        },
+        {
+          "title": "מקדחה",
+          "pageid": 170697,
+          "source_url": "https://he.wikipedia.org/?curid=170697"
+        },
+        {
+          "title": "סגווארו",
+          "pageid": 1368653,
+          "source_url": "https://he.wikipedia.org/?curid=1368653"
+        },
+        {
+          "title": "הואמבו",
+          "pageid": 1166604,
+          "source_url": "https://he.wikipedia.org/?curid=1166604"
+        },
+        {
+          "title": "פוקרסטארס",
+          "pageid": 361217,
+          "source_url": "https://he.wikipedia.org/?curid=361217"
+        },
+        {
+          "title": "תשבי",
+          "pageid": 771746,
+          "source_url": "https://he.wikipedia.org/?curid=771746"
+        },
+        {
+          "title": "אנביסטיה",
+          "pageid": 1678916,
+          "source_url": "https://he.wikipedia.org/?curid=1678916"
+        },
+        {
+          "title": "בוכרית",
+          "pageid": 904246,
+          "source_url": "https://he.wikipedia.org/?curid=904246"
+        },
+        {
+          "title": "רוזנבליט",
+          "pageid": 1343637,
+          "source_url": "https://he.wikipedia.org/?curid=1343637"
+        },
+        {
+          "title": "אינטגרין",
+          "pageid": 675417,
+          "source_url": "https://he.wikipedia.org/?curid=675417"
+        },
+        {
+          "title": "סטיקספיי",
+          "pageid": 2079943,
+          "source_url": "https://he.wikipedia.org/?curid=2079943"
+        },
+        {
+          "title": "מיופלוסוס",
+          "pageid": 2376212,
+          "source_url": "https://he.wikipedia.org/?curid=2376212"
+        },
+        {
+          "title": "קומרוב",
+          "pageid": 1254014,
+          "source_url": "https://he.wikipedia.org/?curid=1254014"
+        },
+        {
+          "title": "סולניים",
+          "pageid": 184015,
+          "source_url": "https://he.wikipedia.org/?curid=184015"
+        },
+        {
+          "title": "צימוד",
+          "pageid": 872688,
+          "source_url": "https://he.wikipedia.org/?curid=872688"
+        },
+        {
+          "title": "דפואנודון",
+          "pageid": 1797020,
+          "source_url": "https://he.wikipedia.org/?curid=1797020"
+        },
+        {
+          "title": "רקומלו",
+          "pageid": 2282334,
+          "source_url": "https://he.wikipedia.org/?curid=2282334"
+        },
+        {
+          "title": "אוקלהומה",
+          "pageid": 9821,
+          "source_url": "https://he.wikipedia.org/?curid=9821"
+        },
+        {
+          "title": "אולי",
+          "pageid": 2321004,
+          "source_url": "https://he.wikipedia.org/?curid=2321004"
+        },
+        {
+          "title": "סייברפמיניזם",
+          "pageid": 1066873,
+          "source_url": "https://he.wikipedia.org/?curid=1066873"
+        },
+        {
+          "title": "ביגפנדה",
+          "pageid": 2059373,
+          "source_url": "https://he.wikipedia.org/?curid=2059373"
+        },
+        {
+          "title": "לורי",
+          "pageid": 202516,
+          "source_url": "https://he.wikipedia.org/?curid=202516"
+        },
+        {
+          "title": "רוזוויל",
+          "pageid": 1591009,
+          "source_url": "https://he.wikipedia.org/?curid=1591009"
+        },
+        {
+          "title": "סונול",
+          "pageid": 102388,
+          "source_url": "https://he.wikipedia.org/?curid=102388"
+        },
+        {
+          "title": "יורוקום",
+          "pageid": 1178049,
+          "source_url": "https://he.wikipedia.org/?curid=1178049"
+        },
+        {
+          "title": "ניוראלינק",
+          "pageid": 1478311,
+          "source_url": "https://he.wikipedia.org/?curid=1478311"
+        },
+        {
+          "title": "מואב",
+          "pageid": 53953,
+          "source_url": "https://he.wikipedia.org/?curid=53953"
+        },
+        {
+          "title": "ווטסון",
+          "pageid": 367435,
+          "source_url": "https://he.wikipedia.org/?curid=367435"
+        },
+        {
+          "title": "סלסיז",
+          "pageid": 2297841,
+          "source_url": "https://he.wikipedia.org/?curid=2297841"
+        },
+        {
+          "title": "אגאו",
+          "pageid": 437620,
+          "source_url": "https://he.wikipedia.org/?curid=437620"
+        },
+        {
+          "title": "קארמה",
+          "pageid": 339516,
+          "source_url": "https://he.wikipedia.org/?curid=339516"
+        },
+        {
+          "title": "סקאיי",
+          "pageid": 911842,
+          "source_url": "https://he.wikipedia.org/?curid=911842"
+        },
+        {
+          "title": "קליס",
+          "pageid": 932607,
+          "source_url": "https://he.wikipedia.org/?curid=932607"
+        },
+        {
+          "title": "אינדוהיוס",
+          "pageid": 1796799,
+          "source_url": "https://he.wikipedia.org/?curid=1796799"
+        },
+        {
+          "title": "פלומיננסה",
+          "pageid": 781903,
+          "source_url": "https://he.wikipedia.org/?curid=781903"
+        },
+        {
+          "title": "אטרומאוס",
+          "pageid": 1775981,
+          "source_url": "https://he.wikipedia.org/?curid=1775981"
+        },
+        {
+          "title": "חאליד",
+          "pageid": 1731189,
+          "source_url": "https://he.wikipedia.org/?curid=1731189"
+        },
+        {
+          "title": "בלקברי",
+          "pageid": 489043,
+          "source_url": "https://he.wikipedia.org/?curid=489043"
+        },
+        {
+          "title": "אוכוס",
+          "pageid": 1437778,
+          "source_url": "https://he.wikipedia.org/?curid=1437778"
+        },
+        {
+          "title": "נמשהן",
+          "pageid": 1934159,
+          "source_url": "https://he.wikipedia.org/?curid=1934159"
+        },
+        {
+          "title": "למונייד",
+          "pageid": 2439494,
+          "source_url": "https://he.wikipedia.org/?curid=2439494"
+        },
+        {
+          "title": "קולפוסקופיה",
+          "pageid": 1540746,
+          "source_url": "https://he.wikipedia.org/?curid=1540746"
+        },
+        {
+          "title": "הרצברג",
+          "pageid": 1747870,
+          "source_url": "https://he.wikipedia.org/?curid=1747870"
+        },
+        {
+          "title": "יולית",
+          "pageid": 1551677,
+          "source_url": "https://he.wikipedia.org/?curid=1551677"
+        },
+        {
+          "title": "עיירה",
+          "pageid": 563132,
+          "source_url": "https://he.wikipedia.org/?curid=563132"
+        },
+        {
+          "title": "ואיידופר",
+          "pageid": 2201889,
+          "source_url": "https://he.wikipedia.org/?curid=2201889"
+        },
+        {
+          "title": "קלאודי",
+          "pageid": 2430003,
+          "source_url": "https://he.wikipedia.org/?curid=2430003"
+        },
+        {
+          "title": "קרוטונה",
+          "pageid": 584357,
+          "source_url": "https://he.wikipedia.org/?curid=584357"
+        },
+        {
+          "title": "טוטוספורט",
+          "pageid": 875197,
+          "source_url": "https://he.wikipedia.org/?curid=875197"
+        },
+        {
+          "title": "בשילה",
+          "pageid": 1407870,
+          "source_url": "https://he.wikipedia.org/?curid=1407870"
+        },
+        {
+          "title": "ליקטור",
+          "pageid": 48735,
+          "source_url": "https://he.wikipedia.org/?curid=48735"
+        },
+        {
+          "title": "סלובנית",
+          "pageid": 69384,
+          "source_url": "https://he.wikipedia.org/?curid=69384"
+        },
+        {
+          "title": "אנגוסטינריפטרוס",
+          "pageid": 1682664,
+          "source_url": "https://he.wikipedia.org/?curid=1682664"
+        },
+        {
+          "title": "אטפומארוס",
+          "pageid": 645949,
+          "source_url": "https://he.wikipedia.org/?curid=645949"
+        },
+        {
+          "title": "גנבה",
+          "pageid": 1818280,
+          "source_url": "https://he.wikipedia.org/?curid=1818280"
+        },
+        {
+          "title": "רוקי",
+          "pageid": 458658,
+          "source_url": "https://he.wikipedia.org/?curid=458658"
+        },
+        {
+          "title": "המטיט",
+          "pageid": 94448,
+          "source_url": "https://he.wikipedia.org/?curid=94448"
+        },
+        {
+          "title": "גרניון",
+          "pageid": 349564,
+          "source_url": "https://he.wikipedia.org/?curid=349564"
+        },
+        {
+          "title": "אומונזאורוס",
+          "pageid": 1671199,
+          "source_url": "https://he.wikipedia.org/?curid=1671199"
+        },
+        {
+          "title": "ריחן",
+          "pageid": 329105,
+          "source_url": "https://he.wikipedia.org/?curid=329105"
+        },
+        {
+          "title": "יובנק",
+          "pageid": 993591,
+          "source_url": "https://he.wikipedia.org/?curid=993591"
+        }
+      ]
+    }
+  }
+}

@@ -19,6 +19,18 @@ PUBLIC_EXCLUDED_MODULES = (
 )
 FORBIDDEN_TEXT_MODULES = ('word_trace', 'browser_readback')
 PROFILES = ('public', 'diagnostics')
+
+
+def profile_directory(output_root, profile):
+    """One canonical Public path for local and versioned build pipelines.
+
+    Public is <root>/TypeBridge.exe, never <root>/profiles/Public/TypeBridge.exe.
+    Diagnostics remains isolated under <root>/profiles/Diagnostics.
+    """
+    if profile not in PROFILES:
+        raise ValueError('Unknown build profile')
+    root = Path(output_root).resolve()
+    return root if profile == 'public' else root / 'profiles' / 'Diagnostics'
 RELEASE_DATA_NAMES = (
     'ru.txt', 'en.txt', 'he.txt', 'confident_ru.txt', 'confident_en.txt',
     'confident_he.txt', 'frequency_ru.tsv', 'frequency_en.tsv',
@@ -100,6 +112,17 @@ def install_public_data(source, folder):
     default_settings = source / 'typebridge-settings.json'
     if not (folder / default_settings.name).exists():
         shutil.copy2(default_settings, folder / default_settings.name)
+    # Core languages use the SAME signed v2 package format as external ones.
+    # Keep bundles external to the EXE alongside data/ for audited updates.
+    bundled = source / 'bundled_language_packs'
+    if bundled.is_dir():
+        from language_pack_v2 import load_v2_pack
+        for code in ('ru', 'en', 'he'):
+            load_v2_pack(bundled / code)
+        installed = folder / 'bundled_language_packs'
+        if installed.exists():
+            raise FileExistsError('Refuse to overwrite existing bundled language packages')
+        shutil.copytree(bundled, installed)
 
 
 def build_one(source, output_root, profile, *, commit, version):
@@ -108,7 +131,7 @@ def build_one(source, output_root, profile, *, commit, version):
         raise ValueError('Unknown profile')
     output_root = Path(output_root).resolve()
     source = Path(source).resolve()
-    folder = output_root / ('Public' if profile == 'public' else 'Diagnostics')
+    folder = profile_directory(output_root, profile)
     folder.mkdir(parents=True, exist_ok=True)
     stage_root = output_root / '.staging'
     stage_root.mkdir(parents=True, exist_ok=True)

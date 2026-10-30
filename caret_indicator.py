@@ -17,9 +17,9 @@ import win32api
 import win32con
 import win32gui
 
-from engine import LANGS
+from language_registry import LANGUAGE_REGISTRY
 from tray_layouts import GuiInfo, SHELL_CLASSES, layout_owner
-from tray_win32 import _icon_files
+from tray_win32 import _icon_files, display_icon_code
 
 
 class VariantValue(ctypes.Union):
@@ -61,7 +61,12 @@ def usable_rect(rect, bounds):
 
 
 class CaretReader:
-    def __init__(self):
+    def __init__(self, languages=None):
+        # The caret-only helper does not need to import LanguageEngine or any
+        # dictionary/decision code. At runtime the GUI passes the selected
+        # code→LANGID mapping; old callers retain the historical default.
+        self.languages = ({item.code: item.langid for item in LANGUAGE_REGISTRY}
+                          if languages is None else dict(languages))
         self.u = ctypes.WinDLL("user32", use_last_error=True)
         self.u.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
         self.u.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -137,7 +142,7 @@ class CaretReader:
         focus_thread = self.u.GetWindowThreadProcessId(focus, None)
         _, owner_thread = layout_owner(self.u, top, focus, thread, focus_thread)
         langid = int(self.u.GetKeyboardLayout(owner_thread) or 0) & 0xFFFF
-        language = next((lang for lang, value in LANGS.items() if value == langid), "")
+        language = next((lang for lang, value in self.languages.items() if value == langid), "")
         if not language:
             return None
         bounds = win32gui.GetClientRect(focus)
@@ -187,7 +192,9 @@ OVERLAY_STYLE = (win32con.WS_EX_TOPMOST | win32con.WS_EX_TOOLWINDOW
 
 
 class CaretFlagIndicator:
-    def __init__(self):
+    def __init__(self, languages=None):
+        self.languages = ({item.code: item.langid for item in LANGUAGE_REGISTRY}
+                          if languages is None else dict(languages))
         self.enabled = threading.Event()
         self.closed = threading.Event()
         self.ready = threading.Event()
@@ -225,7 +232,7 @@ class CaretFlagIndicator:
 
     def _read_loop(self):
         from caret_process import CaretProcess
-        reader = CaretProcess()
+        reader = CaretProcess(languages=self.languages)
         try:
             while not self.closed.is_set():
                 sample = None
@@ -312,8 +319,8 @@ class CaretFlagIndicator:
             self.hwnd = win32gui.CreateWindowEx(OVERLAY_STYLE, name, "TypeBridgeCaretFlag",
                 win32con.WS_POPUP, 0, 0, *self.size, 0, 0, 0, None)
             win32gui.SetLayeredWindowAttributes(self.hwnd, 0, 255, win32con.LWA_ALPHA)
-            for language, path in _icon_files().items():
-                if language in LANGS:
+            for language, path in _icon_files(self.languages).items():
+                if language in self.languages:
                     self.icons[language] = win32gui.LoadImage(0, str(path), win32con.IMAGE_ICON,
                                                             48, 48, win32con.LR_LOADFROMFILE)
             if not u.SetTimer(self.hwnd, 1, 80, None):

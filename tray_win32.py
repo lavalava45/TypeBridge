@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import tempfile
+import re
 import threading
 from time import monotonic
 import ctypes
@@ -20,6 +21,7 @@ import win32con
 import win32gui
 from pywintypes import error as Win32Error
 from tray_layouts import WindowsLayouts, SHELL_CLASSES
+from language_registry import DEFAULT_ACTIVE_LANGUAGES
 from ui_i18n import tr
 
 
@@ -35,6 +37,12 @@ MENU_JOURNAL = 4009
 MENU_RESTORE_INPUT = 4010
 MENU_LAYOUT_BASE = 5000
 ICON_LABELS = {"ru": "RU", "en": "EN", "he": "HE", "idle": "--"}
+_LANGUAGE_CODE = re.compile(r'[a-z]{2,3}(?:-[a-z]{2,4})?', re.ASCII)
+
+
+def display_icon_code(language, active_codes):
+    """Never show a flag for an inactive or unknown layout."""
+    return language if language in active_codes else 'idle'
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
                 "running": "Автоисправление включено", "paused": "Автоисправление выключено",
                 "stopping": "Останавливается…", "error": "Ошибка запуска",
@@ -90,16 +98,18 @@ def menu_items(state: str, detail: str = "", caret_flag: bool = False,
     return tuple((code, tr(title), enabled, checked) for code, title, enabled, checked in items)
 
 
-def _icon_files() -> dict[str, Path]:
+def _icon_files(extra_codes=()) -> dict[str, Path]:
     """Create our own flag artwork under the user's app data, not in Windows."""
     import os
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
 
     from app_paths import USER_DIR
     base = USER_DIR / 'icons'
     base.mkdir(parents=True, exist_ok=True)
     result = {}
-    for language in ICON_LABELS:
+    extra_codes = tuple(code for code in dict.fromkeys(extra_codes)
+                        if isinstance(code, str) and _LANGUAGE_CODE.fullmatch(code))
+    for language in (*ICON_LABELS, *(code for code in extra_codes if code not in ICON_LABELS)):
         path = base / f"{language}.ico"
         result[language] = path
         if path.exists():
@@ -138,6 +148,17 @@ def _icon_files() -> dict[str, Path]:
             points_b = [(32, 43), (21, 26), (43, 26)]
             draw.line(points_a + [points_a[0]], fill=(0, 56, 184), width=3)
             draw.line(points_b + [points_b[0]], fill=(0, 56, 184), width=3)
+        elif language != 'idle':
+            # Language-code badge rather than inventing a national flag: a
+            # writing system does not imply any particular country.
+            draw.rounded_rectangle((3, 8, 60, 55), radius=9,
+                                   fill=(35, 48, 65), outline=(105, 117, 132), width=1)
+            label = language.upper()[:4]
+            font = ImageFont.load_default()
+            bounds = draw.textbbox((0, 0), label, font=font)
+            draw.text(((64 - (bounds[2] - bounds[0])) / 2,
+                       (64 - (bounds[3] - bounds[1])) / 2 - bounds[1]),
+                      label, fill='white', font=font)
         else:
             draw.ellipse((8, 8, 56, 56), fill=(100, 100, 100))
         draw.rectangle((0, 0, 63, 63), outline=(65, 65, 65), width=1)
@@ -150,8 +171,9 @@ def _icon_files() -> dict[str, Path]:
 class TrayController:
     """Start explicitly in a desktop GUI; no hook or background typing."""
 
-    def __init__(self, notify):
+    def __init__(self, notify, *, active_languages=DEFAULT_ACTIVE_LANGUAGES):
         self.notify = notify  # Receives one of: open, toggle, stop, exit.
+        self.active_languages = tuple(active_languages)
         self.hwnd = None
         self.language = "idle"
         self.icons = {}
@@ -274,9 +296,10 @@ class TrayController:
             return False
 
     def set_language(self, language: str):
-        if language not in ICON_LABELS or self.closing:
+        if self.closing:
             return
-        self.language = language
+        self.language = display_icon_code(language, getattr(self, 'active_languages',
+                                                           DEFAULT_ACTIVE_LANGUAGES))
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, WM_SET_LANGUAGE, 0, 0)
 
@@ -466,7 +489,8 @@ class TrayController:
             registered_class = wc.lpszClassName
             self.hwnd = win32gui.CreateWindow(wc.lpszClassName, "TypeBridgeTray",
                                                0, 0, 0, 0, 0, 0, 0, 0, None)
-            for language, path in _icon_files().items():
+            for language, path in _icon_files(getattr(
+                    self, 'active_languages', DEFAULT_ACTIVE_LANGUAGES)).items():
                 self.icons[language] = win32gui.LoadImage(
                     0, str(path), win32con.IMAGE_ICON, 32, 32,
                     win32con.LR_LOADFROMFILE)

@@ -95,6 +95,8 @@ def main():
     if any((source/'data').glob('*.txt')):
         raise ValueError('Source snapshot already contains dictionary text; refusing release build')
     run(sys.executable,source/'prepare_open_data.py','--output-dir',source/'data',cwd=source)
+    from prepare_bundled_packs import make_bundled_packages
+    make_bundled_packages(source/'data', source/'bundled_language_packs')
     # Release gate: all background regressions on public data, with a fresh
     # process per module so large dictionary/early-index fixtures cannot
     # accumulate across the entire test suite on the Windows CI runner.
@@ -107,6 +109,7 @@ def main():
     for filename in ('LICENSE','README.md','README-RU.md','README-HE.md','THIRD-PARTY.md','typebridge-settings.json'):
         shutil.copy2(source/filename,package/filename)
     shutil.copytree(source/'data',package/'data')
+    shutil.copytree(source/'bundled_language_packs',package/'bundled_language_packs')
     shutil.copytree(source/'dictionary_packs',package/'dictionary_packs')
     (package/'TypeBridge-source.zip').write_bytes(archive)
     for name in ('Pillow','psutil','pywin32','pyinstaller'):
@@ -134,7 +137,7 @@ def main():
     # Build BOTH profiles, but only copy the audited Public EXE into the ZIP.
     # Diagnostics stays under the private build output and is never uploaded
     # by release.yml. Neither profile reuses the other's Python analysis.
-    results = build_both(source, out/'profiles', commit=commit, version=args.version)
+    results = build_both(source, out, commit=commit, version=args.version)
     public_exe, public_manifest = results['public']
     shutil.copy2(public_exe, package/'TypeBridge.exe')
     shutil.copy2(public_exe.parent/'BUILD-PROFILE.json', package/'BUILD-PROFILE.json')

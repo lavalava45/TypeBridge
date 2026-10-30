@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "package_version": "1.0.0",
+  "code": "ar",
+  "name": "Arabic (demo)",
+  "langid": 1025,
+  "unicode_script": "ARABIC",
+  "alphabet": "ابتثجحخدذرزسشصضطظعغفقكلمنهوي",
+  "normalization": "casefold",
+  "dictionary_file": "words.txt",
+  "confident_file": "confident.txt",
+  "additions": [],
+  "alternatives": [
+    "en",
+    "ru"
+  ],
+  "source": {
+    "name": "TypeBridge original demonstration words",
+    "url": "",
+    "license_id": "CC0-1.0",
+    "license_file": "LICENSE.txt"
+  },
+  "files": {
+    "words.txt": {
+      "bytes": 89,
+      "sha256": "86792cc55b5eefd330286fc3c69fb4dc39d491e16861512ca166c502f635d8a5"
+    },
+    "confident.txt": {
+      "bytes": 33,
+      "sha256": "ba009b89bece7c1a65e5c61500fa43665d679087b7bf4d23d19cbff14947d8ae"
+    },
+    "LICENSE.txt": {
+      "bytes": 278,
+      "sha256": "e3ab894830c9e61be0cc48fff92fb0b95fd312179e16eea93a52906a6f3a7dbd"
+    }
+  }
+}

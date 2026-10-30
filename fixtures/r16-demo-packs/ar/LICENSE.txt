@@ -1,0 +1,4 @@
+TypeBridge R16 demonstration vocabulary (ordinary standalone words).
+Selected for controlled software testing, not derived from a dictionary corpus.
+Dedicated to the public domain under CC0-1.0 to the extent copyright applies.
+https://creativecommons.org/publicdomain/zero/1.0/

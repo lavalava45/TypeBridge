@@ -1,0 +1,709 @@
+{
+  "kind": "R16_4A_PINNED_LEGACY_PREFIXES",
+  "version": 1,
+  "description": "Observed production suggest_live_early for every physical prefix of each artificial old-engine fixture; no new engine compared.",
+  "cases": [
+    {
+      "id": "ru-to-en",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": {
+            "typed": "руддщ",
+            "replacement": "hello",
+            "language": "en",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "he-to-en",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": {
+            "typed": "אקךךם",
+            "replacement": "hello",
+            "language": "en",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "en-to-ru",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": {
+            "typed": "ghbdt",
+            "replacement": "приве",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        },
+        {
+          "length": 6,
+          "decision": {
+            "typed": "ghbdtn",
+            "replacement": "привет",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "he-to-ru",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": {
+            "typed": "עינגא",
+            "replacement": "приве",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        },
+        {
+          "length": 6,
+          "decision": {
+            "typed": "עינגאמ",
+            "replacement": "привет",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "en-to-he",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": {
+            "typed": "akuo",
+            "replacement": "שלום",
+            "language": "he",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ru-to-he",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": {
+            "typed": "флгщ",
+            "replacement": "שלום",
+            "language": "he",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "known-source-veto",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "confidence-veto",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        },
+        {
+          "length": 6,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "nonconservative-rare",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        },
+        {
+          "length": 6,
+          "decision": {
+            "typed": "ghbdtn",
+            "replacement": "привет",
+            "language": "ru",
+            "reason": "unique rare exact word"
+          }
+        }
+      ]
+    },
+    {
+      "id": "manual-rare",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        },
+        {
+          "length": 6,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "excluded-target",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": {
+            "typed": "ghbdt",
+            "replacement": "приве",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        },
+        {
+          "length": 6,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "excluded-source",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-en-priority-ru",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        },
+        {
+          "length": 6,
+          "decision": {
+            "typed": "ghbdtn",
+            "replacement": "привет",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-ru-priority-en",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": {
+            "typed": "руддщ",
+            "replacement": "hello",
+            "language": "en",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-he-priority-ru",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        },
+        {
+          "length": 6,
+          "decision": {
+            "typed": "עינגאמ",
+            "replacement": "привет",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        }
+      ]
+    },
+    {
+      "id": "no-candidate",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "single-letter-confidence-exception",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "punctuation-leading-comma",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        }
+      ]
+    },
+    {
+      "id": "overlong-refusal",
+      "expected_prefixes": [
+        {
+          "length": 1,
+          "decision": null
+        },
+        {
+          "length": 2,
+          "decision": null
+        },
+        {
+          "length": 3,
+          "decision": null
+        },
+        {
+          "length": 4,
+          "decision": null
+        },
+        {
+          "length": 5,
+          "decision": null
+        },
+        {
+          "length": 6,
+          "decision": null
+        },
+        {
+          "length": 7,
+          "decision": null
+        },
+        {
+          "length": 8,
+          "decision": null
+        },
+        {
+          "length": 9,
+          "decision": null
+        },
+        {
+          "length": 10,
+          "decision": null
+        },
+        {
+          "length": 11,
+          "decision": null
+        },
+        {
+          "length": 12,
+          "decision": null
+        },
+        {
+          "length": 13,
+          "decision": null
+        },
+        {
+          "length": 14,
+          "decision": null
+        },
+        {
+          "length": 15,
+          "decision": null
+        },
+        {
+          "length": 16,
+          "decision": null
+        },
+        {
+          "length": 17,
+          "decision": null
+        },
+        {
+          "length": 18,
+          "decision": null
+        },
+        {
+          "length": 19,
+          "decision": null
+        },
+        {
+          "length": 20,
+          "decision": null
+        },
+        {
+          "length": 21,
+          "decision": null
+        },
+        {
+          "length": 22,
+          "decision": null
+        },
+        {
+          "length": 23,
+          "decision": null
+        },
+        {
+          "length": 24,
+          "decision": null
+        },
+        {
+          "length": 25,
+          "decision": null
+        },
+        {
+          "length": 26,
+          "decision": null
+        },
+        {
+          "length": 27,
+          "decision": null
+        },
+        {
+          "length": 28,
+          "decision": null
+        },
+        {
+          "length": 29,
+          "decision": null
+        },
+        {
+          "length": 30,
+          "decision": null
+        },
+        {
+          "length": 31,
+          "decision": null
+        },
+        {
+          "length": 32,
+          "decision": null
+        },
+        {
+          "length": 33,
+          "decision": null
+        },
+        {
+          "length": 34,
+          "decision": null
+        },
+        {
+          "length": 35,
+          "decision": null
+        },
+        {
+          "length": 36,
+          "decision": null
+        },
+        {
+          "length": 37,
+          "decision": null
+        },
+        {
+          "length": 38,
+          "decision": null
+        },
+        {
+          "length": 39,
+          "decision": {
+            "typed": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "replacement": "ааааааааааааааааааааааааааааааааааааааа",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        },
+        {
+          "length": 40,
+          "decision": {
+            "typed": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "replacement": "аааааааааааааааааааааааааааааааааааааааа",
+            "language": "ru",
+            "reason": "confident early prefix"
+          }
+        },
+        {
+          "length": 41,
+          "decision": null
+        }
+      ]
+    }
+  ]
+}

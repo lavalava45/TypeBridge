@@ -38,6 +38,42 @@ class PortableDiagnosticsTests(unittest.TestCase):
             self.assertNotIn('частот', report.lower())
             self.assertNotIn('повреждён', report)
 
+    def test_dictionary_report_only_active_en_ar_and_real_package_paths(self):
+        with tempfile.TemporaryDirectory() as folder:
+            from language_registry import LANGUAGE_BY_CODE, LanguageDescription
+            base = Path(folder)
+            pack = base / 'language_packs' / 'ar'
+            catalog = dict(LANGUAGE_BY_CODE)
+            catalog['ar'] = LanguageDescription(
+                code='ar', name='Arabic', langid=0x0401,
+                unicode_script='ARABIC', alphabet='ابت',
+                dictionary_file='words.txt', confident_file='confident.txt',
+                additions=(), alternatives=('en', 'ru'))
+            engine = SimpleNamespace(
+                active_languages=('en', 'ar'), language_catalog=catalog,
+                words={'en': {'private'}, 'ar': {'secret'}},
+                confident={'en': {'private'}, 'ar': {'secret'}})
+            lines = dictionary_report(engine, base / 'data',
+                                      pack_root=base / 'language_packs')
+            report = '\n'.join(lines)
+            self.assertEqual(len(lines), 3)
+            self.assertIn('Словарь EN:', report)
+            self.assertIn('Словарь AR:', report)
+            self.assertNotIn('Словарь RU:', report)
+            self.assertNotIn('Словарь HE:', report)
+            self.assertIn(str(pack / 'words.txt'), report)
+            self.assertIn(str(pack / 'confident.txt'), report)
+            self.assertNotIn('private', report)
+            self.assertNotIn('secret', report)
+
+    def test_dictionary_report_subset_builtins_does_not_require_other_keys(self):
+        engine = SimpleNamespace(active_languages=('en',),
+                                 words={'en': {'hello'}}, confident={'en': {'hello'}})
+        with tempfile.TemporaryDirectory() as folder:
+            lines = dictionary_report(engine, folder)
+        self.assertEqual(len(lines), 2)
+        self.assertIn('EN:', lines[1])
+
     def test_debug_journal_does_not_write_arbitrary_ui_or_user_text(self):
         with tempfile.TemporaryDirectory() as folder:
             record_debug_event(folder, 'error', 'private clipboard contents')

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "package_version": "1.0.0",
+  "code": "es",
+  "name": "Spanish (demo)",
+  "langid": 3082,
+  "unicode_script": "LATIN",
+  "alphabet": "abcdefghijklmnñopqrstuvwxyzáéíóúü",
+  "normalization": "casefold",
+  "dictionary_file": "words.txt",
+  "confident_file": "confident.txt",
+  "additions": [],
+  "alternatives": [
+    "en",
+    "ru"
+  ],
+  "source": {
+    "name": "TypeBridge original demonstration words",
+    "url": "",
+    "license_id": "CC0-1.0",
+    "license_file": "LICENSE.txt"
+  },
+  "files": {
+    "words.txt": {
+      "bytes": 65,
+      "sha256": "ba4536980849daff74d2542d71ce586383062522dc4065254c8a25bd31ae07fc"
+    },
+    "confident.txt": {
+      "bytes": 23,
+      "sha256": "c368630789181c59acc414e52b6e4829061f0ad0b61781ab04a0777a1d7148aa"
+    },
+    "LICENSE.txt": {
+      "bytes": 278,
+      "sha256": "e3ab894830c9e61be0cc48fff92fb0b95fd312179e16eea93a52906a6f3a7dbd"
+    }
+  }
+}

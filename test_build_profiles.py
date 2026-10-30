@@ -7,11 +7,22 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from build_profiles import (PUBLIC_EXCLUDED_MODULES, build_both,
+                            profile_directory,
                             frozen_smoke_test, install_public_data, stage_sources,
                             verify_frozen_profile)
 
 
 class ProfileContractTests(unittest.TestCase):
+    def test_one_public_exe_path_for_both_builders(self):
+        from build_local import profile_directory as local_path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve() / 'dist'
+            self.assertEqual(profile_directory(root, 'public'), root)
+            self.assertEqual(profile_directory(root, 'diagnostics'),
+                             root / 'profiles' / 'Diagnostics')
+            self.assertEqual(local_path(root, 'public'), root)
+            self.assertFalse('Public' in str(profile_directory(root, 'public')))
+
     def test_public_forbids_text_tracers_and_diagnostics_retains_them(self):
         with patch('build_profiles.frozen_module_names',
                    return_value={'build_variant', 'typebridge_app', 'engine'}):

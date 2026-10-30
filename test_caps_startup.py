@@ -1,6 +1,7 @@
 """Focused checks with no hooks, physical input or real startup registration."""
 from dataclasses import replace
 from pathlib import Path
+import subprocess
 import tempfile
 import tkinter as tk
 import unittest
@@ -76,6 +77,26 @@ class CapsTests(unittest.TestCase):
 
 
 class StartupTests(unittest.TestCase):
+    def test_auxiliary_profiles_register_only_the_canonical_public_exe(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'dist'
+            root.mkdir()
+            canonical = root / 'TypeBridge.exe'
+            canonical.touch()
+            for profile in ('Public', 'Diagnostics'):
+                path = root / 'profiles' / profile / 'TypeBridge.exe'
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+                with patch.object(startup.sys, 'frozen', True, create=True), \
+                     patch.object(startup.sys, 'executable', str(path)):
+                    self.assertEqual(startup.startup_command(),
+                                     subprocess.list2cmdline([str(canonical.resolve()), '--autostart']))
+            canonical.unlink()
+            with patch.object(startup.sys, 'frozen', True, create=True), \
+                 patch.object(startup.sys, 'executable', str(path)):
+                with self.assertRaisesRegex(OSError, 'Main TypeBridge.exe is missing'):
+                    startup.startup_command()
+
     def test_frozen_command_quoted_and_registry_noop(self):
         with patch.object(startup.sys, 'frozen', True, create=True), patch.object(startup.sys, 'executable', r'C:\Program Files\TypeBridge\TypeBridge.exe'):
             self.assertEqual(startup.startup_command(), '"C:\\Program Files\\TypeBridge\\TypeBridge.exe" --autostart')

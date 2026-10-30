@@ -36,8 +36,33 @@ def parse_chord(value: str) -> Chord | None:
     return Chord(vk, frozenset(mods))
 
 
-def compile_bindings(settings) -> dict[Chord, str]:
+def compile_bindings(settings, catalog=None) -> dict[Chord, str]:
     from word_cycle import CYCLE_KEYS
+    from language_registry import DEFAULT_ACTIVE_LANGUAGES, validate_active_languages
+    active = validate_active_languages(getattr(settings, 'active_languages',
+                                             DEFAULT_ACTIVE_LANGUAGES), catalog)
+    extra = getattr(settings, 'direct_extra', ())
+    universal = getattr(settings, 'language_shortcuts', ())
+    if universal:
+        if (not isinstance(universal, (tuple, list))
+                or any(not isinstance(pair, (tuple, list)) or len(pair) != 2
+                       or not all(isinstance(value, str) for value in pair)
+                       for pair in universal)
+                or len({code for code, _ in universal}) != len(universal)):
+            raise ValueError('Invalid universal language shortcuts')
+        from language_pack_loader import _CODE
+        if any(not _CODE.fullmatch(code) for code, _ in universal):
+            raise ValueError('Unsafe language shortcut code')
+    if (not isinstance(extra, (tuple, list))
+            or any(not isinstance(row, (list, tuple)) or len(row) != 2
+                   or not all(isinstance(part, str) for part in row) for row in extra)):
+        raise ValueError('Invalid external language hotkeys')
+    values = dict(extra)
+    if (len(values) != len(extra)
+            or any(lang in DEFAULTS or (not universal and catalog is not None
+                                        and lang not in catalog)
+                   for lang in values)):
+        raise ValueError('Unsupported or repeated external language hotkey')
     manual_key = settings.manual_key
     if not isinstance(manual_key, str) or manual_key not in MANUAL_KEYS:
         raise ValueError("Выбери поддерживаемую клавишу исправления слова")
@@ -45,9 +70,19 @@ def compile_bindings(settings) -> dict[Chord, str]:
     if manual_vk and manual_vk == CYCLE_KEYS[settings.cycle_key]:
         raise ValueError("Клавиша уже занята перебором раскладок последнего слова")
     bindings = {}
-    for lang in DEFAULTS:
-        chord = parse_chord(getattr(settings, f"direct_{lang}"))
-        if chord is None:
+    # A legacy engine may load saved shortcuts for inactive package languages;
+    # never intercept them until the matching catalog and active set are live.
+    candidates = (dict(universal) if universal else
+                  {**{lang: getattr(settings, f'direct_{lang}') for lang in DEFAULTS},
+                   **(values if catalog is not None else {})})
+    for lang, value in candidates.items():
+        # Missing inactive packages retain a shortcut but never intercept it.
+        if lang not in active:
+            continue
+        chord = parse_chord(value)
+        # Keep the saved shortcut for a disabled language, but do not intercept
+        # its chord: another application or an active language can use it.
+        if chord is None or lang not in active:
             continue
         if chord in bindings:
             raise ValueError("Одно сочетание назначено двум языкам")

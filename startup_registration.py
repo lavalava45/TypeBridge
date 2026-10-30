@@ -34,6 +34,15 @@ def startup_command():
         # Existing shortcuts may still launch the former-name compatibility EXE.
         canonical = executable.with_name('TypeBridge.exe')
         if canonical.exists(): executable = canonical
+        # An old Diagnostics or profiles/Public process must never register
+        # itself (or the obsolete secondary Public copy) as the login target.
+        # Resolve the one approved user build, <dist>/TypeBridge.exe, instead.
+        if (executable.parent.parent.name.casefold() == 'profiles'
+                and executable.parent.name.casefold() in ('public', 'diagnostics')):
+            approved = executable.parent.parent.parent / 'TypeBridge.exe'
+            if not approved.is_file():
+                raise OSError('Main TypeBridge.exe is missing; cannot register an auxiliary profile')
+            executable = approved
         command = [str(executable), "--autostart"]
     else:
         windowless = executable.with_name("pythonw.exe")

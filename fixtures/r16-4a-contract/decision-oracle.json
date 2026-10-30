@@ -1,0 +1,400 @@
+{
+  "kind": "R16_4A_PINNED_LEGACY_DECISIONS",
+  "version": 1,
+  "description": "Frozen old-engine results only. New-engine parity NOT claimed.",
+  "cases": [
+    {
+      "id": "ru-to-en",
+      "source": "ru",
+      "physical": "hello",
+      "forms": {
+        "ru": "руддщ",
+        "en": "hello",
+        "he": "אקךךם"
+      },
+      "known": [
+        "en"
+      ],
+      "confident": [
+        "en"
+      ],
+      "expected": {
+        "typed": "руддщ",
+        "replacement": "hello",
+        "language": "en",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "he-to-en",
+      "source": "he",
+      "physical": "hello",
+      "forms": {
+        "ru": "руддщ",
+        "en": "hello",
+        "he": "אקךךם"
+      },
+      "known": [
+        "en"
+      ],
+      "confident": [
+        "en"
+      ],
+      "expected": {
+        "typed": "אקךךם",
+        "replacement": "hello",
+        "language": "en",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "en-to-ru",
+      "source": "en",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [
+        "ru"
+      ],
+      "expected": {
+        "typed": "ghbdtn",
+        "replacement": "привет",
+        "language": "ru",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "he-to-ru",
+      "source": "he",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [
+        "ru"
+      ],
+      "expected": {
+        "typed": "עינגאמ",
+        "replacement": "привет",
+        "language": "ru",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "en-to-he",
+      "source": "en",
+      "physical": "akuo",
+      "forms": {
+        "ru": "флгщ",
+        "en": "akuo",
+        "he": "שלום"
+      },
+      "known": [
+        "he"
+      ],
+      "confident": [
+        "he"
+      ],
+      "expected": {
+        "typed": "akuo",
+        "replacement": "שלום",
+        "language": "he",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "ru-to-he",
+      "source": "ru",
+      "physical": "akuo",
+      "forms": {
+        "ru": "флгщ",
+        "en": "akuo",
+        "he": "שלום"
+      },
+      "known": [
+        "he"
+      ],
+      "confident": [
+        "he"
+      ],
+      "expected": {
+        "typed": "флгщ",
+        "replacement": "שלום",
+        "language": "he",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "known-source-veto",
+      "source": "ru",
+      "physical": "hello",
+      "forms": {
+        "ru": "руддщ",
+        "en": "hello",
+        "he": "אקךךם"
+      },
+      "known": [
+        "ru",
+        "en"
+      ],
+      "confident": [
+        "en"
+      ],
+      "expected": null
+    },
+    {
+      "id": "confidence-veto",
+      "source": "en",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [],
+      "expected": null
+    },
+    {
+      "id": "nonconservative-rare",
+      "source": "en",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [],
+      "conservative": false,
+      "expected": {
+        "typed": "ghbdtn",
+        "replacement": "привет",
+        "language": "ru",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "manual-rare",
+      "source": "en",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [],
+      "allow_rare": true,
+      "expected": {
+        "typed": "ghbdtn",
+        "replacement": "привет",
+        "language": "ru",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "excluded-target",
+      "source": "en",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [
+        "ru"
+      ],
+      "excluded": [
+        "привет"
+      ],
+      "expected": null
+    },
+    {
+      "id": "excluded-source",
+      "source": "ru",
+      "physical": "hello",
+      "forms": {
+        "ru": "руддщ",
+        "en": "hello",
+        "he": "אקךךם"
+      },
+      "known": [
+        "en"
+      ],
+      "confident": [
+        "en"
+      ],
+      "excluded": [
+        "руддщ"
+      ],
+      "expected": null
+    },
+    {
+      "id": "ambiguous-en-priority-ru",
+      "source": "en",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru",
+        "he"
+      ],
+      "confident": [
+        "ru",
+        "he"
+      ],
+      "expected": {
+        "typed": "ghbdtn",
+        "replacement": "привет",
+        "language": "ru",
+        "reason": "configured language priority"
+      }
+    },
+    {
+      "id": "ambiguous-ru-priority-en",
+      "source": "ru",
+      "physical": "hello",
+      "forms": {
+        "ru": "руддщ",
+        "en": "hello",
+        "he": "אקךךם"
+      },
+      "known": [
+        "en",
+        "he"
+      ],
+      "confident": [
+        "en",
+        "he"
+      ],
+      "expected": {
+        "typed": "руддщ",
+        "replacement": "hello",
+        "language": "en",
+        "reason": "configured language priority"
+      }
+    },
+    {
+      "id": "ambiguous-he-priority-ru",
+      "source": "he",
+      "physical": "ghbdtn",
+      "forms": {
+        "ru": "привет",
+        "en": "ghbdtn",
+        "he": "עינגאמ"
+      },
+      "known": [
+        "ru",
+        "en"
+      ],
+      "confident": [
+        "ru",
+        "en"
+      ],
+      "expected": {
+        "typed": "עינגאמ",
+        "replacement": "привет",
+        "language": "ru",
+        "reason": "configured language priority"
+      }
+    },
+    {
+      "id": "no-candidate",
+      "source": "ru",
+      "physical": "hello",
+      "forms": {
+        "ru": "руддщ",
+        "en": "hello",
+        "he": "אקךךם"
+      },
+      "known": [],
+      "confident": [],
+      "expected": null
+    },
+    {
+      "id": "single-letter-confidence-exception",
+      "source": "en",
+      "physical": "z",
+      "forms": {
+        "en": "z",
+        "ru": "я",
+        "he": "ז"
+      },
+      "known": [
+        "ru",
+        "he"
+      ],
+      "confident": [],
+      "expected": {
+        "typed": "z",
+        "replacement": "я",
+        "language": "ru",
+        "reason": "configured language priority"
+      }
+    },
+    {
+      "id": "punctuation-leading-comma",
+      "source": "en",
+      "physical": ",tksq",
+      "forms": {
+        "en": ",tksq",
+        "ru": "белый",
+        "he": "רתךדנ"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [
+        "ru"
+      ],
+      "leading_comma_vk": true,
+      "expected": {
+        "typed": ",tksq",
+        "replacement": "белый",
+        "language": "ru",
+        "reason": "unique dictionary match"
+      }
+    },
+    {
+      "id": "overlong-refusal",
+      "source": "en",
+      "physical": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "forms": {
+        "en": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ru": "ааааааааааааааааааааааааааааааааааааааааа",
+        "he": "אאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאאא"
+      },
+      "known": [
+        "ru"
+      ],
+      "confident": [
+        "ru"
+      ],
+      "expected": null
+    }
+  ]
+}

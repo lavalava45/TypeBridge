@@ -1,0 +1,43 @@
+{
+  "kind": "R16_4A_BASELINE_POLICY_NOT_INSTALLABLE",
+  "contract_revision": 1,
+  "code": "ru",
+  "name": "Русский",
+  "langid": 1049,
+  "unicode_script": "CYRILLIC",
+  "alphabet": "абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+  "dictionary_file": "ru.txt",
+  "confident_file": "confident_ru.txt",
+  "normalization": {
+    "dictionary": "nfkc_casefold_strip_combining_yo_to_e",
+    "personal_input": "nfc",
+    "personal_insensitive": "casefold",
+    "personal_sensitive": "identity"
+  },
+  "behavior": {
+    "ambiguous_destinations": "ordered_priority",
+    "early_prefix_aliases": [
+      "yo_to_e"
+    ],
+    "personal_alphabet_policy": "russian_letters",
+    "source_nonletter_keys": [],
+    "alternatives": [
+      "en",
+      "he"
+    ]
+  },
+  "additional_sources": [],
+  "legacy_inline_supplements": {
+    "words": [
+      "а",
+      "и",
+      "поясни"
+    ],
+    "confident": [
+      "а",
+      "и",
+      "поясни"
+    ]
+  },
+  "historical_default_direct_hotkey": "Ctrl+Shift+F1"
+}

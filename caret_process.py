@@ -5,7 +5,7 @@ import multiprocessing
 import time
 
 
-def run_caret_worker(connection, synthetic=False):
+def run_caret_worker(connection, synthetic=False, languages=None):
     initialized = False
     try:
         if not synthetic:
@@ -13,13 +13,18 @@ def run_caret_worker(connection, synthetic=False):
             from caret_indicator import CaretReader
             pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
             initialized = True
-            reader = CaretReader()
+            reader = CaretReader(languages=languages)
         connection.send_bytes(b'ready')
         while connection.recv_bytes(32) == b'snapshot':
             try:
                 if synthetic:
+                    # Synthetic IPC exercise for an external-only language
+                    # set; the default legacy smoke test still reports EN.
+                    synthetic_language = ('en' if languages is None or 'en' in languages
+                                          else next(iter(languages), 'idle'))
                     sample = {'top': 1, 'focus': 2, 'rect': [1, 1, 2, 16],
-                              'language': 'en', 'work': [0, 0, 100, 100], 'dpi': 96}
+                              'language': synthetic_language,
+                              'work': [0, 0, 100, 100], 'dpi': 96}
                 else:
                     value = reader.snapshot()
                     sample = asdict(value) if value is not None else None
@@ -38,9 +43,17 @@ def run_caret_worker(connection, synthetic=False):
 
 
 class CaretProcess:
-    def __init__(self, *, synthetic=False, clock=time.monotonic, context=None):
+    def __init__(self, *, synthetic=False, clock=time.monotonic, context=None,
+                 languages=None):
         self.context = context or multiprocessing.get_context('spawn')
         self.synthetic, self.clock = synthetic, clock
+        # The subprocess only needs code/LANGID metadata, not the full
+        # dictionary engine (or its costly package imports).
+        if languages is None:
+            from language_registry import LANGUAGE_REGISTRY
+            self.languages = {item.code: item.langid for item in LANGUAGE_REGISTRY}
+        else:
+            self.languages = dict(languages)
         self.process = self.connection = None
         self.retry_at = 0
         self.failures = 0
@@ -62,7 +75,7 @@ class CaretProcess:
         parent, child = self.context.Pipe(duplex=True)
         self.connection = parent
         self.process = self.context.Process(target=run_caret_worker,
-                                            args=(child, self.synthetic), daemon=True)
+                                            args=(child, self.synthetic, self.languages), daemon=True)
         try:
             self.process.start()
         finally:
@@ -97,7 +110,7 @@ class CaretProcess:
             if (not isinstance(sample, dict)
                     or set(sample) != {'top', 'focus', 'rect', 'language', 'work', 'dpi'}
                     or any(type(sample[k]) is not int or sample[k] <= 0 for k in ('top', 'focus', 'dpi'))
-                    or sample['language'] not in ('ru', 'en', 'he')):
+                    or sample['language'] not in self.languages):
                 raise ValueError('caret-helper-format')
             for key in ('rect', 'work'):
                 if (not isinstance(sample[key], list) or len(sample[key]) != 4

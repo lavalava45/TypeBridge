@@ -10,7 +10,9 @@ APP_DIR = (Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False
 USER_DIR = APP_DIR / 'TypeBridge-data'
 PREVIOUS_USER_DIR = LOCAL_DATA / 'TypeBridge'
 LEGACY_USER_DIR = LOCAL_DATA / 'LayoutSwitch'
-DATA_FILES = ('settings.json', 'user_lexicon.json', 'snippets.json')
+DATA_FILES = ('settings.json', 'settings_languages.json',
+              'settings_pair_transaction.json', 'user_lexicon.json',
+              'user_lexicon_packages.json', 'snippets.json')
 
 
 class ProfileWriteError(OSError):

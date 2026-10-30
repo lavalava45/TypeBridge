@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://typebridge.invalid/schemas/language-pack-v2.schema.json",
+  "title": "TypeBridge language pack v2 — experimental parallel parser",
+  "description": "Data-only manifest for offline experimental v2 parser and independent policy evaluator. Not accepted by the shipping v1 loader or LiveHook.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "package_version", "code", "name", "langid",
+    "unicode_script", "alphabet", "normalization", "dictionary_file",
+    "confident_file", "additions", "alternatives", "behavior", "source", "files"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "package_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "code": {"type": "string", "pattern": "^[a-z]{2,3}(-[a-z]{2,4})?$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "langid": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "unicode_script": {"type": "string", "pattern": "^[A-Z][A-Z_ ]{1,39}$"},
+    "alphabet": {"type": "string", "minLength": 1, "maxLength": 512},
+    "normalization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dictionary"],
+      "properties": {
+        "dictionary": {
+          "enum": ["nfkc_casefold_strip_combining", "nfkc_casefold_strip_combining_yo_to_e", "casefold"]
+        }
+      }
+    },
+    "dictionary_file": {"$ref": "#/$defs/filename"},
+    "confident_file": {"$ref": "#/$defs/filename"},
+    "additions": {
+      "type": "array", "maxItems": 21,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["filename", "for_words", "for_confident", "normalization"],
+        "properties": {
+          "filename": {"$ref": "#/$defs/filename"},
+          "for_words": {"type": "boolean"},
+          "for_confident": {"type": "boolean"},
+          "editable_source": {"type": "boolean"},
+          "normalization": {
+            "type": "object", "additionalProperties": false,
+            "required": ["words", "confident"],
+            "properties": {
+              "words": {"enum": ["nfkc_casefold_strip_combining", "nfkc_casefold_strip_combining_yo_to_e", "casefold"]},
+              "confident": {"enum": ["nfkc_casefold_strip_combining", "nfkc_casefold_strip_combining_yo_to_e", "casefold"]}
+            }
+          }
+        }
+      }
+    },
+    "alternatives": {
+      "type": "array", "uniqueItems": true, "maxItems": 1000,
+      "items": {"type": "string", "pattern": "^[a-z]{2,3}(-[a-z]{2,4})?$"}
+    },
+    "behavior": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ambiguous_destinations", "early_prefix_aliases",
+                   "source_nonletter_keys", "personal_alphabet_policy"],
+      "properties": {
+        "ambiguous_destinations": {"enum": ["ordered_priority", "reject_multiple"]},
+        "early_prefix_aliases": {
+          "type": "array", "uniqueItems": true,
+          "items": {"enum": ["yo_to_e"]}
+        },
+        "source_nonletter_keys": {
+          "type": "array", "maxItems": 32,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["vk", "character"],
+            "properties": {
+              "vk": {"type": "integer", "minimum": 1, "maximum": 255},
+              "character": {"type": "string", "minLength": 1, "maxLength": 1}
+            }
+          }
+        },
+        "personal_alphabet_policy": {
+          "enum": ["ascii_latin_letters", "russian_letters", "hebrew_letters", "unicode_script_name"]
+        }
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "url", "license_id", "license_file"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "url": {"type": "string", "maxLength": 2048},
+        "license_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"},
+        "license_file": {"$ref": "#/$defs/filename"}
+      }
+    },
+    "files": {
+      "type": "object", "minProperties": 3, "maxProperties": 24,
+      "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\\.(txt|md)$"},
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["bytes", "sha256"],
+        "properties": {
+          "bytes": {"type": "integer", "minimum": 1, "maximum": 67108864},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "filename": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\\.(txt|md)$"
+    }
+  }
+}

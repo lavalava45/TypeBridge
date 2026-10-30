@@ -23,14 +23,25 @@ from pathlib import Path
 import queue
 import sys
 import tempfile
+import zipfile
 import threading
 from time import perf_counter, monotonic
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, simpledialog
 from ui_i18n import (messagebox, tr, localize_window, LocalizedStringVar, ChoiceVar,
                      LANGUAGES, get_language, set_language)
 
-from engine import LANGS, WORD_AFFIXES, LanguageEngine, candidate_token_key, source_data_dir
+from engine import (LANGS, WORD_AFFIXES, LanguageEngine, candidate_token_key,
+                    check_active_layouts_loaded, source_data_dir)
+from language_registry import (DEFAULT_ACTIVE_LANGUAGES, LANGUAGE_REGISTRY,
+                               validate_active_languages)
+from language_pack_loader import available_language_catalog
+from language_package_transactions import recover_package_transactions
+from settings_language_profile import (legacy_selection, read_language_selection,
+                                      read_language_profile,
+                                      write_language_selection, sidecar_path,
+                                      recover_pending_pair, save_settings_pair,
+                                      TRANSACTION_NAME)
 from runtime_safety import require_no_original_switcher
 from single_instance import exclusive_live_hook
 from user_lexicon import UserLexicon, LexiconLoadError, recover_lexicon
@@ -71,6 +82,7 @@ BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 APP_DIR = (Path(sys.executable).resolve().parent
            if getattr(sys, "frozen", False)
            else Path(__file__).resolve().parent)
+LANGUAGE_PACK_DIR = APP_DIR / 'language_packs'
 SETTINGS_PATH = USER_DIR / "settings.json"
 DEFAULT_SETTINGS_PATH = APP_DIR / "typebridge-settings.json"
 DEBUG_ENABLED = (APP_DIR / "TypeBridge-debug.flag").is_file()
@@ -148,6 +160,8 @@ class GuiThreadInfo(ctypes.Structure):
 @dataclass(frozen=True)
 class Settings:
     ui_language: str = "ru"
+    # Persisted in R16/2b but not enabled in runtime until GUI/HKL/hotkey gates.
+    active_languages: tuple[str, ...] = DEFAULT_ACTIVE_LANGUAGES
     corrections_enabled: bool = False
     conservative: bool = True
     only_window_title: str = ""
@@ -173,6 +187,10 @@ class Settings:
     direct_ru: str = DEFAULTS["ru"]
     direct_en: str = DEFAULTS["en"]
     direct_he: str = DEFAULTS["he"]
+    direct_extra: tuple[tuple[str, str], ...] = ()
+    # R16/4d source-of-truth when present. Old fields remain projection for
+    # legacy settings.json and older TypeBridge EXE compatibility.
+    language_shortcuts: tuple[tuple[str, str], ...] = ()
     excluded_categories: tuple[str, ...] = DEFAULT_CATEGORIES
     excluded_processes: tuple[str, ...] = PASSWORD_PROCESSES
 
@@ -189,10 +207,22 @@ class FocusContext:
     password_revision: int = 0
 
 
-def load_settings(path: Path | None = None) -> Settings:
+def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
     if path is None:
-        path = SETTINGS_PATH if SETTINGS_PATH.exists() else DEFAULT_SETTINGS_PATH
+        # A profile with a surviving language sidecar but a missing legacy
+        # settings file is corrupt, not a reason to silently load defaults.
+        path = (SETTINGS_PATH if SETTINGS_PATH.exists()
+                or (catalog is not None and
+                    (sidecar_path(SETTINGS_PATH).exists()
+                     or (SETTINGS_PATH.parent / TRANSACTION_NAME).exists()))
+                else DEFAULT_SETTINGS_PATH)
+    # A crash during the two-file commit must not expose a hybrid legacy/
+    # language profile. Successful two-file commits survive the recovery;
+    # incomplete writes restore the previous verified pair.
+    recover_pending_pair(path)
     if not path.exists():
+        if catalog is not None and sidecar_path(path).exists():
+            raise ValueError('Legacy settings missing while language sidecar exists')
         return Settings()
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
@@ -215,7 +245,22 @@ def load_settings(path: Path | None = None) -> Settings:
         raise ValueError("Unsupported interface language")
     journal_apps = validate_journal(raw.get("journal_days", 7), raw.get("journal_apps", list(DEFAULT_APPS)))
     categories = validate_categories(raw.get("excluded_categories", list(DEFAULT_CATEGORIES)))
-    settings = Settings(ui_language=ui_language, journal_enabled=raw.get("journal_enabled", False),
+    extra_raw = raw.get('direct_extra', ())
+    if (not isinstance(extra_raw, (list, tuple))
+            or any(not isinstance(row, (list, tuple)) or len(row) != 2
+                   or not all(isinstance(value, str) for value in row) for row in extra_raw)):
+        raise ValueError('Invalid additional language shortcuts')
+    shortcuts_raw = raw.get('language_shortcuts', ())
+    if (not isinstance(shortcuts_raw, (tuple, list))
+            or any(not isinstance(pair, (tuple, list)) or len(pair) != 2
+                   or not all(isinstance(value, str) for value in pair)
+                   for pair in shortcuts_raw)
+            or len({pair[0] for pair in shortcuts_raw}) != len(shortcuts_raw)):
+        raise ValueError('Invalid universal language shortcuts')
+    settings = Settings(ui_language=ui_language,
+                    active_languages=validate_active_languages(
+                        raw.get("active_languages", list(DEFAULT_ACTIVE_LANGUAGES)), catalog),
+                    journal_enabled=raw.get("journal_enabled", False),
                     quick_search=raw.get("quick_search", False),
                     quick_search_key=raw.get("quick_search_key", "Ctrl+Alt+G"),
                     quick_search_engine=raw.get("quick_search_engine", "Google"),
@@ -238,22 +283,85 @@ def load_settings(path: Path | None = None) -> Settings:
                     direct_ru=raw.get("direct_ru", DEFAULTS["ru"]),
                     direct_en=raw.get("direct_en", DEFAULTS["en"]),
                     direct_he=raw.get("direct_he", DEFAULTS["he"]),
+                    direct_extra=tuple(tuple(row) for row in extra_raw),
+                    language_shortcuts=tuple(tuple(row) for row in shortcuts_raw),
                     only_window_title=title.strip(),
                     excluded_processes=tuple(dict.fromkeys(
                         (*Settings.excluded_processes,
                          *(x.strip().casefold() for x in excluded if x.strip())))))
-    compile_bindings(settings)
+    if catalog is not None:
+        selected = read_language_profile(path, catalog)
+        if selected is not None:
+            generic = selected[2]
+            if generic and not settings.language_shortcuts and all(
+                    code not in DEFAULTS for code, _ in generic):
+                generic = (tuple((code, getattr(settings, f'direct_{code}'))
+                                 for code in DEFAULTS) + generic)
+            settings = replace(settings, active_languages=selected[0],
+                               direct_extra=selected[1],
+                               language_shortcuts=(generic
+                                   if generic else settings.language_shortcuts))
+        if settings.language_shortcuts:
+            # The legacy v1 sidecar records only currently active external
+            # bindings. Preserve disabled/missing codes in the new main JSON
+            # mapping without making older EXEs reject an absent language.
+            settings = replace(settings, direct_extra=tuple(
+                (code, chord) for code, chord in settings.language_shortcuts
+                if code not in DEFAULTS and code in catalog
+                and chord.strip().casefold() != 'отключено'))
+    compile_bindings(settings, catalog)
     return settings
 
 
-def save_settings(settings: Settings, path: Path = SETTINGS_PATH) -> None:
+def save_settings(settings: Settings, path: Path = SETTINGS_PATH, *, catalog=None) -> None:
+    # Fail before creating any temporary file or replacing existing settings.
+    validate_active_languages(settings.active_languages, catalog)
+    if settings.direct_extra and catalog is None:
+        raise ValueError('Saving external shortcuts requires a verified language catalog')
+    compile_bindings(settings, catalog)
+    # Commit the legacy profile first and the full-language sidecar LAST.
+    # An unsuccessful legacy save must never activate a new language choice
+    # in the next session. The old EXE always sees built-in codes only.
+    sidecar = sidecar_path(path)
+    update_sidecar = (catalog is not None and
+                      (sidecar.exists() or
+                       any(code not in DEFAULTS for code in settings.active_languages)
+                       or settings.direct_extra or settings.language_shortcuts))
+    legacy = replace(settings, active_languages=legacy_selection(settings.active_languages),
+                     direct_extra=(), language_shortcuts=())
     path.parent.mkdir(parents=True, exist_ok=True)
+    if update_sidecar:
+        raw = (json.dumps(asdict(legacy), ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+        legacy_document = json.loads(raw)
+        if settings.language_shortcuts:
+            # Keep language sidecar v1 for older R16 builds. Older EXEs parse
+            # the main JSON field-by-field and safely ignore this extra key.
+            # The two-file journal still commits generic bindings atomically.
+            legacy_document['language_shortcuts'] = [list(row) for row in
+                                                     settings.language_shortcuts]
+        else:
+            legacy_document.pop('language_shortcuts', None)
+        raw = (json.dumps(legacy_document, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+        compatible_extra = (tuple((code, chord) for code, chord in settings.direct_extra
+                                  if code in catalog and code in settings.active_languages)
+                            if settings.language_shortcuts
+                            else settings.direct_extra)
+        # Keep the v1 sidecar for already-installed R16 readers. The complete
+        # universal mapping is stored in the main JSON under its own key.
+        save_settings_pair(path, raw, settings.active_languages,
+                           compatible_extra, catalog)
+        return
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
                                          dir=path.parent, delete=False) as stream:
             temporary = Path(stream.name)
-            json.dump(asdict(settings), stream, ensure_ascii=False, indent=2)
+            document = asdict(legacy)
+            if settings.language_shortcuts:
+                document['language_shortcuts'] = [list(row) for row in settings.language_shortcuts]
+            else:
+                document.pop('language_shortcuts', None)
+            json.dump(document, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -263,9 +371,9 @@ def save_settings(settings: Settings, path: Path = SETTINGS_PATH) -> None:
             temporary.unlink()
 
 
-def load_user_lexicon(folder: Path = USER_DIR) -> UserLexicon:
+def load_user_lexicon(folder: Path = USER_DIR, *, catalog=None) -> UserLexicon:
     folder.mkdir(parents=True, exist_ok=True)
-    return UserLexicon.load(folder.resolve())
+    return UserLexicon.load(folder.resolve(), catalog=catalog)
 
 
 class StartupCancelled(Exception):
@@ -278,13 +386,13 @@ def lexicon_error_text(error):
                       tr('Причина: {v0}').format(v0=tr(error.reason))))
 
 
-def load_startup_lexicon(root):
+def load_startup_lexicon(root, *, catalog=None):
     """Never silently drop personal words or exclusions after a read failure."""
     try:
-        return load_user_lexicon()
+        return load_user_lexicon(catalog=catalog) if catalog is not None else load_user_lexicon()
     except LexiconLoadError as error:
         if error.digest is None:
-            raise  # Oversized files require manual preservation, not a partial backup.
+            raise  # Never reset an invalid sidecar or oversized personal file.
         accepted = messagebox.askyesno('Личный словарь',
             lexicon_error_text(error) + '\n\n' + tr('Сохранить полную резервную копию .bad и начать с пустым личным словарём? '
                 'Личные слова и исключения не будут действовать до восстановления из копии. '
@@ -296,7 +404,7 @@ def load_startup_lexicon(root):
         return lexicon
 
 
-def foreground_language() -> str:
+def foreground_language(catalog=None) -> str:
     """Read the active layout independently of correction hooks and exclusions."""
     u = ctypes.WinDLL("user32", use_last_error=True)
     u.GetForegroundWindow.restype = wintypes.HWND
@@ -319,7 +427,14 @@ def foreground_language() -> str:
         focus_thread = u.GetWindowThreadProcessId(info.hwndFocus, None) or thread
         _, thread = layout_owner(u, hwnd, info.hwndFocus, thread, focus_thread)
     language_id = int(u.GetKeyboardLayout(thread) or 0) & 0xFFFF
-    return next((lang for lang, value in LANGS.items() if value == language_id), "idle")
+    return language_for_langid(language_id, catalog) or 'idle'
+
+
+def language_for_langid(langid, catalog=None):
+    """Pure HKL-to-language lookup; external catalog is strictly opt-in."""
+    descriptions = LANGS if catalog is None else {
+        code: description.langid for code, description in catalog.items()}
+    return next((code for code, value in descriptions.items() if value == langid), '')
 
 
 def input_key(vk: int, flags: int = 0, scan: int = 0) -> Input:
@@ -352,6 +467,32 @@ def correction_inputs(original_length: int, replacement: str,
         events.extend((input_key(boundary_vk),
                        input_key(boundary_vk, KEYEVENTF_KEYUP)))
     return events
+
+
+def running_engine_settings(settings: Settings, engine) -> Settings:
+    """Validate shortcuts against the STILL-RUNNING language set.
+
+    A saved language selection takes effect after restart, but other settings
+    can be reloaded immediately. Never let a reassigned key collide with a
+    language which this engine continues to recognize until that restart.
+    """
+    catalog = getattr(engine, 'language_catalog', None)
+    effective = replace(settings,
+        active_languages=getattr(engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES),
+        direct_extra=settings.direct_extra if catalog is not None else ())
+    compile_bindings(effective, catalog)
+    return effective
+
+
+def pending_engine_settings(settings: Settings, active, catalog) -> Settings:
+    """Validate shortcuts against the mapper being started or already running.
+
+    In particular, removing HE from the desired set does not release HE's
+    shortcut until a new engine is constructed at the next full restart.
+    """
+    effective = replace(settings, active_languages=tuple(active))
+    compile_bindings(effective, catalog)
+    return effective
 
 
 class LiveHook:
@@ -413,6 +554,11 @@ class LiveHook:
         self.debug_callback_errors = 0
         self.debug_keyboard_slow = 0
         self.debug_keyboard_max_ms = 0
+
+    def _language_from_id(self, langid):
+        engine = getattr(self, 'engine', None)
+        return language_for_langid(
+            langid, getattr(engine, 'language_catalog', None))
 
     def _declare_api(self) -> None:
         u, k = self.user32, self.kernel32
@@ -579,8 +725,7 @@ class LiveHook:
         owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
         raw_hkl = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFFFFFF
         language_id = raw_hkl & 0xFFFF
-        language = next((name for name, code in LANGS.items()
-                         if code == language_id), "")
+        language = self._language_from_id(language_id)
         if not language:
             emit_pipeline(self, 'context-rejected', reason='unrecognized-hkl', interval=4,
                           hkl=f'{raw_hkl:08X}')
@@ -1029,7 +1174,8 @@ class LiveHook:
                     self.native_pending_recovery = (context, tuple(undelivered),
                                                     bool(drop_trigger), trigger,
                                                     self.last_language if getattr(self, 'last_language', '')
-                                                    in LANGS else context.language,
+                                                    in getattr(self.engine, 'active_languages', LANGS)
+                                                    else context.language,
                                                     original_scope,
                                                     perf_counter())
                     self.emit('native-recovery-available', len(undelivered))
@@ -1482,8 +1628,7 @@ class LiveHook:
         emit_pipeline(self, 'layout-result', target=decision.language,
                       hkl=f'{hkl & 0xFFFFFFFF:08X}', observed=f'{observed:08X}',
                       result='confirmed' if observed == hkl & 0xFFFFFFFF else 'unconfirmed')
-        self.last_language = next((name for name, code in LANGS.items()
-                                   if code == (observed & 0xFFFF)), "")
+        self.last_language = self._language_from_id(observed & 0xFFFF)
         if observed != hkl & 0xFFFFFFFF:
             setattr(self, disabled_attribute, True)
             self.clear_token()
@@ -1511,9 +1656,13 @@ class LiveHook:
 
     def _remember(self, context, keys, text, language, suffix, *, whole=False):
         self.last_word = remember_word(keys, text, language, suffix,
-                                       self._word_scope(context), whole=whole)
+                                       self._word_scope(context), whole=whole,
+                                       active_languages=getattr(self.engine, 'active_languages', None))
 
     def _switch_direct(self, context: FocusContext, language: str) -> None:
+        if language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
+            self.emit('info', 'Эта раскладка исключена из активных языков')
+            return
         self.clear_token()
         if (getattr(self, '_in_keyboard_callback', False)
                 and not self._native_is_off_hook()):
@@ -1541,6 +1690,10 @@ class LiveHook:
             self.emit("error", f"Прямое переключение: {error}")
 
     def _cycle_word(self, context: FocusContext) -> None:
+        if context.language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
+            self.clear_token()
+            self.emit('info', 'Текущая раскладка исключена из активных языков')
+            return
         class_name = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(context.focus, class_name, len(class_name))
         native = supports_native_edit(class_name.value)
@@ -1559,7 +1712,8 @@ class LiveHook:
             self.emit("info", "Нет последнего слова у курсора для переключения")
             return
         try:
-            language, replacement = word.next_variant(self.engine.mapper)
+            language, replacement = word.next_variant(
+                self.engine.mapper, getattr(self.engine, 'active_languages', None))
         except ValueError as error:
             self.emit("info", str(error))
             return
@@ -1612,7 +1766,7 @@ class LiveHook:
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             180, ctypes.byref(result))
         observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
-        self.last_language = next((name for name, code in LANGS.items() if code == observed), "")
+        self.last_language = self._language_from_id(observed)
         word.text, word.language = replacement, language
         self.keys.clear()
         # Extending a manually changed unfinished word must not auto-correct
@@ -1678,7 +1832,7 @@ class LiveHook:
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             180, ctypes.byref(response))
         observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
-        self.last_language = next((name for name, code in LANGS.items() if code == observed), '')
+        self.last_language = self._language_from_id(observed)
         if observed != hkl & 0xFFFF:
             # The text changed but the language did not. Without verified HKL,
             # no additional cycle is allowed on this remembered word.
@@ -1695,7 +1849,9 @@ class LiveHook:
                   shift: bool) -> tuple[int | None, str] | None:
         if vk in BOUNDARY_VKS:
             return vk, ""
-        if candidate_token_key(self.engine.mapper, vk, shift, language, bool(self.keys)):
+        if candidate_token_key(self.engine.mapper, vk, shift, language, bool(self.keys),
+                               active_languages=getattr(self.engine, 'active_languages', None),
+                               policies=getattr(self.engine, 'language_policies', None)):
             # OEM punctuation may be a letter anywhere, e.g. EN ';' is RU ж.
             # Resolve literal trailing punctuation once the token is complete.
             return None
@@ -1706,6 +1862,8 @@ class LiveHook:
 
     def _correct(self, context: FocusContext, boundary_vk: int | None,
                  boundary_text: str, *, manual: bool = False) -> bool:
+        if context.language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
+            return False
         if boundary_vk is not None:
             self._trace_native_before_boundary(context)
             if (getattr(self, 'debug_words', False) and getattr(self, 'early_done', False)
@@ -1744,7 +1902,7 @@ class LiveHook:
         if getattr(self, 'debug_words', False) and keys:
             try:
                 alternatives = {lang: self.engine.mapper.word(keys, lang)
-                                for lang in ('ru', 'en', 'he')}
+                                for lang in getattr(self.engine, 'active_languages', LANGS)}
                 reason = (decision.reason if decision else
                           decision_failure(self.engine, keys, context.language,
                                            allow_rare=manual))
@@ -1866,8 +2024,7 @@ class LiveHook:
                       observed=f'{observed_language_id:04X}',
                       hkl=f'{target_hkl & 0xFFFFFFFF:08X}',
                       result='confirmed' if changed else 'unconfirmed')
-        self.last_language = next((name for name, code in LANGS.items()
-                                   if code == observed_language_id), "")
+        self.last_language = self._language_from_id(observed_language_id)
         if remember:
             self._remember(context, keys, decision.replacement, decision.language,
                            suffix, whole=decision.reason == "unique dictionary match")
@@ -1948,7 +2105,7 @@ class LiveHook:
         emit_pipeline(self, 'layout-result', target=decision.language,
                       observed=f'{observed:04X}', hkl=f'{hkl & 0xFFFFFFFF:08X}',
                       result='confirmed' if observed == hkl & 0xFFFF else 'unconfirmed')
-        self.last_language = next((lang for lang, code in LANGS.items() if code == observed), "")
+        self.last_language = self._language_from_id(observed)
         if remember:
             self._remember(context, keys, decision.replacement, decision.language,
                            suffix, whole=decision.reason == "unique dictionary match")
@@ -2079,7 +2236,8 @@ class LiveHook:
             chord = Chord(vk, frozenset(key for key in (VK_CONTROL, VK_MENU, VK_SHIFT)
                                        if self.pressed(key)))
             if getattr(self, "_binding_settings", None) is not self.settings:
-                self._direct_bindings = compile_bindings(self.settings)
+                self._direct_bindings = compile_bindings(
+                    self.settings, getattr(self.engine, 'language_catalog', None))
                 self._binding_settings = self.settings
             language = self._direct_bindings.get(chord)
             if language:
@@ -2117,6 +2275,14 @@ class LiveHook:
             if self.keys:
                 emit_pipeline(self, 'token-reset', reason='modifier')
             self.clear_token()
+            return self.user32.CallNextHookEx(
+                self.keyboard_hook, code, message, param)
+        if context.language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
+            # We deliberately do not map a disabled or absent Windows layout.
+            # Pass its input through unmodified; never consume a physical key.
+            self.clear_token(preserve_snippets=True)
+            if getattr(self, 'snippets', None):
+                self.snippets.invalidate()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if vk == VK_BACK:
@@ -2179,7 +2345,9 @@ class LiveHook:
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         if (candidate_token_key(self.engine.mapper, vk, shift,
-                                context.language, bool(self.keys))
+                                context.language, bool(self.keys),
+                                active_languages=getattr(self.engine, 'active_languages', None),
+                                policies=getattr(self.engine, 'language_policies', None))
                 or self.engine.mapper.char(vk, context.language, shift) in WORD_AFFIXES):
             self.keys.append((vk, shift))
             if len(self.keys) == 1:
@@ -2284,8 +2452,11 @@ class LiveHook:
 
     def request_config(self, settings: Settings, lexicon: UserLexicon) -> None:
         # Called by GUI, outside the hook: never sort dictionaries in a callback.
+        # A new subset requires a fresh LayoutMapper and hook. Defer only that
+        # field until restart; other settings retain their existing reload path.
+        runtime_settings = running_engine_settings(settings, self.engine)
         index = cached_early_index(self.engine, lexicon) if settings.early_correction else None
-        self.pending_config = (settings, lexicon, index)
+        self.pending_config = (runtime_settings, lexicon, index)
         if self.thread_id:
             self.user32.PostThreadMessageW(self.thread_id, WM_RELOAD_CONFIG, 0, 0)
 
@@ -2413,16 +2584,33 @@ class TypeBridgeGui:
             self._hook_watchdog = HookWatchdog(
                 lambda kind, event: record_debug_event(USER_DIR, kind, event),
                 raw_probe=self._raw_probe, control_probe=self._control_probe)
-        settings = load_settings()
+        # Repair an interrupted offline package swap before the catalog (or
+        # any selected package bytes) can be consumed by this new instance.
+        if LANGUAGE_PACK_DIR.exists():
+            recover_package_transactions(LANGUAGE_PACK_DIR, SETTINGS_PATH)
+        invalid_packs = {}
+        self.language_catalog = available_language_catalog(
+            LANGUAGE_PACK_DIR, tolerant=True, errors=invalid_packs)
+        settings = load_settings(catalog=self.language_catalog)
+        for pack, reason in invalid_packs.items():
+            self.emit('error', f'Пакет {pack} отключён: {reason}')
+        # Indicator configuration is immutable until a *full restart*;
+        # saving a different language set cannot change the running hook.
+        self.display_languages = tuple(settings.active_languages)
+        self.launch_languages = self.display_languages
         set_language(settings.ui_language)
         self.ui_language = tk.StringVar(value=LANGUAGES[settings.ui_language])
-        self.lexicon = load_startup_lexicon(root)
+        self.lexicon = load_startup_lexicon(root, catalog=self.language_catalog)
         self.snippet_config = SnippetConfig.load(USER_DIR / 'snippets.json')
         self.snippets_editor = None
         self.dictionary_import_window = None
         self.journal_window = None
         self.search_window = None
         self.search_settings = settings
+        self.active_language_vars = {
+            description.code: tk.BooleanVar(value=description.code in settings.active_languages)
+            for description in self.language_catalog.values()
+        }
         self.quick_search = QuickSearch(lambda result: self.events.put(("quick-search-result", result)),
                                        copy_guard=lambda: self.clipboard_tools.selection_copy())
         self.journal_enabled = tk.BooleanVar(value=settings.journal_enabled)
@@ -2439,7 +2627,7 @@ class TypeBridgeGui:
         from clipboard_tools import ClipboardTools
         self.clipboard_tools = ClipboardTools(root, lambda message: self.events.put(("clipboard", message)))
         self.clipboard_tools.configure(settings)
-        root.title("TypeBridge — RU / EN / HE")
+        root.title("TypeBridge — " + " / ".join(code.upper() for code in settings.active_languages))
         # The window close button minimizes to a recoverable taskbar entry;
         # only the explicit Exit command terminates the background switcher.
         root.protocol("WM_DELETE_WINDOW", self.hide)
@@ -2457,8 +2645,13 @@ class TypeBridgeGui:
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
         self.corrections_enabled = tk.BooleanVar(value=settings.corrections_enabled)
-        self.direct_keys = {lang: ChoiceVar(value=getattr(settings, f"direct_{lang}"))
-                            for lang in LANGS}
+        additional_keys = dict(settings.direct_extra)
+        generic_keys = dict(settings.language_shortcuts)
+        self.direct_keys = {
+            lang: ChoiceVar(value=generic_keys.get(lang,
+                getattr(settings, f'direct_{lang}') if lang in DEFAULTS
+                else additional_keys.get(lang, 'Отключено')))
+            for lang in self.language_catalog}
         self.windows_language_shortcut = LocalizedStringVar()
         self.windows_layout_shortcut = LocalizedStringVar()
         self.only_title = tk.StringVar(value=settings.only_window_title)
@@ -2474,15 +2667,23 @@ class TypeBridgeGui:
         self.refresh_windows_shortcuts()
         root.bind("<FocusIn>", self.refresh_windows_shortcuts, add="+")
         root.after(100, self._drain)
-        if DEBUG_ENABLED:
-            root.after(800, self._raw_probe.start)
-            root.after(1100, self._control_probe.start)
-            root.after(4000, self._poll_hook_watchdog)
+        self._schedule_debug_probes(root)
         root.after(150, self._start_tray)
         root.after(500, self._update_tray)
         root.after(200, lambda: self._apply_caret_indicator(self.show_caret_flag.get()))
         if settings.corrections_enabled:
             root.after(300, self._restore_corrections)
+
+    def _schedule_debug_probes(self, root):
+        """Never schedule unavailable Diagnostics-only probes in Public.
+
+        A debug.flag file may be present beside both profile executables.
+        Scheduling callbacks in Public must not dereference absent probes.
+        """
+        if DEBUG_ENABLED and BUILD_PROFILE == 'diagnostics':
+            root.after(800, self._raw_probe.start)
+            root.after(1100, self._control_probe.start)
+            root.after(4000, self._poll_hook_watchdog)
 
     def _make_rare_words_option(self, parent):
         # Keep the stored conservative flag and existing profiles unchanged.
@@ -2537,10 +2738,34 @@ class TypeBridgeGui:
             notebook.add(tab, text=title)
             return tab.body
         frame = page("Переключатель")
-        ttk.Label(frame, text="Автопереключатель RU / EN / HE",
+        ttk.Label(frame, text="Автопереключатель TypeBridge",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
         ttk.Label(frame, textvariable=self.status,
                   font=("Segoe UI", 11)).pack(anchor="w", pady=(4, 14))
+        languages_frame = ttk.LabelFrame(frame, text="Языки автопереключения", padding=8)
+        languages_frame.pack(fill="x", pady=(0, 10))
+        # Vertical scrolling belongs to the existing ScrollablePage; unlike a
+        # single horizontal row this can show an unbounded installed catalog.
+        for index, language in enumerate(self.language_catalog.values()):
+            ttk.Checkbutton(languages_frame, text=language.name,
+                            variable=self.active_language_vars[language.code]).grid(
+                                row=index // 3, column=index % 3,
+                                sticky='w', padx=(0, 16), pady=3)
+        ttk.Button(languages_frame, text='Установить языковой пакет ZIP…',
+                   command=self.install_language_package).grid(
+                       row=(len(self.language_catalog) + 2) // 3,
+                       column=0, columnspan=3, sticky='w', pady=(8, 0))
+        actions = ttk.Frame(languages_frame)
+        actions.grid(row=(len(self.language_catalog) + 2) // 3 + 1,
+                     column=0, columnspan=3, sticky='w', pady=(5, 0))
+        ttk.Button(actions, text='Обновить пакет ZIP…',
+                   command=self.update_language_package).pack(side='left')
+        ttk.Button(actions, text='Удалить отключённый пакет…',
+                   command=self.remove_language_package).pack(side='left', padx=6)
+        ttk.Button(actions, text='Восстановить пакет…',
+                   command=self.restore_language_package).pack(side='left')
+        ttk.Label(frame, text="Для применения нового набора языков полностью выйди из TypeBridge и запусти его снова.",
+                  wraplength=620).pack(anchor="w", pady=(0, 8))
         self.corrections_check = ttk.Checkbutton(
             frame, text="Автоматически переключать раскладку", variable=self.corrections_enabled,
             command=self._on_corrections_check)
@@ -2592,10 +2817,10 @@ class TypeBridgeGui:
                      values=tuple(MANUAL_KEYS), width=15).pack(side="left", padx=10)
         ttk.Label(shortcuts, text="Установить раскладку без изменения текста",
                   font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 14))
-        for lang, title in (("ru", "Русский"), ("en", "Английский"), ("he", "Иврит")):
+        for lang, description in self.language_catalog.items():
             row = ttk.Frame(shortcuts)
             row.pack(fill="x", pady=6)
-            ttk.Label(row, text=title, width=16).pack(side="left")
+            ttk.Label(row, text=description.name, width=16).pack(side="left")
             ttk.Combobox(row, textvariable=self.direct_keys[lang],
                          values=SUGGESTIONS, width=25).pack(side="left")
         ttk.Label(shortcuts, text="Выбери сочетание или введи своё, например Ctrl+Alt+1.\n"
@@ -2654,7 +2879,12 @@ class TypeBridgeGui:
         if selected is None:
             return
         try:
-            save_settings(replace(load_settings(), ui_language=selected))
+            catalog = getattr(self, 'language_catalog', None)
+            updated = replace(load_settings(catalog=catalog), ui_language=selected)
+            if catalog is None:
+                save_settings(updated)
+            else:
+                save_settings(updated, SETTINGS_PATH, catalog=catalog)
         except (ValueError, OSError) as error:
             self.ui_language.set(LANGUAGES[get_language()])
             messagebox.showerror("Настройки", f"Не удалось сохранить язык интерфейса: {error}", parent=self.root)
@@ -2668,7 +2898,13 @@ class TypeBridgeGui:
             return
         if enabled and (self.caret_indicator is None or self.caret_indicator.closed.is_set()):
             from caret_indicator import CaretFlagIndicator
-            self.caret_indicator = CaretFlagIndicator()
+            catalog = getattr(self, 'language_catalog', None)
+            if catalog is None:
+                self.caret_indicator = CaretFlagIndicator()
+            else:
+                self.caret_indicator = CaretFlagIndicator({
+                    code: catalog[code].langid
+                    for code in getattr(self, 'display_languages', DEFAULT_ACTIVE_LANGUAGES)})
             self.caret_indicator_error = ""
             self.caret_indicator.start()
         if self.caret_indicator is not None:
@@ -2681,7 +2917,12 @@ class TypeBridgeGui:
         enabled = not current
         try:
             # Change only this saved setting; leave unsaved GUI edits alone.
-            save_settings(replace(load_settings(), show_caret_flag=enabled))
+            catalog = getattr(self, 'language_catalog', None)
+            updated = replace(load_settings(catalog=catalog), show_caret_flag=enabled)
+            if catalog is None:
+                save_settings(updated)
+            else:
+                save_settings(updated, SETTINGS_PATH, catalog=catalog)
         except (ValueError, OSError) as error:
             self.emit("error", f"Не удалось сохранить настройку флажка: {error}")
             return
@@ -2698,8 +2939,13 @@ class TypeBridgeGui:
 
     def apply_journal_settings(self, enabled, days, apps):
         apps = validate_journal(days, apps)
-        settings = replace(load_settings(), journal_enabled=enabled, journal_days=days, journal_apps=apps)
-        save_settings(settings)
+        catalog = getattr(self, 'language_catalog', None)
+        settings = replace(load_settings(catalog=catalog), journal_enabled=enabled,
+                           journal_days=days, journal_apps=apps)
+        if catalog is None:
+            save_settings(settings)
+        else:
+            save_settings(settings, SETTINGS_PATH, catalog=catalog)
         self.journal_enabled.set(enabled)
         self.journal_days.set(str(days))
         self.journal_apps.set(", ".join(apps))
@@ -2745,7 +2991,8 @@ class TypeBridgeGui:
     def _start_tray(self) -> None:
         try:
             from tray_win32 import TrayController
-            self.tray = TrayController(lambda action: self.events.put(("tray", action)))
+            self.tray = TrayController(lambda action: self.events.put(("tray", action)),
+                                       active_languages=self.display_languages)
             self.tray.set_state(*self._tray_state())
             self.tray.set_caret_flag(self.show_caret_flag.get())
             self.tray.set_journal_enabled(self.journal_service.enabled)
@@ -2762,13 +3009,14 @@ class TypeBridgeGui:
         overflow area. This separate icon belongs to our regular Tk window;
         unlike the notification icon, it remains reachable when iconified.
         """
-        language = language if language in ('ru', 'en', 'he') else 'idle'
+        language = language if language in getattr(self, 'display_languages', LANGS) else 'idle'
         if getattr(self, '_window_icon_language', None) == language:
             return
         self._window_icon_language = language
         try:
             from tray_win32 import _icon_files
-            self.root.iconbitmap(str(_icon_files()[language]))
+            self.root.iconbitmap(str(_icon_files(getattr(self, 'display_languages', ()))
+                                     [language]))
         except (OSError, RuntimeError, tk.TclError) as error:
             if DEBUG_ENABLED:
                 self.emit('diagnostic', 'taskbar-language-icon:' + type(error).__name__)
@@ -2779,7 +3027,13 @@ class TypeBridgeGui:
         if getattr(self, 'hook', None) is not None:
             self.hook.expire_native_pending()
         try:
-            language = foreground_language()
+            selected = getattr(self, 'display_languages', DEFAULT_ACTIVE_LANGUAGES)
+            catalog = getattr(self, 'language_catalog', None)
+            if catalog is not None:
+                active_catalog = {code: catalog[code] for code in selected}
+                language = foreground_language(active_catalog)
+            else:
+                language = foreground_language()
         except OSError:
             language = "idle"
         self._update_taskbar_language_icon(language)
@@ -2861,7 +3115,17 @@ class TypeBridgeGui:
         days = int(self.journal_days.get())
         journal_apps = validate_journal(days, tuple(x.strip().casefold() for x in self.journal_apps.get().split(",") if x.strip()))
         selected_language = next((code for code, name in LANGUAGES.items() if name == self.ui_language.get()), get_language())
-        settings = Settings(ui_language=selected_language, journal_enabled=self.journal_enabled.get(), journal_days=days, journal_apps=journal_apps,
+        original_order = getattr(self.search_settings, 'active_languages', DEFAULT_ACTIVE_LANGUAGES)
+        choices = getattr(self, 'active_language_vars', None)
+        selected = (tuple(lang for lang in original_order if choices[lang].get())
+                    + tuple(lang for lang in (getattr(self, 'language_catalog', None)
+                                              or DEFAULT_ACTIVE_LANGUAGES)
+                            if lang not in original_order and choices[lang].get())
+                    if choices is not None else original_order)
+        catalog = getattr(self, 'language_catalog', None)
+        settings = Settings(ui_language=selected_language,
+                        active_languages=validate_active_languages(selected, catalog),
+                        journal_enabled=self.journal_enabled.get(), journal_days=days, journal_apps=journal_apps,
                         quick_search=self.search_settings.quick_search,
                         quick_search_key=self.search_settings.quick_search_key,
                         quick_search_engine=self.search_settings.quick_search_engine,
@@ -2880,24 +3144,78 @@ class TypeBridgeGui:
                         show_caret_flag=self.show_caret_flag.get(),
                         fix_caps_lock=self.fix_caps_lock.get(),
                         autostart=self.autostart.get(),
-                        direct_ru=self.direct_keys["ru"].get().strip(),
-                        direct_en=self.direct_keys["en"].get().strip(),
-                        direct_he=self.direct_keys["he"].get().strip(),
+                        direct_ru=(self.direct_keys['ru'].get().strip() if 'ru' in self.direct_keys
+                                   else self.search_settings.direct_ru),
+                        direct_en=(self.direct_keys['en'].get().strip() if 'en' in self.direct_keys
+                                   else self.search_settings.direct_en),
+                        direct_he=(self.direct_keys['he'].get().strip() if 'he' in self.direct_keys
+                                   else self.search_settings.direct_he),
+                        direct_extra=tuple((code, self.direct_keys[code].get().strip())
+                                           for code in (catalog or ()) if code not in DEFAULTS
+                                           and self.direct_keys[code].get().strip().casefold()
+                                           != 'отключено'),
+                        language_shortcuts=(tuple((code, self.direct_keys[code].get().strip())
+                            for code in (catalog or ())
+                            if code in self.direct_keys)
+                            + tuple((code, chord) for code, chord in
+                                    getattr(self.search_settings, 'language_shortcuts', ())
+                                    if code not in (catalog or ()))),
                         only_window_title=self.only_title.get().strip(),
                         excluded_categories=tuple(name for name, var in self.excluded_categories.items() if var.get()),
                         excluded_processes=tuple(dict.fromkeys(
                             (*Settings.excluded_processes, *excluded))))
-        compile_bindings(settings)
+        compile_bindings(settings, catalog)
         return settings
 
     def save(self) -> Settings | None:
         try:
             settings = self.current_settings()
+            # The settings window can outlive a package install/update/remove.
+            # Never persist a selection from stale checkboxes: the next launch
+            # would otherwise fail before a verified language catalog is built.
+            # Do this BEFORE HKL checks, Run registration, or either settings
+            # file. An unrelated broken/inactive package remains isolated.
+            displayed_catalog = getattr(self, 'language_catalog', None)
+            if displayed_catalog is not None:
+                current_catalog = available_language_catalog(
+                    LANGUAGE_PACK_DIR, tolerant=True,
+                    selected_codes=settings.active_languages)
+                for code in settings.active_languages:
+                    original, current = displayed_catalog[code], current_catalog[code]
+                    if (original != current or
+                            getattr(original, 'personal_alphabet_policy', None) !=
+                            getattr(current, 'personal_alphabet_policy', None)):
+                        raise ValueError(
+                            f'Языковой пакет {code.upper()} изменён после открытия '
+                            'настроек. Перезапусти TypeBridge перед сохранением.')
+            # The live hook must keep its original active languages until
+            # restart. Validate shortcuts against BOTH language sets before
+            # modifying settings, Run registration or personal dictionaries.
+            running_hook = getattr(self, 'hook', None)
+            if running_hook is not None:
+                running_engine_settings(settings, running_hook.engine)
+            elif getattr(self, 'run_state', 'stopped') in ('starting', 'running'):
+                # A hook can be absent while its mapper is loading. Validate
+                # that in-flight engine's immutable language set as well.
+                pending_engine_settings(settings, self.launch_languages,
+                                        getattr(self, 'language_catalog', None))
+            previous_active = getattr(getattr(self, 'search_settings', None),
+                                      'active_languages', settings.active_languages)
+            if settings.active_languages != previous_active:
+                # Only enumerate loaded HKLs; do not switch, install or bind one.
+                catalog = getattr(self, 'language_catalog', None)
+                if catalog is not None:
+                    check_active_layouts_loaded(settings.active_languages, catalog)
+                else:
+                    check_active_layouts_loaded(settings.active_languages)
             previous_registration = read_registration()
             registration = startup_command() if settings.autostart else None
             write_registration(registration)
             try:
-                save_settings(settings)
+                if getattr(self, 'language_catalog', None) is not None:
+                    save_settings(settings, catalog=getattr(self, 'language_catalog', None))
+                else:
+                    save_settings(settings)
             except (ValueError, OSError):
                 write_registration(previous_registration)
                 raise
@@ -2909,13 +3227,20 @@ class TypeBridgeGui:
                 hook = self.hook
                 if hook:
                     hook.request_config(settings, self.lexicon)
+            if getattr(self, 'search_settings', None) is not None:
+                self.search_settings = replace(self.search_settings,
+                                               active_languages=settings.active_languages)
             self.clipboard_tools.configure(settings)
             self.quick_search.configure()
             self._configure_journal(settings)
             if self.tray:
                 self.tray.configure_clipboard(settings)
             self._apply_caret_indicator(settings.show_caret_flag)
-            self.emit("info", "Настройки сохранены; будут применены после загрузки" if
+            subset_pending = (settings.active_languages != getattr(
+                self, 'launch_languages', settings.active_languages))
+            self.emit("info", "Языки сохранены: полностью выйди из TypeBridge и запусти его снова" if
+                      subset_pending else
+                      "Настройки сохранены; будут применены после загрузки" if
                       self.run_state == 'starting' and hook is None else
                       "Настройки сохранены и переданы переключателю")
             return settings
@@ -2923,16 +3248,106 @@ class TypeBridgeGui:
             messagebox.showerror("Настройки", str(error), parent=self.root)
             return None
 
+    def install_language_package(self) -> None:
+        """Install a data-only language ZIP; activate only after full restart.
+
+        The installed catalog is deliberately NOT updated in the running GUI:
+        its hotkeys, active selection and LiveHook remain immutable until the
+        user closes TypeBridge via the tray and starts the new instance.
+        """
+        filename = filedialog.askopenfilename(
+            parent=self.root, title='Установить языковой пакет TypeBridge',
+            filetypes=[('TypeBridge package ZIP', '*.zip')])
+        if not filename:
+            return
+        try:
+            from language_package_manager import install_zip
+            destination = install_zip(Path(filename), LANGUAGE_PACK_DIR)
+        except (ValueError, OSError, zipfile.BadZipFile) as error:
+            messagebox.showerror('Языковые пакеты', str(error), parent=self.root)
+            return
+        messagebox.showinfo('Языковые пакеты',
+            f'Пакет {destination.name.upper()} установлен. Полностью выйди из '
+            'TypeBridge и запусти его снова, затем включи язык в настройках.',
+            parent=self.root)
+
+    def update_language_package(self) -> None:
+        filename = filedialog.askopenfilename(
+            parent=self.root, title='Обновить отключённый язык',
+            filetypes=[('TypeBridge package ZIP', '*.zip')])
+        if not filename:
+            return
+        try:
+            from language_package_manager import update_zip
+            destination, backup = update_zip(
+                Path(filename), LANGUAGE_PACK_DIR, SETTINGS_PATH,
+                running_languages=self.launch_languages)
+        except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as error:
+            messagebox.showerror('Языковые пакеты', str(error), parent=self.root)
+            return
+        messagebox.showinfo('Языковые пакеты',
+            f'Пакет {destination.name.upper()} обновлён. Предыдущая версия '
+            f'сохранена: {backup}. Перезапусти TypeBridge.', parent=self.root)
+
+    def remove_language_package(self) -> None:
+        options = tuple(code for code in self.language_catalog if code not in DEFAULTS)
+        if not options:
+            messagebox.showinfo('Языковые пакеты', 'Нет внешних пакетов для удаления.',
+                                parent=self.root)
+            return
+        code = simpledialog.askstring(
+            'Удаление языкового пакета',
+            'Код отключённого языка (' + ', '.join(options) + '):', parent=self.root)
+        if not code:
+            return
+        if code not in options:
+            messagebox.showerror('Языковые пакеты', 'Неизвестный код языка.',
+                                 parent=self.root)
+            return
+        if not messagebox.askyesno('Языковые пакеты',
+                f'Убрать пакет {code.upper()}? Личные слова сохранятся; '
+                'файлы пакета будут перенесены в архив для восстановления.',
+                parent=self.root):
+            return
+        try:
+            from language_package_manager import remove_package
+            backup = remove_package(LANGUAGE_PACK_DIR, code, SETTINGS_PATH,
+                                    running_languages=self.launch_languages)
+        except (ValueError, OSError, RuntimeError) as error:
+            messagebox.showerror('Языковые пакеты', str(error), parent=self.root)
+            return
+        messagebox.showinfo('Языковые пакеты',
+            f'Пакет отключён и архивирован в {backup}. Для обновления списка '
+            'полностью перезапусти TypeBridge.', parent=self.root)
+
+    def restore_language_package(self) -> None:
+        folder = filedialog.askdirectory(
+            parent=self.root, title='Выбрать архивированную папку языка')
+        if not folder:
+            return
+        try:
+            from language_package_manager import restore_package
+            restored = restore_package(LANGUAGE_PACK_DIR, Path(folder),
+                                       SETTINGS_PATH,
+                                       running_languages=self.launch_languages)
+        except (ValueError, OSError, RuntimeError) as error:
+            messagebox.showerror('Языковые пакеты', str(error), parent=self.root)
+            return
+        messagebox.showinfo('Языковые пакеты',
+            f'Пакет {restored.name.upper()} восстановлен. Перезапусти TypeBridge.',
+            parent=self.root)
+
     def _build_dictionary(self, frame) -> None:
         ttk.Label(frame, text="Добавь имя, термин или слово, которое нельзя переключать.",
                   wraplength=650).pack(anchor="w")
         row = ttk.Frame(frame)
         row.pack(fill="x", pady=12)
-        self.word_language = tk.StringVar(value="ru")
+        self.word_language = tk.StringVar(value=self.display_languages[0])
         self.word_kind = tk.StringVar(value="words")
         self.word_text = tk.StringVar()
         self.word_sensitive = tk.BooleanVar(value=False)
-        ttk.Combobox(row, textvariable=self.word_language, values=("ru", "en", "he"),
+        ttk.Combobox(row, textvariable=self.word_language,
+                     values=tuple(getattr(self, 'language_catalog', LANGS)),
                      state="readonly", width=5).pack(side="left")
         ttk.Entry(row, textvariable=self.word_text, width=25).pack(side="left", padx=8)
         ttk.Radiobutton(frame, text="Моё слово: считать правильным", variable=self.word_kind,
@@ -2965,9 +3380,9 @@ class TypeBridgeGui:
         for item in self.word_list.get_children():
             self.word_list.delete(item)
         for kind in ("words", "exclusions"):
-            for lang in LANGS:
+            for lang in getattr(self, 'language_catalog', LANGS):
                 for mode in ("insensitive", "sensitive"):
-                    for word in sorted(self.lexicon.data[kind][lang][mode]):
+                    for word in sorted(self.lexicon.data[kind].get(lang, {}).get(mode, ())):
                         item = self.word_list.insert("", "end", values=(
                             lang.upper(), tr("Слово" if kind == "words" else "Исключение"), word,
                             tr("Точный" if mode == "sensitive" else "Любой")))
@@ -2989,7 +3404,10 @@ class TypeBridgeGui:
 
     def import_exclusion_preview(self, preview):
         from dictionary_import import merge_exclusions
-        previous = load_user_lexicon()
+        catalog = getattr(self, 'language_catalog', None)
+        previous = (load_user_lexicon(catalog=catalog)
+                    if catalog is not None
+                    else load_user_lexicon())
         lexicon, added, existing = merge_exclusions(previous, preview)
         if added:
             lexicon.save(USER_DIR.resolve())
@@ -3002,7 +3420,10 @@ class TypeBridgeGui:
 
     def _edit_word(self, remove=False) -> None:
         try:
-            lexicon = load_user_lexicon()
+            catalog = getattr(self, 'language_catalog', None)
+            lexicon = (load_user_lexicon(catalog=catalog)
+                       if catalog is not None
+                       else load_user_lexicon())
             if remove:
                 selection = self.word_list.selection()
                 if not selection:
@@ -3053,20 +3474,57 @@ class TypeBridgeGui:
 
     def apply_search_settings(self, enabled, key, engine, engines):
         # Save only this window's options; unrelated unsaved main-window drafts stay drafts.
-        settings = replace(load_settings(), quick_search=enabled, quick_search_key=key,
-                           quick_search_engine=engine, quick_search_engines=validate_engines(engines, engine))
-        compile_bindings(settings)
-        save_settings(settings)
-        persisted = load_settings(SETTINGS_PATH)
-        fields = ('quick_search', 'quick_search_key', 'quick_search_engine', 'quick_search_engines')
-        if any(getattr(persisted, name) != getattr(settings, name) for name in fields):
-            raise OSError('Не удалось подтвердить сохранение настроек поиска')
-        self.search_settings = settings
+        catalog = getattr(self, 'language_catalog', None)
+        lock = getattr(self, '_runtime_config_lock', None)
+        if lock is None:
+            lock = self._runtime_config_lock = threading.RLock()
+        with lock:
+            settings = replace(load_settings(catalog=catalog),
+                quick_search=enabled, quick_search_key=key,
+                quick_search_engine=engine,
+                quick_search_engines=validate_engines(engines, engine))
+            # Saving the language selection earlier does not change the mapper
+            # until restart. A search chord must be free in BOTH the requested
+            # future set and the currently running/loading engine, before any
+            # profile file is touched. This lock also closes the publication
+            # race with the asynchronous hook startup.
+            compile_bindings(settings, catalog)
+            hook = getattr(self, 'hook', None)
+            effective = tuple(settings.active_languages)
+            if hook is not None:
+                effective = tuple(hook.engine.active_languages)
+                running_engine_settings(settings, hook.engine)
+            elif getattr(self, 'run_state', 'stopped') in ('starting', 'running'):
+                effective = tuple(getattr(self, 'launch_languages', effective))
+                pending_engine_settings(settings, effective, catalog)
+            if catalog is None:
+                save_settings(settings)
+            else:
+                save_settings(settings, SETTINGS_PATH, catalog=catalog)
+            persisted = load_settings(SETTINGS_PATH, catalog=catalog)
+            fields = ('quick_search', 'quick_search_key',
+                      'quick_search_engine', 'quick_search_engines')
+            if any(getattr(persisted, name) != getattr(settings, name) for name in fields):
+                raise OSError('Не удалось подтвердить сохранение настроек поиска')
+            self.search_settings = settings
+            if hasattr(self, 'lexicon'):
+                self._desired_runtime_config = (settings, self.lexicon)
+                if hook is not None:
+                    hook.request_config(settings, self.lexicon)
         self.quick_search.configure()
         self.clipboard_tools.configure(settings)
         if self.tray:
             self.tray.configure_clipboard(settings)
-        self.emit("info", "Настройки сохранены и применены")
+        if tuple(settings.active_languages) != effective:
+            detail = ('Настройки поиска переданы переключателю; новый набор '
+                      'языков вступит в силу после перезапуска TypeBridge')
+        elif hook is not None:
+            detail = 'Настройки поиска сохранены и переданы переключателю'
+        elif getattr(self, 'run_state', 'stopped') == 'starting':
+            detail = 'Настройки поиска сохранены; применятся после загрузки'
+        else:
+            detail = 'Настройки поиска сохранены и применены'
+        self.emit('info', detail)
 
     def _poll_hook_watchdog(self) -> None:
         """Tk timer runs independently of the keyboard hook and event queue."""
@@ -3303,6 +3761,12 @@ class TypeBridgeGui:
         if settings is None:
             self._sync_tray_state()
             return
+        if settings.active_languages != getattr(self, 'launch_languages',
+                                                settings.active_languages):
+            self.emit('info', 'Новый набор языков начнёт действовать после полного выхода из TypeBridge и нового запуска')
+            self.run_state = 'stopped'
+            self._sync_tray_state()
+            return
         self.run_state = "starting"
         self._watchdog_idle_logged = False
         self._comparison_captured = False
@@ -3329,15 +3793,25 @@ class TypeBridgeGui:
                     engine = LanguageEngine(
                         data_path, conservative=settings.conservative,
                         user_lexicon=lexicon, cache_dir=USER_DIR / 'dictionary-cache',
+                        active_languages=settings.active_languages,
+                        pack_root=LANGUAGE_PACK_DIR,
                         cache_progress=lambda state: self.emit('info',
                             'Словари: кэш проверен' if state == 'hit' else
                             'Словари: подготовка нового кэша'))
-                    for message in dictionary_report(engine, data_path):
+                    for message in dictionary_report(engine, data_path,
+                                                      pack_root=LANGUAGE_PACK_DIR):
                         self.emit("info", message)
-                    self.emit("info", "Системные раскладки RU/EN/HE: " +
+                    self.emit("info", "Активные системные раскладки: " +
                               ', '.join(f"{lang.upper()}={int(hkl) & 0xFFFFFFFF:08X}" for lang, hkl in engine.mapper.layouts.items()))
                     with self._runtime_config_lock:
                         current, current_lexicon = self._desired_runtime_config or (settings, lexicon)
+                        engine_active = getattr(engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES)
+                        if current.active_languages != engine_active:
+                            # GUI saved a new subset while dictionaries loaded.
+                            # Never change the mapper underneath native workers.
+                            current = pending_engine_settings(
+                                current, engine_active, engine.language_catalog)
+                            self.emit('info', 'Новый набор языков применится после полного перезапуска TypeBridge')
                         engine.conservative = current.conservative
                         engine.user_lexicon = current_lexicon
                         self.hook = LiveHook(engine, current, self.emit,
@@ -3470,12 +3944,23 @@ def main(argv=None) -> int:
         return 0 if report["ok"] else 1
     if args.headless:
         migrate_user_data()
-        settings = load_settings()
+        try:
+            if LANGUAGE_PACK_DIR.exists():
+                recover_package_transactions(LANGUAGE_PACK_DIR, SETTINGS_PATH)
+            catalog = available_language_catalog(LANGUAGE_PACK_DIR)
+            settings = load_settings(catalog=catalog)
+        except (ValueError, OSError, RuntimeError) as error:
+            # A legacy/interrupted journal must not be replayed blindly. Show
+            # the manual recovery instructions and exit before any hook starts.
+            print(f'TypeBridge startup refused: {error}', file=sys.stderr)
+            return 1
         require_no_original_switcher()
         with exclusive_live_hook():
             engine = LanguageEngine(source_data_dir(),
                                     conservative=settings.conservative,
-                                    user_lexicon=load_user_lexicon())
+                                    active_languages=settings.active_languages,
+                                    user_lexicon=load_user_lexicon(catalog=catalog),
+                                    pack_root=LANGUAGE_PACK_DIR)
             LiveHook(engine, settings,
                      lambda kind, msg: print(f"[{kind}] {msg}", flush=True),
                      accept_injected=args.accept_injected,
@@ -3488,7 +3973,7 @@ def main(argv=None) -> int:
     except StartupCancelled:
         root.destroy()
         return 1
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, RuntimeError) as error:
         root.withdraw()
         text = lexicon_error_text(error) if isinstance(error, LexiconLoadError) else str(error)
         messagebox.showerror("TypeBridge: ошибка настроек", text, parent=root)

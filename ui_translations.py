@@ -1555,3 +1555,34 @@ CATALOG.update({
     "he": "שגיאה במטפל של מגש המערכת; פרטים: TypeBridge-data\\replacement-diagnostics.log"
   }
 })
+
+# R16 language-selection controls and safe deferred-activation feedback.
+CATALOG.update({
+  'Автопереключатель TypeBridge': {
+    'en': 'TypeBridge autocorrection',
+    'he': 'תיקון אוטומטי TypeBridge'
+  },
+  'Языки автопереключения': {
+    'en': 'Autocorrection languages', 'he': 'שפות לתיקון אוטומטי'
+  },
+  'Для применения нового набора языков полностью выйди из TypeBridge и запусти его снова.': {
+    'en': 'To apply the new language selection, completely exit TypeBridge and launch it again.',
+    'he': 'כדי להחיל את בחירת השפות החדשה, צא לחלוטין מ־TypeBridge והפעל אותו שוב.'
+  },
+  'Языки сохранены: полностью выйди из TypeBridge и запусти его снова': {
+    'en': 'Languages saved; completely exit TypeBridge and launch it again',
+    'he': 'השפות נשמרו; צא לחלוטין מ־TypeBridge והפעל אותו שוב'
+  },
+  'Новый набор языков применится после полного перезапуска TypeBridge': {
+    'en': 'The new language selection will apply after fully restarting TypeBridge',
+    'he': 'בחירת השפות החדשה תוחל לאחר הפעלה מחדש מלאה של TypeBridge'
+  },
+  'Текущая раскладка исключена из активных языков': {
+    'en': 'The current layout is not in the active language selection',
+    'he': 'פריסת המקלדת הנוכחית אינה בין השפות הפעילות'
+  },
+  'Эта раскладка исключена из активных языков': {
+    'en': 'This layout is not in the active language selection',
+    'he': 'פריסת מקלדת זו אינה בין השפות הפעילות'
+  },
+})
