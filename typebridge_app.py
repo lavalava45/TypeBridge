@@ -552,6 +552,10 @@ class LiveHook:
         self.pipeline_debug = DEBUG_ENABLED
         self.debug_words = DEBUG_WORDS_ENABLED
         self._browser_field_revision = 0
+        # The HWND can stay unchanged while the focused browser DOM element
+        # changes. A fresh metadata revision must start a new word, even if
+        # the process, native focus HWND and keyboard layout all match.
+        self._tracked_password_revision = None
         self.debug_keyboard_callbacks = 0
         self.debug_keydowns = 0
         self.debug_mouse_callbacks = 0
@@ -2231,10 +2235,21 @@ class LiveHook:
         context = self.context()
         if context is None:
             self.clear_token()
+            if password_guard is not None:
+                self._tracked_password_revision = None
             self.last_focus = 0
             self.last_language = ""
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
+        if password_guard is not None:
+            revision = context.password_revision
+            if revision != getattr(self, '_tracked_password_revision', None):
+                # Clear all token/snippet state from the previous UIA element;
+                # never append the new field's keystrokes to an old token.
+                self.clear_token()
+                self.last_focus = 0
+                self.last_language = ""
+                self._tracked_password_revision = revision
         if vk != VK_BACK:
             # Retyping, shortcuts or navigation interrupt a consecutive run
             # of deletes. Never reuse its count for a different document span.

@@ -123,6 +123,7 @@ public static class PasswordMetadata {
         long started = DateTime.UtcNow.Ticks;
         long version; lock(Sync) { version = Version; }
         long[] scope = null; string state = "unknown"; string reason = "unsupported-field";
+        string elementId = "";
         AutomationElement checkedElement = null;
         try {
             scope = Scope();
@@ -138,6 +139,7 @@ public static class PasswordMetadata {
                 if (after != null && after[0] == scope[0] && after[1] == scope[1] && NativeState(after) == native) {
                     state = blocked ? "password" : "safe";
                     reason = blocked ? "native-password" : "native-edit-style";
+                    elementId = "win32:" + scope[1].ToString();
                 } else reason = "focus-changed-during-check";
             } else {
             AutomationElement element = AutomationElement.FocusedElement;
@@ -170,8 +172,18 @@ public static class PasswordMetadata {
                     long[] after = Scope();
                     reason = !inScope ? "scope-mismatch" : !reachedRoot ? "ancestor-limit" : "focus-changed-during-check";
                     if (inScope && reachedRoot && after != null && scope[0] == after[0]
-                        && scope[1] == after[1] && element.Equals(AutomationElement.FocusedElement))
-                        { state = blocked ? "password" : "safe"; reason = "checked"; checkedElement = element; }
+                        && scope[1] == after[1] && element.Equals(AutomationElement.FocusedElement)) {
+                        // HWND does not distinguish different DOM inputs. Poll the focused
+                        // UIA element's opaque runtime ID even when a focus event is missed.
+                        // No ID means no permission to mutate text.
+                        int[] runtimeId = element.GetRuntimeId();
+                        if (runtimeId != null && runtimeId.Length > 0) {
+                            elementId = "uia:" + string.Join(",", runtimeId);
+                            state = blocked ? "password" : "safe";
+                            reason = "checked";
+                            checkedElement = element;
+                        } else reason = "missing-runtime-id";
+                    }
                 }
             }
             }
@@ -186,7 +198,7 @@ public static class PasswordMetadata {
             verified = lastSafe ? checkedElement : null;
             if (lastSafe) { lastSafeTop = scope[0]; lastSafeFocus = scope[1]; lastSafeTicks = started; }
             if (version != Version || scope == null) Console.WriteLine("0|0|unknown|" + started + "|focus-change");
-            else Console.WriteLine(scope[0] + "|" + scope[1] + "|" + state + "|" + started + "|" + reason);
+            else Console.WriteLine(scope[0] + "|" + scope[1] + "|" + state + "|" + started + "|" + reason + "|" + elementId);
             Console.Out.Flush();
         }
     }
@@ -210,6 +222,7 @@ class Snapshot:
     checked: float = 0.0
     revision: int = 0
     reason: str = 'starting'
+    element_id: str = ''
 
 
 class PasswordFieldGuard:
@@ -225,12 +238,14 @@ class PasswordFieldGuard:
         self.process = None
         self.worker = None
 
-    def _update(self, top, focus, state, reason='checked', *, started=None):
+    def _update(self, top, focus, state, reason='checked', *, started=None,
+                element_id='', checked_at=None):
         with self.lock:
             if started is not None and started <= self.invalidated_at:
                 return
             previous = self.snapshot
-            changed = (top, focus, state) != (previous.top, previous.focus, previous.state)
+            changed = (top, focus, state, element_id) != (
+                previous.top, previous.focus, previous.state, previous.element_id)
             if changed:
                 self.state_since = self.clock()
                 self.unknown_notified = False
@@ -238,31 +253,51 @@ class PasswordFieldGuard:
             if state == 'unknown' and not self.unknown_notified and self.clock() - self.state_since >= 2:
                 self.unknown_notified = True
                 notice_changed = True
-            self.snapshot = Snapshot(top, focus, state, self.clock(), previous.revision + int(changed), reason)
+            self.snapshot = Snapshot(top, focus, state,
+                                     self.clock() if checked_at is None else checked_at,
+                                     previous.revision + int(changed), reason, element_id)
         if notice_changed:
             self.changed()
 
     def ingest(self, line):
         started = None
+        checked_at = None
         try:
             parts = line.strip().split('|')
-            if len(parts) not in (3, 5):
+            if len(parts) not in (3, 5, 6):
                 raise ValueError()
             top, focus, state = parts[:3]
             top, focus = int(top), int(focus)
             if state not in ('safe', 'password', 'unknown') or min(top, focus) < 0:
                 raise ValueError()
-            reason = parts[4] if len(parts) == 5 else 'checked'
-            if len(parts) == 5:
+            reason = parts[4] if len(parts) >= 5 else 'checked'
+            element_id = parts[5] if len(parts) == 6 else ''
+            if len(parts) == 6 and state == 'safe' and (
+                    not element_id or len(element_id) > 256
+                    or not element_id.startswith(('uia:', 'win32:'))):
+                state, reason, element_id = 'unknown', 'missing-element-id', ''
+            if len(parts) >= 5:
                 started = (int(parts[3]) - 621355968000000000) / 10_000_000
                 # A buffered answer started before the click cannot authorize its new field.
                 if started <= self.invalidated_at:
                     return
+                if len(parts) == 6 and state == 'safe':
+                    # The provider can stall before writing a response. A
+                    # recently *received* answer is not necessarily recent
+                    # metadata: bound the wall-clock age of the query itself.
+                    age = time.time() - started
+                    if not -0.1 <= age <= 0.5:
+                        state, reason, element_id = 'unknown', 'stale-helper-response', ''
+                    else:
+                        # TTL also starts at query initiation, not at receipt.
+                        checked_at = self.clock() - max(0.0, age)
         except (ValueError, TypeError):
             top, focus, state = 0, 0, 'unknown'
             reason = 'protocol-error'
+            element_id = ''
         self.last_response = self.clock()
-        self._update(top, focus, state, reason, started=started)
+        self._update(top, focus, state, reason, started=started,
+                     element_id=element_id, checked_at=checked_at)
 
     def invalidate(self):
         with self.lock:

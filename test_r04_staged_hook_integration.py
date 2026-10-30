@@ -6,6 +6,7 @@ real user-facing GUI does NOT activate it. No User32 hook installation.
 
 import ctypes
 from dataclasses import replace
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -16,6 +17,12 @@ from typebridge_app import (ES_PASSWORD, LiveHook, Settings, WM_LBUTTONDOWN, VK_
 
 
 class R04StagedIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def metadata_line(element_id, *, state='safe'):
+        # A simulated helper response. No UIA provider or focused window read.
+        ticks = 621355968000000000 + int(time.time() * 10_000_000)
+        return f'10|20|{state}|{ticks}|checked|{element_id}'
+
     def real_constructor(self, guard=None):
         user = Mock()
         kernel = Mock()
@@ -85,6 +92,69 @@ class R04StagedIntegrationTests(unittest.TestCase):
         self.assertIsNone(hook.context())
         guard.ingest('10|20|safe')
         self.assertIsNotNone(hook.context())
+
+    def test_same_hwnd_new_uia_element_invalidates_stale_scope(self):
+        guard = PasswordFieldGuard()
+        hook = self.real_constructor(guard)
+        fixture = HostedFocusTests().fixture()
+        hook.user32 = fixture.user32
+        hook.process_name = fixture.process_name
+        guard.ingest(self.metadata_line('uia:11,1'))
+        first = hook.context()
+        self.assertIsNotNone(first)
+        guard.ingest(self.metadata_line('uia:11,1'))
+        self.assertEqual(hook.context().password_revision, first.password_revision)
+        # A DOM script changes focus without a native HWND change or a UIA
+        # focus event. The next polling response identifies another element.
+        guard.ingest(self.metadata_line('uia:11,2'))
+        second = hook.context()
+        self.assertIsNotNone(second)
+        self.assertEqual((first.top, first.focus), (second.top, second.focus))
+        self.assertNotEqual(first.password_revision, second.password_revision)
+        self.assertNotEqual(hook._native_scope(first), hook._native_scope(second))
+        guard.ingest(self.metadata_line(''))
+        self.assertIsNone(hook.context())  # Missing identity cannot authorize edits.
+
+    def test_slow_or_future_helper_response_cannot_authorize_mutation(self):
+        clock = [10.0]
+        guard = PasswordFieldGuard(clock=lambda: clock[0])
+        epoch_ticks = 621355968000000000
+        with patch('password_fields.time.time', return_value=100.0):
+            for checked_at in (98.0, 101.0):
+                with self.subTest(checked_at=checked_at):
+                    ticks = epoch_ticks + int(checked_at * 10_000_000)
+                    guard.ingest(f'10|20|safe|{ticks}|checked|uia:11,1')
+                    self.assertIsNone(guard.permit_revision(10, 20))
+                    self.assertEqual(guard.snapshot.reason, 'stale-helper-response')
+            ticks = epoch_ticks + int(99.9 * 10_000_000)
+            guard.ingest(f'10|20|safe|{ticks}|checked|uia:11,1')
+            self.assertIsNotNone(guard.permit_revision(10, 20))
+            clock[0] += 0.41  # 0.10 query age + 0.41 elapsed > 0.50 TTL.
+            self.assertIsNone(guard.permit_revision(10, 20))
+
+    def test_same_hwnd_new_uia_element_discards_previous_word(self):
+        guard = PasswordFieldGuard()
+        hook = self.real_constructor(guard)
+        fixture = HostedFocusTests().fixture()
+        hook.user32 = fixture.user32
+        hook.process_name = fixture.process_name
+        guard.ingest(self.metadata_line('uia:11,1'))
+        old = hook.context()
+        self.assertIsNotNone(old)
+        hook._tracked_password_revision = old.password_revision
+        hook.last_focus, hook.last_language = old.focus, old.language
+        hook.keys = [(0x47, False)]
+        hook.engine.mapper.char.return_value = 'a'
+        hook.user32.GetKeyState.return_value = 0
+        hook._try_snippet = Mock(return_value=(False, False))
+        hook._boundary = Mock(return_value=None)
+        hook._try_early = Mock(return_value=False)
+        guard.ingest(self.metadata_line('uia:11,2'))
+        with patch('typebridge_app.candidate_token_key', return_value=True):
+            key(hook, 0x41)
+        self.assertEqual(hook.keys, [(0x41, False)])
+        self.assertEqual(hook._tracked_password_revision, hook.context().password_revision)
+        hook.user32.SendInput.assert_not_called()
 
     def test_mouse_click_invalidates_same_hwnd_metadata_and_token(self):
         guard = PasswordFieldGuard()

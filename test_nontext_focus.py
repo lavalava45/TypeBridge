@@ -16,6 +16,9 @@ class NonTextFocusTests(unittest.TestCase):
         hook.user32.GetClassNameW.side_effect = (
             lambda hwnd, output, size: setattr(
                 output, 'value', 'CabinetWClass' if hwnd == 10 else control_class))
+        # Real GetWindowLongPtrW returns a numeric style; unconfigured Mock
+        # cannot be masked with ES_PASSWORD when RichEdit is in scope.
+        hook.user32.GetWindowLongPtrW.return_value = 0
         return hook
 
     def test_common_navigation_control_classes_are_rejected(self):

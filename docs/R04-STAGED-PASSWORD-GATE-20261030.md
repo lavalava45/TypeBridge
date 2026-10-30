@@ -72,3 +72,44 @@ NOT equivalent to an R04 fix in production.
 **Until then:** R01/R02/R03 remain only model-validated where explicitly
 tested; R04 is **OPEN**; No01 is **BLOCKED**. Do not claim the source-only
 staged guard protects current browser passwords or is release-ready.
+
+## Additional source-only hardening, 30 October 2026 (same-HWND gate)
+
+The opt-in helper now includes the opaque UI Automation `GetRuntimeId()` of a
+verified focused element in each checked metadata response. A missing runtime
+ID fails closed for browser/custom controls. The native EDIT/RichEdit path
+uses a separate `win32:<focus HWND>` identity and retains its password-style
+checks. No field text or document content is included in the identity.
+
+`PasswordFieldGuard` treats two different UIA element IDs as two distinct
+scopes even when top-level and focused Win32 HWNDs and the reported safe state
+are unchanged. A response that started more than 500 ms before receipt (or has
+an implausibly future start time) cannot authorize text mutation; its remaining
+permission lifetime is counted from query *start*, not from receipt. The hook
+also clears its tracked token and snippet state on a password-metadata revision
+change even if HWND, language and process are identical.
+
+This addresses two **statically identified permission-reuse risks**: missed UIA
+focus notifications followed by polling of another DOM input, and carrying a
+token from a prior same-HWND field into the newly verified one. Regression cases use
+real `LiveHook` construction and mocked Win32 APIs, plus simulated metadata
+messages; they never install a global hook or type into a user window. The
+native C# helper is compiled by the offline metadata test, not launched as a
+live focus watcher. Baseline opt-in tests remain separate from the real GUI,
+which still passes no `password_guard`.
+
+**Not resolved:** an unreported element change *between* metadata polling and
+the actual mutation, providers returning misleading runtime IDs or password
+flags, real browser timing, compatibility, physical input delivery, Undo and
+all live R01–R03/No01 release gates. This work is not approval to turn the
+guard on by default, publish a new EXE, or claim R04 complete.
+
+**Validation after these edits:** 27/27 focused unit/model tests (including
+offline compilation of the C# metadata helper) and 111/111 expanded regression
+tests across eight Python test modules, on Python 3.12. The first expanded run
+found a preexisting incomplete RichEdit mock in `test_nontext_focus.py`:
+`GetWindowLongPtrW` returned a bare `Mock` instead of a numeric style. Only
+that fixture was corrected; its individual suite passed 6/6, and the complete
+111/111 regression was then rerun successfully in 417.106 seconds.
+All Win32 hook and input operations in these tests are mocked/in-memory;
+no live password provider was started and no physical No01 acceptance occurred.
