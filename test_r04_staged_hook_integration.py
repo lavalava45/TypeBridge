@@ -39,6 +39,34 @@ class R04StagedIntegrationTests(unittest.TestCase):
         guard.close.assert_not_called()
         self.assertIsNone(self.real_constructor().password_guard)
 
+    def test_hook_lifecycle_closes_guard_after_unhook(self):
+        calls = []
+        guard = Mock()
+        guard.start.side_effect = lambda: calls.append('start')
+        guard.close.side_effect = lambda: calls.append('close')
+        hook = self.real_constructor(guard)
+        hook.callback_type = lambda callback: callback
+        hook.kernel32.GetCurrentThreadId.return_value = 123
+        hook.user32.SetWindowsHookExW.side_effect = [11, 22]
+        hook.user32.GetMessageW.return_value = 0
+        hook.user32.UnhookWindowsHookEx.side_effect = lambda value: calls.append('unhook')
+        hook.run()  # MOCKED User32 only: no real global hook installed.
+        self.assertEqual(calls, ['start', 'unhook', 'unhook', 'close'])
+        self.assertEqual(hook.thread_id, 0)
+        self.assertIsNone(hook.keyboard_hook)
+
+    def test_failed_guard_start_always_unhooks(self):
+        guard = Mock()
+        guard.start.side_effect = RuntimeError('simulated provider failure')
+        hook = self.real_constructor(guard)
+        hook.callback_type = lambda callback: callback
+        hook.kernel32.GetCurrentThreadId.return_value = 123
+        hook.user32.SetWindowsHookExW.side_effect = [11, 22]
+        with self.assertRaisesRegex(RuntimeError, 'simulated provider failure'):
+            hook.run()
+        self.assertEqual(hook.user32.UnhookWindowsHookEx.call_count, 2)
+        guard.close.assert_called_once_with()
+
     def test_real_constructor_context_refuses_unknown_password_and_stale(self):
         clock = [10.0]
         guard = PasswordFieldGuard(clock=lambda: clock[0])
