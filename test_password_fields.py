@@ -1,7 +1,7 @@
-"""Password metadata and current hook checks; no live hooks or typed input.
+"""Password metadata and staged hook checks; no live hooks or typed input.
 
-Legacy global password-field guard is intentionally not wired into LiveHook.
-The native password-style and excluded-process checks remain independent.
+The real GUI does not enable the metadata guard; explicitly injected guards
+must deny unknown/password/stale contexts and preserve native exclusions.
 """
 import unittest
 from unittest.mock import Mock, patch
@@ -142,17 +142,26 @@ class MetadataTests(unittest.TestCase):
 
 
 class HookGateTests(unittest.TestCase):
-    def test_retired_global_guard_does_not_gate_valid_native_context(self):
+    def test_explicit_metadata_guard_gates_context_and_tracks_revision(self):
         hook = settings_tests.HostedFocusTests().fixture()
         hook.password_guard = guard = PasswordFieldGuard()
+        self.assertIsNone(hook.context())
+        guard.ingest('10|20|safe')
         first = hook.context()
         self.assertIsNotNone(first)
-        guard.ingest('10|20|safe')
-        self.assertIsNotNone(hook.context())
         guard.ingest('10|20|password')
+        self.assertIsNone(hook.context())
+        guard.ingest('10|20|unknown')
+        self.assertIsNone(hook.context())
+        guard.ingest('10|20|safe')
+        second = hook.context()
+        self.assertIsNotNone(second)
+        self.assertNotEqual(first.password_revision, second.password_revision)
+        self.assertNotEqual(hook._word_scope(first), hook._word_scope(second))
+
+    def test_without_guard_old_native_context_remains_supported(self):
+        hook = settings_tests.HostedFocusTests().fixture()
         self.assertIsNotNone(hook.context())
-        # Global UIA guard was deliberately retired; native ES_PASSWORD and
-        # excluded-process checks are tested by their own supported fixtures.
 
     def test_protected_context_clears_state_and_bypasses_every_conversion_command(self):
         hook = make_hook()

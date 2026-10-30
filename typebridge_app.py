@@ -500,11 +500,18 @@ class LiveHook:
 
     def __init__(self, engine: LanguageEngine, settings: Settings,
                  emit=lambda _kind, _message: None,
-                 *, accept_injected: bool = False, snippets: SnippetConfig | None = None):
+                 *, accept_injected: bool = False, snippets: SnippetConfig | None = None,
+                 password_guard=None):
         self.engine = engine
         self.settings = settings
         self.emit = emit
         self.accept_injected = accept_injected
+        # R04 staged integration. A guard is injected only by an explicitly
+        # controlled test harness; the existing GUI/runtime never supplies it.
+        # Unknown and stale snapshots are rejected, never queried via UIA in
+        # the low-level keyboard callback. Default behavior stays unchanged
+        # until independent physical acceptance has proved this mode safe.
+        self.password_guard = password_guard
         self.user32 = ctypes.WinDLL("user32", use_last_error=True)
         self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self._declare_api()
@@ -717,11 +724,22 @@ class LiveHook:
                      'progman', 'workerw'))):
             emit_pipeline(self, 'context-rejected', reason='non-text-navigation-control', interval=4)
             return None
-        if (focus_class == "edit"
+        if (focus_class in ("edit", "richedit20w", "richedit50w", "richeditd2dpt")
                 and self.user32.GetWindowLongPtrW(focus, GWL_STYLE)
                 & ES_PASSWORD):
             emit_pipeline(self, 'context-rejected', reason='protected-edit', interval=4)
             return None
+        password_revision = 0
+        password_guard = getattr(self, 'password_guard', None)
+        if password_guard is not None:
+            # Metadata comes exclusively from an independent worker. Never
+            # block a callback on the UIA provider, and never interpret
+            # 'unknown' as permission. The revision is part of every scope
+            # so a field change invalidates in-flight replacement jobs.
+            password_revision = password_guard.permit_revision(top, focus)
+            if password_revision is None:
+                emit_pipeline(self, 'context-rejected', reason='password-metadata-unverified', interval=4)
+                return None
         owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
         raw_hkl = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFFFFFF
         language_id = raw_hkl & 0xFFFF
@@ -732,7 +750,8 @@ class LiveHook:
             return None
         emit_pipeline(self, 'context-ready', interval=4, app=process,
                       language=language, hkl=f'{raw_hkl:08X}')
-        return FocusContext(top, focus, owner_thread, language, process, title, owner)
+        return FocusContext(top, focus, owner_thread, language, process, title,
+                            owner, password_revision=password_revision)
 
     def clear_token(self, *, preserve_snippets=False) -> None:
         self.keys.clear()
@@ -1645,7 +1664,7 @@ class LiveHook:
     @staticmethod
     def _word_scope(context: FocusContext) -> tuple:
         return (context.top, context.focus, context.thread_id, context.process_name,
-                context.layout_window)
+                context.layout_window, context.password_revision)
 
     def _native_scope(self, context: FocusContext) -> tuple:
         scope = self._word_scope(context)
@@ -2128,6 +2147,18 @@ class LiveHook:
         if event.dwExtraInfo == OWN_INPUT_MARKER:
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
+        password_guard = getattr(self, 'password_guard', None)
+        if (password_guard is not None and message in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                and (vk in (VK_TAB, VK_RETURN, 0x1B, 0x21, 0x22, 0x23, 0x24,
+                            0x25, 0x26, 0x27, 0x28)
+                     or (vk not in MODIFIER_VKS and any(
+                         self.pressed(mod) for mod in
+                         (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN))))):
+            # Keyboard-only focus navigation can change the DOM text field
+            # while its native HWND remains unchanged. Invalidate before a
+            # callback may act on the previous element's 'safe' snapshot.
+            # Fail-open input DELIVERY (CallNextHookEx), fail-closed edits.
+            password_guard.invalidate()
         gate = getattr(self, 'native_queue', None)
         if gate is not None and gate.busy:
             if event.flags & LLKHF_INJECTED:
@@ -2370,6 +2401,9 @@ class LiveHook:
 
     def handle_mouse(self, code, message, param):
         if code >= 0 and int(message) in MOUSE_BOUNDARIES:
+            password_guard = getattr(self, 'password_guard', None)
+            if password_guard is not None:
+                password_guard.invalidate()
             self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
             gate = getattr(self, 'native_queue', None)
             if gate is not None and gate.busy:
@@ -2504,6 +2538,9 @@ class LiveHook:
         self.emit("ready", "Автоисправление включено")
         message = wintypes.MSG()
         try:
+            password_guard = getattr(self, 'password_guard', None)
+            if password_guard is not None:
+                password_guard.start()
             while self.user32.GetMessageW(
                     ctypes.byref(message), None, 0, 0) > 0:
                 if message.message == WM_RELEASE_KEYBOARD_JOB:
@@ -2530,13 +2567,22 @@ class LiveHook:
                 self.user32.TranslateMessage(ctypes.byref(message))
                 self.user32.DispatchMessageW(ctypes.byref(message))
         finally:
-            if self.mouse_hook:
-                self.user32.UnhookWindowsHookEx(self.mouse_hook)
-            if self.keyboard_hook:
-                self.user32.UnhookWindowsHookEx(self.keyboard_hook)
-            self.mouse_hook = self.keyboard_hook = None
-            self.thread_id = 0
-            self.emit("stopped", "Автопереключение остановлено")
+            try:
+                # Release global callbacks FIRST, even if an experimental
+                # metadata worker is hung or its shutdown raises.
+                if self.mouse_hook:
+                    self.user32.UnhookWindowsHookEx(self.mouse_hook)
+                if self.keyboard_hook:
+                    self.user32.UnhookWindowsHookEx(self.keyboard_hook)
+            finally:
+                self.mouse_hook = self.keyboard_hook = None
+                self.thread_id = 0
+                if getattr(self, 'password_guard', None) is not None:
+                    try:
+                        self.password_guard.close()
+                    except Exception:
+                        self.emit('diagnostic', 'password-metadata-helper-close-failed')
+                self.emit("stopped", "Автопереключение остановлено")
 
 
 class TypeBridgeGui:
