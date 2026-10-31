@@ -227,12 +227,17 @@ class Snapshot:
 
 class PasswordFieldGuard:
     def __init__(self, changed=lambda: None, *, clock=time.monotonic,
-                 require_element_id=False):
+                 require_element_id=False, native_only=False):
         self.changed, self.clock = changed, clock
         # The real GUI/headless opt-in must never accept the legacy 3/5-field
         # protocol, because it cannot distinguish different HTML inputs.
         # Legacy model fixtures may still explicitly exercise that protocol.
         self.require_element_id = bool(require_element_id)
+        # An asynchronous UIA snapshot cannot prove that a DOM element in a
+        # shared browser HWND has not changed immediately before SendInput.
+        # Production opt-in therefore restricts mutation to native editors
+        # whose actual style can also be checked synchronously by LiveHook.
+        self.native_only = bool(native_only)
         self.snapshot = Snapshot()
         self.invalidated_at = 0.0
         self.last_response = self.clock()

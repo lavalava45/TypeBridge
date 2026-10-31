@@ -116,7 +116,7 @@ class DictionaryGuiTests(unittest.TestCase):
             try:
                 with (patch("typebridge_app.USER_DIR", path),
                       patch("typebridge_app.load_settings", return_value=Settings()),
-                      patch("typebridge_app.load_user_lexicon", side_effect=lambda: UserLexicon.load(path)),
+                      patch("typebridge_app.load_user_lexicon", side_effect=lambda *, catalog=None: UserLexicon.load(path, catalog=catalog)),
                       patch("typebridge_app.messagebox.showerror") as error):
                     gui = TypeBridgeGui(root)
                     root.update_idletasks()

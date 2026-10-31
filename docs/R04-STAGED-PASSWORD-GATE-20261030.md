@@ -177,3 +177,14 @@ under real typing, IME behavior or live mutation prevention**. R04 remains
 OPEN; default-off must remain unchanged. Separate evidence and broader
 synthetic transport limitations:
 [P0-WINDOWS-TRIAL-RESULTS-20261031.md](P0-WINDOWS-TRIAL-RESULTS-20261031.md).
+
+**Source-level fail-closed correction:** the real opt-in factory now marks
+`PasswordFieldGuard` as `native_only`. `LiveHook.context()` refuses browser
+processes and every custom/unknown control class even when recent metadata
+reports `safe`. EDIT/RichEdit must pass the synchronous native password-style
+check *and* UIA metadata. This prevents the previously identified stale-safe
+same-HWND DOM-focus race from authorizing a browser `SendInput` mutation **when
+R04 is opted in**. Browser typing passes through without layout correction;
+default-off legacy behavior remains unchanged. This is not a claim of full
+browser-password protection in the default mode. Real browser correction
+requires a future independently verified per-mutation field identity model.

@@ -24,6 +24,7 @@ class StartupSettingsAuditTests(unittest.TestCase):
         gui.corrections_enabled = Mock()
         gui.worker = None
         gui.hook = None
+        gui.launch_languages = old.active_languages
         gui.lexicon = object()
         gui.snippet_config = object()
         gui.cancel_start = threading.Event()

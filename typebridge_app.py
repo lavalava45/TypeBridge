@@ -327,7 +327,7 @@ def staged_password_guard(settings: Settings):
     if not settings.experimental_password_guard:
         return None
     from password_fields import PasswordFieldGuard
-    return PasswordFieldGuard(require_element_id=True)
+    return PasswordFieldGuard(require_element_id=True, native_only=True)
 
 
 def save_settings(settings: Settings, path: Path = SETTINGS_PATH, *, catalog=None) -> None:
@@ -736,6 +736,19 @@ class LiveHook:
         class_buffer = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(focus, class_buffer, len(class_buffer))
         focus_class = class_buffer.value.casefold()
+        password_guard = getattr(self, 'password_guard', None)
+        if password_guard is not None and getattr(password_guard, 'native_only', False):
+            # The helper samples UIA asynchronously. A same-HWND HTML input
+            # can become a password field between two samples, including
+            # between valid() and SendInput. Fail closed on ALL browser/custom
+            # controls until per-mutation target binding is available.
+            # Pure native EDIT/RichEdit has a synchronous ES_PASSWORD style
+            # check below, in addition to fresh helper metadata.
+            if (process in BROWSER_APPS or host_process in BROWSER_APPS
+                    or focus_class not in ('edit', 'richedit20w', 'richedit50w',
+                                           'richeditd2dpt')):
+                emit_pipeline(self, 'context-rejected', reason='r04-native-only', interval=4)
+                return None
         # These are navigation/list surfaces, not text editors. Their
         # type-ahead may look like a word to the hook, but injecting Backspace
         # can navigate folders, move selection or trigger other commands.
@@ -755,7 +768,6 @@ class LiveHook:
             emit_pipeline(self, 'context-rejected', reason='protected-edit', interval=4)
             return None
         password_revision = 0
-        password_guard = getattr(self, 'password_guard', None)
         if password_guard is not None:
             # Metadata comes exclusively from an independent worker. Never
             # block a callback on the UIA provider, and never interpret
@@ -2552,7 +2564,7 @@ class LiveHook:
         # Guard lifecycle is immutable for a running hook: an opt-in/opt-out
         # saved during a session takes effect only after a full restart.
         runtime_settings = replace(runtime_settings,
-            experimental_password_guard=self.password_guard is not None)
+            experimental_password_guard=getattr(self, 'password_guard', None) is not None)
         index = cached_early_index(self.engine, lexicon) if settings.early_correction else None
         self.pending_config = (runtime_settings, lexicon, index)
         if self.thread_id:
@@ -2896,8 +2908,9 @@ class TypeBridgeGui:
             variable=self.experimental_password_guard)
         guard_option.pack(anchor="w", pady=(6, 0))
         Tooltip(guard_option,
-                "По умолчанию отключено. При включении неизвестные поля не исправляются; "
-                "проверка UI Automation выполняется в отдельном процессе. "
+                "По умолчанию отключено. При включении проверяются только нативные "
+                "EDIT/RichEdit. Браузеры и нестандартные поля не исправляются "
+                "из-за гонки HTML-фокуса. UI Automation выполняется в отдельном процессе. "
                 "Изменение действует только после полного выхода из TypeBridge и нового запуска. "
                 "Защита браузерных паролей ещё НЕ прошла физическую приёмку.")
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",

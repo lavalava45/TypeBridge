@@ -181,7 +181,8 @@ class RawInputTests(unittest.TestCase):
                     debug_keyboard_callbacks=0, debug_keydowns=0,
                     debug_mouse_callbacks=0, debug_probe_pongs=0,
                     debug_callback_errors=0, debug_keyboard_slow=0,
-                    debug_keyboard_max_ms=0)
+                    debug_keyboard_max_ms=0, debug_mouse_max_us=0,
+                    debug_mouse_slow=0)
         hook.request_probe_ping.return_value = True
         watchdog.poll(hook, None)
         probe.keyboard_events = 18
