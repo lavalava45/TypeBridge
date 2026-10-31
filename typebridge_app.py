@@ -830,6 +830,10 @@ class LiveHook:
     def _quarantine_native(self, reason='uncertain-write', context=None) -> None:
         """Do not retry unsafe native mutations; expose the actual reason."""
         scoped = reason == 'input-barrier-lost' and context is not None
+        if reason == 'worker-error':
+            # An unexpected worker/replay failure is not a RichEdit-only
+            # preflight refusal: retain the stop for keyboard early edits.
+            self.keyboard_early_disabled = True
         if scoped:
             scopes = getattr(self, 'native_blocked_scopes', None)
             if scopes is None:
@@ -1515,6 +1519,8 @@ class LiveHook:
                               "native_early_disabled" if native else "early_disabled")
         if getattr(self, disabled_attribute, False):
             return False
+        if keyboard and self._word_scope(context) in getattr(self, 'native_blocked_scopes', set()):
+            return False  # Lost queued keys quarantine their field for every transport.
         if native and not keyboard and (self._native_blocked(context)
                 or getattr(self, 'native_early_deferred', False)):
             return False

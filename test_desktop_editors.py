@@ -104,6 +104,24 @@ class DesktopEditorTests(unittest.TestCase):
         decide.assert_called_once()
         hook.user32.SendInput.assert_not_called()
 
+    def test_lost_input_barrier_still_blocks_keyboard_early_in_that_field(self):
+        hook = self.fixture(*DESKTOP_FIELDS[0])
+        context = hook.context()
+        hook._quarantine_native('input-barrier-lost', context=context)
+        with patch('typebridge_app.suggest_live_early') as decide:
+            self.assertFalse(LiveHook._try_early(hook, context))
+        decide.assert_not_called()
+        hook.user32.SendInput.assert_not_called()
+
+    def test_unexpected_worker_error_preserves_keyboard_early_stop(self):
+        hook = self.fixture(*DESKTOP_FIELDS[0])
+        hook._quarantine_native('worker-error')
+        self.assertTrue(hook.keyboard_early_disabled)
+        with patch('typebridge_app.suggest_live_early') as decide:
+            self.assertFalse(LiveHook._try_early(hook, hook.context()))
+        decide.assert_not_called()
+        hook.user32.SendInput.assert_not_called()
+
     def test_native_quarantine_still_blocks_actual_richedit(self):
         hook = self.fixture('notepad.exe', 'RichEditD2DPT')
         hook.native_edit_disabled = True
