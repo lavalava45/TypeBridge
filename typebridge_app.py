@@ -64,6 +64,7 @@ BROWSER_APPS = frozenset({'chrome.exe', 'msedge.exe', 'firefox.exe',
                           'brave.exe', 'opera.exe', 'vivaldi.exe'})
 TRACE_APPS = BROWSER_APPS | frozenset({'notepad.exe', 'notepad++.exe'})
 from early_native_edit import NativeEditBridge, supports_native_edit
+from r04_text_target import trusted_mutation_target
 from word_recovery import recover_prefix
 from input_transport import send_with_remainder, unmatched_keydowns
 from native_transaction_queue import NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES
@@ -736,6 +737,20 @@ class LiveHook:
         class_buffer = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(focus, class_buffer, len(class_buffer))
         focus_class = class_buffer.value.casefold()
+        top_class = ''
+        if focus != top:
+            top_buffer = ctypes.create_unicode_buffer(128)
+            self.user32.GetClassNameW(top, top_buffer, len(top_buffer))
+            top_class = top_buffer.value.casefold()
+        # Mandatory R04 gate, independent of the experimental UIA checkbox.
+        # HTML/password inputs can change while sharing one native HWND, even
+        # between two UIA samples. The only reliable default is to NOT mutate
+        # browser/WebView or unverified custom controls at all. Native EDIT/
+        # RichEdit use the synchronous ES_PASSWORD check below; Scintilla is
+        # admitted only in the specifically supported Notepad++ process.
+        if not trusted_mutation_target(process, host_process, focus_class, top_class):
+            emit_pipeline(self, 'context-rejected', reason='r04-unverified-text-target', interval=4)
+            return None
         password_guard = getattr(self, 'password_guard', None)
         if password_guard is not None and getattr(password_guard, 'native_only', False):
             # The helper samples UIA asynchronously. A same-HWND HTML input
@@ -2906,16 +2921,21 @@ class TypeBridgeGui:
         early_option = self._make_early_option(frame)
         early_option.pack(anchor="w", pady=(6, 0))
         Tooltip(early_option, "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.")
+        scope_note = ttk.Label(frame,
+            text="R04: браузеры, WebView и неизвестные редакторы не исправляются")
+        scope_note.pack(anchor="w", pady=(3, 0))
         guard_option = ttk.Checkbutton(
-            frame, text="Экспериментальная проверка парольных полей (R04, после перезапуска)",
+            frame, text="Дополнительная экспериментальная UIA-проверка (после перезапуска)",
             variable=self.experimental_password_guard)
         guard_option.pack(anchor="w", pady=(6, 0))
         Tooltip(guard_option,
-                "По умолчанию отключено. При включении проверяются только нативные "
-                "EDIT/RichEdit. Браузеры и нестандартные поля не исправляются "
-                "из-за гонки HTML-фокуса. UI Automation выполняется в отдельном процессе. "
+                "Браузеры, WebView и неизвестные поля не исправляются ВСЕГДА, "
+                "независимо от этой галочки. В обычном режиме поддержаны нативные "
+                "EDIT/RichEdit и Scintilla только в Notepad++. Экспериментальный "
+                "UIA-режим дополнительно ограничивает коррекцию нативными EDIT/RichEdit. "
+                "UI Automation выполняется в отдельном процессе. "
                 "Изменение действует только после полного выхода из TypeBridge и нового запуска. "
-                "Защита браузерных паролей ещё НЕ прошла физическую приёмку.")
+                "Не является полной сертификацией защиты всех парольных полей.")
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",

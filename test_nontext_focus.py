@@ -1,4 +1,4 @@
-"""Exclude known navigation controls without disabling browser text entry.
+"""Exclude nontext/uncertain controls, including browser/WebView text entry.
 
 Mock the real Win32 context() path only; no global hook, foreground changes,
 or physical keystrokes are used by these tests.
@@ -39,14 +39,22 @@ class NonTextFocusTests(unittest.TestCase):
         hook.user32.GetWindowLongPtrW.return_value = 0
         self.assertEqual(hook.context().process_name, 'explorer.exe')
 
-    def test_native_rich_edit_scintilla_and_browser_widgets_remain_eligible(self):
+    def test_native_rich_edit_and_notepad_plus_plus_scintilla_remain_eligible(self):
         for name, process in (('RichEditD2DPT', 'notepad.exe'),
-                              ('Scintilla', 'notepad++.exe'),
-                              ('Chrome_RenderWidgetHostHWND', 'chrome.exe'),
-                              ('MozillaWindowClass', 'firefox.exe')):
+                              ('Scintilla', 'notepad++.exe')):
             with self.subTest(focus=name):
                 hook = self.focus(name, process)
                 self.assertIsNotNone(hook.context())
+
+    def test_browser_widgets_and_browser_host_edit_fail_closed_by_default(self):
+        for name, process in (('Chrome_RenderWidgetHostHWND', 'chrome.exe'),
+                              ('MozillaWindowClass', 'firefox.exe'),
+                              ('Edit', 'msedge.exe'),
+                              ('Edit', 'msedgewebview2.exe'),
+                              ('Chrome_WidgetWin_1', 'custom-app.exe')):
+            with self.subTest(focus=name, process=process):
+                hook = self.focus(name, process)
+                self.assertIsNone(hook.context())
 
     def test_existing_password_edit_rejection_remains(self):
         hook = self.focus('Edit')
@@ -54,10 +62,9 @@ class NonTextFocusTests(unittest.TestCase):
         self.assertIsNone(hook.context())
 
     def test_unknown_custom_control_is_not_automatically_certified_text_safe(self):
-        # Important coverage limit: fail-open support for custom editors still
-        # exists and needs separate API/UIA verification before stable release.
+        # R04: unknown custom controls no longer reach automatic/manual edits.
         hook = self.focus('CustomWidgetXYZ', 'custom-app.exe')
-        self.assertIsNotNone(hook.context())
+        self.assertIsNone(hook.context())
 
 
 if __name__ == '__main__':

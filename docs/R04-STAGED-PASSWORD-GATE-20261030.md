@@ -1,5 +1,26 @@
 # TypeBridge: R04 staged password-field hardening, 2026-10-30
 
+## Release-candidate change: unconditional conservative field scope (31 October)
+
+Earlier opt-in-only paragraphs below describe historical milestones. They no
+longer describe the **current source** default: `r04_text_target.py` now
+requires one of `EDIT`, `RichEdit20W`, `RichEdit50W`, `RichEditD2DPT`, or
+Scintilla *owned and hosted by Notepad++*. The real `LiveHook.context()`
+rejects browser/WebView processes and all unknown/custom controls BEFORE
+starting recognition, snippet matching, manual correction or hotkeys.
+This is enforced regardless of `experimental_password_guard`, whose native
+UIA worker can still restrict supported controls further. Unverified DOM
+fields within one HWND cannot race into a text mutation because **no DOM field
+is ever an allowed target**. Native EDIT/RichEdit are synchronously checked
+for `ES_PASSWORD` before the context is exposed, including at each worker
+revalidation. Normal physical input passes through without editing.
+
+Consequence: browser/Electron/custom-editor autocorrection is deliberately
+disabled by default, even for ordinary unmasked text. No exception whitelist
+for individual sites is permitted. Separate clipboard/global-hotkey routes,
+malformed native controls and all real physical acceptance remain distinct
+risks; this is not a blanket guarantee for every password manager or editor.
+
 Status: **SOURCE-ONLY, OPT-IN FOR UNIT/MODEL FIXTURES; NOT ENABLED IN GUI**.
 Do not mark R04 or physical No01 complete. This work deliberately prioritizes
 rollbacks and backward compatibility after prior real-input regressions.

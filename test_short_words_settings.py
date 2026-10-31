@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from engine import LanguageEngine, source_data_dir
-from typebridge_app import LiveHook, Settings
-from tray_layouts import WindowsLayouts, LayoutTarget
+from typebridge_app import LiveHook, Settings, FocusContext
+from tray_layouts import WindowsLayouts, LayoutTarget, layout_owner
 
 
 class RecognitionTests(unittest.TestCase):
@@ -84,28 +84,37 @@ class HostedFocusTests(unittest.TestCase):
         hook.user32.GetGUIThreadInfo.side_effect = gui_info
         hook.user32.IsChild.return_value = True
         def class_name(hwnd, output, size):
-            output.value = "ApplicationFrameWindow" if hwnd == 10 else "Windows.UI.Core.CoreWindow"
+            output.value = "ApplicationFrameWindow" if hwnd == 10 else "Edit"
             return len(output.value)
         hook.user32.GetClassNameW.side_effect = class_name
+        hook.user32.GetWindowLongPtrW.return_value = 0
         hook.user32.GetKeyboardLayout.side_effect = lambda thread: 0x04190419 if thread == 11 else 0x04090409
         hook.process_name = lambda pid: "applicationframehost.exe" if pid == 100 else "systemsettings.exe"
         return hook
 
     def test_hosted_settings_uses_host_layout_despite_child_reporting_english(self):
-        context = self.fixture().context()
-        self.assertEqual((context.focus, context.thread_id, context.process_name), (20, 11, "systemsettings.exe"))
-        self.assertEqual((context.language, context.layout_window), ("ru", 10))
+        hook = self.fixture()
+        hook.user32.GetClassNameW.side_effect = (
+            lambda hwnd, output, size: setattr(output, 'value',
+                'ApplicationFrameWindow' if hwnd == 10 else 'Windows.UI.Core.CoreWindow'))
+        self.assertEqual(layout_owner(hook.user32, 10, 20, 11, 22), (10, 11))
+        # The native HKL routing contract survives; opaque CoreWindow text
+        # mutation is now correctly denied by the default R04 gate.
+        self.assertIsNone(hook.context())
 
     def test_normal_editor_still_uses_child_layout(self):
         hook = self.fixture()
-        hook.user32.GetClassNameW.side_effect = lambda hwnd, output, size: 0
+        hook.user32.GetClassNameW.side_effect = (
+            lambda hwnd, output, size: setattr(output, 'value', 'Edit'))
         context = hook.context()
         self.assertEqual((context.thread_id, context.language, context.layout_window), (22, "en", 20))
 
     def test_correction_requests_host_and_observes_host_thread(self):
         from test_app_controls import make_hook
         hook = make_hook()
-        context = self.fixture().context()
+        # Isolated layout-routing model only; real CoreWindow is not admitted
+        # by the R04 context guard for text mutation.
+        context = FocusContext(10, 20, 11, 'ru', 'systemsettings.exe', 'test', 10)
         hook.context = lambda: context
         self.assertTrue(hook._correct(context, 32, ""))
         self.assertEqual(hook.user32.SendMessageTimeoutW.call_args.args[0], 10)

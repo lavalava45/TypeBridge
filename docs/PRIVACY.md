@@ -1,5 +1,29 @@
 # TypeBridge: privacy and input access
 
+**R04 default fail-closed source policy (31 October 2026; not yet rebuilt):**
+`LiveHook.context()` now rejects all browser/WebView hosts and all unverified
+custom control classes *even when the experimental UIA checkbox is off*.
+Only Win32 `EDIT`/`RichEdit20W`/`RichEdit50W`/`RichEditD2DPT` with a synchronous
+`ES_PASSWORD` check, and Scintilla specifically hosted by Notepad++, can reach
+automatic text correction, manual conversion, snippet expansion or associated
+layout mutations. Keys in refused fields pass through to Windows normally.
+This intentionally disables TypeBridge's automatic correction in Chrome,
+Edge, Firefox, WebView, Electron/custom editors, etc. Do not remove this gate
+to restore compatibility without an independently safe per-mutation protocol.
+The optional UIA provider adds restrictions but cannot bypass the default.
+**Limits:** native control styles/providers can misrepresent unusual password
+widgets; unrelated clipboard, journal and separate global hotkey subsystems
+have independent security considerations. No actual password should be used to
+test this policy. Physical/editor integration and release acceptance remain open.
+
+**Русский:** в новом исходном коде R04 защита действует по умолчанию, без
+галочки: автокоррекция и шаблоны в браузерах, WebView и нестандартных полях
+отключены, обычный набор не изменяется. Разрешены только нативные EDIT/RichEdit
+без `ES_PASSWORD` и Scintilla внутри Notepad++. Экспериментальная UIA-проверка
+дополнительно ограничивает список полей, а не открывает браузеры. До проверки
+сборки на реальных редакторах и устранения других рисков не считать R04
+безусловно закрытым для всех приложений.
+
 This describes the current source version. The published alpha EXE may contain
 fewer features; see [roadmap and limitations](../ROADMAP.md). This is a description
 of behavior and limitations, not a claim of independent security certification.
