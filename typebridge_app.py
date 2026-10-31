@@ -1482,12 +1482,15 @@ class LiveHook:
             if await_native_keyup:
                 self.native_early_keyup_pending = None
             return False
-        if native and not keyboard and await_native_keyup:
-            # Do not manufacture the currently held WM_CHAR. On some modern
-            # Notepad RichEdit controls, a late physical character reaches the
-            # document after our synchronous transaction and duplicates it.
-            # Allow the physical KEYDOWN through, then try after KEYUP, only
-            # when the full typed source is independently visible in RichEdit.
+        if (not native or not keyboard) and await_native_keyup:
+            # Allow the last physical KEYDOWN to reach the editor before any
+            # transaction. In Scintilla the old pre-keyup early path replaced
+            # only the delivered prefix (e.g. 'aku'), because the final 'o'
+            # was held. Undo then restored only that prefix, silently losing
+            # the last key. RichEdit has the same requirement for different
+            # WM_CHAR ordering reasons. Keyup by itself is not sufficient:
+            # replace_prefix below must verify the *entire* delivered source
+            # in a fresh editor snapshot before touching the document.
             self.native_early_keyup_pending = (
                 self.keys[-1][0], tuple(self.keys), self._word_scope(context))
             return False

@@ -68,6 +68,53 @@ class ModelEditor(ScintillaEarlyBridge):
 
 
 class ScintillaWorkerTests(unittest.TestCase):
+    def test_physical_six_directions_undo_includes_last_source_character(self):
+        """Undo must restore the whole source, including physically delivered last key.
+
+        This models physical delivery in Scintilla; it does not synthesize a
+        global Windows hook or assert Notepad++ hardware integration.
+        """
+        for source, typed, target, expected, physical in (
+                ('en', 'ghbdtn', 'ru', 'привет', 'ghbdtn'),
+                ('he', 'עינגאמ', 'ru', 'привет', 'ghbdtn'),
+                ('ru', 'руддщ', 'en', 'hello', 'hello'),
+                ('he', 'יקךךם', 'en', 'hello', 'hello'),
+                ('en', 'akuo', 'he', 'שלום', 'akuo'),
+                ('ru', 'флгщ', 'he', 'שלום', 'akuo')):
+            with self.subTest(source=source, target=target):
+                hook, editor, language, factory = self.fixture(
+                    source=source, typed=typed, target=target,
+                    replacement=expected, physical=physical)
+                self.assertFalse(hook._try_early(
+                    hook.context(), await_native_keyup=True))
+                factory.assert_not_called()
+                self.assertEqual(editor.data, typed[:-1].encode())
+                # The real editor receives the last physical key; no synthetic
+                # SendInput may create an extra character or undo group.
+                last = typed[-1].encode()
+                editor.data += last
+                editor.caret += len(last)
+                self.assertEqual(key(hook, ord(physical[-1].upper()), WM_KEYUP), 0)
+                hook.native_worker.join(2)
+                self.assertFalse(hook.native_worker.is_alive())
+                self.assertEqual(editor.data, expected.encode())
+                self.assertEqual(editor.undo, [(typed.encode(), len(typed.encode()))])
+                self.assertEqual(language[0], target)
+                hook.user32.SendInput.assert_not_called()
+
+    def test_keyup_before_last_character_reaches_scintilla_refuses_safely(self):
+        hook, editor, language, factory = self.fixture(
+            source='en', typed='akuo', target='he',
+            replacement='שלום', physical='akuo')
+        self.assertFalse(hook._try_early(hook.context(), await_native_keyup=True))
+        self.assertEqual(key(hook, ord('O'), WM_KEYUP), 0)
+        hook.native_worker.join(2)
+        self.assertFalse(hook.native_worker.is_alive())
+        self.assertEqual(editor.data, b'aku')
+        self.assertEqual(editor.undo, [])
+        self.assertEqual(language[0], 'en')
+        hook.user32.SendInput.assert_not_called()
+
     def fixture(self, source='en', typed='ghbdtn', target='ru', replacement='привет', physical='ghbdtn'):
         hook = make_hook()
         hook._in_keyboard_callback = True
@@ -76,6 +123,7 @@ class ScintillaWorkerTests(unittest.TestCase):
         hook.user32.PostThreadMessageW.return_value = 1
         hook.user32.GetKeyState.return_value = 0
         hook.native_pending_recovery = None
+        hook.token_blocked = False
         hook.mouse_hook = None
         hook.settings = replace(hook.settings, early_correction=True)
         layouts = {'en':0x409, 'ru':0x419, 'he':0x40d}
@@ -104,7 +152,9 @@ class ScintillaWorkerTests(unittest.TestCase):
         self.assertFalse(hook.native_worker.is_alive())
 
     def start(self,hook):
-        return hook._try_early(hook.context(),await_native_keyup=True)
+        # Legacy scheduler unit tests exercise the worker directly. The
+        # physical-keydown/key-up route has separate acceptance tests below.
+        return hook._try_early(hook.context(),await_native_keyup=False)
 
     def test_no_adapter_reads_writes_or_hkl_request_before_callback_release(self):
         hook,editor,language,factory = self.fixture()
