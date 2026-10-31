@@ -1613,3 +1613,27 @@ CATALOG.update({
 
 # Field-level R04 behavior; no browser-wide exclusion.
 CATALOG.update({'Защита паролей: проверяется поле, а не весь браузер': {'en': 'Password protection checks the field, not the whole browser', 'he': 'הגנת סיסמאות בודקת את השדה, לא את כל הדפדפן'}, 'Дополнительная UIA-проверка нативных полей': {'en': 'Additional UIA checks for native fields', 'he': 'בדיקות UIA נוספות לשדות Windows'}, 'Браузерные и нестандартные поля проверяются всегда: парольные и непроверенные поля не изменяются. Эта опция дополнительно требует UIA для нативных редакторов. Проверка идёт в отдельном процессе без чтения текста. После изменения нужен полный перезапуск. Асинхронная UIA не гарантирует отсутствие гонки DOM-фокуса; R04 ещё не прошёл полную приёмку.': {'en': 'Browser and custom fields are always checked: password and unverified fields are not modified. This option also requires UIA for native editors. Checks run in another process without reading text. Restart after changing it. Asynchronous UIA cannot guarantee absence of DOM focus races; R04 acceptance remains open.', 'he': 'שדות דפדפן ושדות מותאמים אישית נבדקים תמיד: שדות סיסמה ושדות שלא אומתו אינם משתנים. אפשרות זו דורשת UIA גם בעורכי Windows. הבדיקה פועלת בתהליך נפרד בלי לקרוא טקסט. לאחר שינוי נדרשת הפעלה מחדש. UIA אסינכרוני אינו מבטיח מניעת שינוי מיקוד DOM; אימות R04 עדיין לא הושלם.'}})
+
+# Current user-facing settings copy; implementation identifiers stay in developer docs.
+from settings_copy import (
+    LANGUAGE_SELECTION_HELP,
+    PASSWORD_CHECK_NOTE,
+    PASSWORD_CHECK_LABEL,
+    PASSWORD_CHECK_HELP,
+    INDICATOR_HELP,
+    EVENT_LOG_LABEL,
+    EVENT_LOG_HELP,
+    EVENT_LOG_TITLE,
+    RARE_WORDS_HELP,
+)
+CATALOG.update({
+    LANGUAGE_SELECTION_HELP: {'en': 'Enable one to three installed languages. Install the matching keyboard layouts in Windows. After changing the language set, save settings, fully exit TypeBridge and start it again.', 'he': 'אפשר להפעיל אחת עד שלוש שפות מותקנות. יש להתקין את פריסות המקלדת המתאימות ב-Windows. לאחר שינוי השפות יש לשמור את ההגדרות, לצאת לחלוטין מ-TypeBridge ולהפעיל אותו מחדש.'},
+    PASSWORD_CHECK_NOTE: {'en': 'Password fields are checked automatically.', 'he': 'שדות סיסמה נבדקים אוטומטית.'},
+    PASSWORD_CHECK_LABEL: {'en': 'Additional checks for standard text fields', 'he': 'בדיקה נוספת של שדות קלט רגילים'},
+    PASSWORD_CHECK_HELP: {'en': 'Also check standard Windows fields through UI Automation. If the system cannot confirm a normal field, correction is skipped; this can reduce compatibility with some editors. With this option off, the built-in password-field checks remain active. Browser and custom fields are always checked. After changing this option, save settings, fully exit TypeBridge and start it again.', 'he': 'בדיקה נוספת של שדות Windows רגילים באמצעות UI Automation. אם המערכת אינה מאשרת שהשדה רגיל, התיקון מדולג; הדבר עלול לפגוע בתאימות לעורכים מסוימים. כשהאפשרות כבויה, בדיקת הסיסמאות המובנית נשארת פעילה. שדות דפדפן ושדות מותאמים נבדקים תמיד. לאחר שינוי יש לשמור, לצאת לחלוטין מ-TypeBridge ולהפעיל אותו מחדש.'},
+    INDICATOR_HELP: {'en': 'The indicator shows the current layout among enabled languages. Russian, English and Hebrew use flags; additional languages use code badges such as AR or ES. The indicator works independently of autocorrection, does not take focus and lets clicks pass through. It hides when the text caret position is unavailable.', 'he': 'המחוון מציג את הפריסה הנוכחית מבין השפות הפעילות. לרוסית, אנגלית ועברית יש דגלים; לשפות נוספות יש סמלים עם קוד שפה, כגון AR או ES. המחוון פועל ללא תלות בתיקון האוטומטי, אינו לוקח מיקוד ואינו חוסם לחיצות. כשהמיקום של סמן הטקסט אינו זמין, המחוון מוסתר.'},
+    EVENT_LOG_LABEL: {'en': 'Show program log', 'he': 'הצגת יומן פעילות התוכנה'},
+    EVENT_LOG_HELP: {'en': 'Shows program states, operation results and reasons for skipped corrections. Log visibility does not affect autocorrection or enable the typed-text journal.', 'he': 'מציג מצבי תוכנה, תוצאות פעולות וסיבות לדילוג על תיקונים. הצגת היומן אינה משפיעה על התיקון האוטומטי ואינה מפעילה את יומן הטקסט שהוקלד.'},
+    EVENT_LOG_TITLE: {'en': 'Program log', 'he': 'יומן פעילות התוכנה'},
+    RARE_WORDS_HELP: {'en': 'Include rare words when choosing a layout. This increases dictionary coverage but also the chance of incorrect switching. Leave it off for more predictable behavior.', 'he': 'התחשבות במילים נדירות בעת בחירת הפריסה. כך ניתן לזהות יותר מילים, אך גדל גם הסיכוי להחלפה שגויה. להתנהגות צפויה יותר מומלץ להשאיר את האפשרות כבויה.'},
+})

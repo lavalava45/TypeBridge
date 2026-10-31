@@ -69,6 +69,9 @@ from word_recovery import recover_prefix
 from input_transport import send_with_remainder, unmatched_keydowns
 from native_transaction_queue import NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES
 from windows_shortcuts import read_windows_shortcuts, open_windows_keyboard_settings
+from settings_copy import (LANGUAGE_SELECTION_HELP, PASSWORD_CHECK_NOTE,
+    PASSWORD_CHECK_LABEL, PASSWORD_CHECK_HELP, INDICATOR_HELP,
+    EVENT_LOG_LABEL, EVENT_LOG_HELP, EVENT_LOG_TITLE, RARE_WORDS_HELP)
 from settings_widgets import ScrollablePage, Tooltip, fit_settings_window
 from caps_correction import caps_decision
 from startup_registration import read_registration, write_registration, startup_command
@@ -164,8 +167,8 @@ class Settings:
     # Persisted in R16/2b but not enabled in runtime until GUI/HKL/hotkey gates.
     active_languages: tuple[str, ...] = DEFAULT_ACTIVE_LANGUAGES
     corrections_enabled: bool = False
-    # R04 staging: a per-profile, explicit opt-in. Applied only at hook startup.
-    # False preserves existing alpha behavior for every existing profile.
+    show_events: bool = False
+    # Optional stricter metadata checks for native fields; fixed at startup.
     experimental_password_guard: bool = False
     conservative: bool = True
     only_window_title: str = ""
@@ -234,7 +237,7 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
     excluded = raw.get("excluded_processes", list(Settings.excluded_processes))
     if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
         raise ValueError("excluded_processes must be a JSON array of names")
-    for name in ("conservative", "manual_f8", "early_correction", "early_native", "show_caret_flag", "experimental_password_guard",
+    for name in ("conservative", "manual_f8", "early_correction", "early_native", "show_caret_flag", "experimental_password_guard", "show_events",
                  "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste", "journal_enabled", "quick_search"):
         if name in raw and type(raw[name]) is not bool:
             raise ValueError(f"{name} must be true or false")
@@ -272,6 +275,7 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
                     journal_days=raw.get("journal_days", 7), journal_apps=journal_apps,
                     excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
                     experimental_password_guard=raw.get("experimental_password_guard", False),
+                    show_events=raw.get("show_events", False),
                     conservative=raw.get("conservative", True),
                     manual_f8=raw.get("manual_f8", True),
                     manual_key=raw.get("manual_key", "Scroll Lock"),
@@ -2858,6 +2862,7 @@ class TypeBridgeGui:
         self.plain_paste_key = ChoiceVar(value=settings.plain_paste_key)
         self.cycle_key = ChoiceVar(value=settings.cycle_key)
         self._init_early_options(settings)
+        self.show_events = tk.BooleanVar(value=settings.show_events)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
@@ -2983,7 +2988,7 @@ class TypeBridgeGui:
                    command=self.remove_language_package).pack(side='left', padx=6)
         ttk.Button(actions, text='Восстановить пакет…',
                    command=self.restore_language_package).pack(side='left')
-        ttk.Label(frame, text="Для применения нового набора языков полностью выйди из TypeBridge и запусти его снова.",
+        ttk.Label(frame, text=LANGUAGE_SELECTION_HELP,
                   wraplength=620).pack(anchor="w", pady=(0, 8))
         self.corrections_check = ttk.Checkbutton(
             frame, text="Автоматически переключать раскладку", variable=self.corrections_enabled,
@@ -2992,20 +2997,18 @@ class TypeBridgeGui:
         Tooltip(self.corrections_check, "Исправлять слова, набранные в неправильной раскладке. Определяется после пробела или другого разделителя")
         rare_option = self._make_rare_words_option(frame)
         rare_option.pack(anchor="w")
-        Tooltip(rare_option, "Включено: весь словарь по пробелу; до пробела дополнительно исправляются "
-                "однозначные полные редкие слова от 5 букв, но не их незаконченные префиксы. "
-                "Выключено: только уверенные совпадения. Редкие слова увеличивают риск неверного выбора языка.")
+        Tooltip(rare_option, RARE_WORDS_HELP)
         early_option = self._make_early_option(frame)
         early_option.pack(anchor="w", pady=(6, 0))
         Tooltip(early_option, "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.")
         scope_note = ttk.Label(frame,
-            text="Защита паролей: проверяется поле, а не весь браузер", wraplength=620)
+            text=PASSWORD_CHECK_NOTE, wraplength=620)
         scope_note.pack(anchor="w", pady=(3, 0))
         guard_option = ttk.Checkbutton(
-            frame, text="Дополнительная UIA-проверка нативных полей",
+            frame, text=PASSWORD_CHECK_LABEL,
             variable=self.experimental_password_guard)
         guard_option.pack(anchor="w", pady=(6, 0))
-        Tooltip(guard_option, 'Браузерные и нестандартные поля проверяются всегда: парольные и непроверенные поля не изменяются. Эта опция дополнительно требует UIA для нативных редакторов. Проверка идёт в отдельном процессе без чтения текста. После изменения нужен полный перезапуск. Асинхронная UIA не гарантирует отсутствие гонки DOM-фокуса; R04 ещё не прошёл полную приёмку.')
+        Tooltip(guard_option, PASSWORD_CHECK_HELP)
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
@@ -3028,9 +3031,14 @@ class TypeBridgeGui:
         ttk.Button(tools, text="Дневник ввода…", command=self.open_journal).pack(side="left", padx=8)
         ttk.Button(tools, text="Быстрый поиск…", command=self.open_search).pack(side="left")
         ttk.Label(frame, textvariable=self.journal_status, foreground="#a12b20").pack(anchor="w")
-        ttk.Label(frame, text="События (слова не записываются):").pack(anchor="w")
-        self.log = tk.Text(frame, height=6, state="disabled", wrap="word")
-        self.log.pack(fill="both", expand=True, pady=(5, 0))
+        log_toggle = ttk.Checkbutton(frame, text=EVENT_LOG_LABEL, variable=self.show_events,
+                                    command=self._set_event_log_visibility)
+        log_toggle.pack(anchor="w", pady=(8, 0))
+        Tooltip(log_toggle, EVENT_LOG_HELP)
+        self.log_frame = ttk.LabelFrame(frame, text=EVENT_LOG_TITLE, padding=6)
+        self.log = tk.Text(self.log_frame, height=6, state="disabled", wrap="word")
+        self.log.pack(fill="both", expand=True)
+        self._set_event_log_visibility()
         dictionary = page("Мои слова и исключения")
         self._build_dictionary(dictionary)
         shortcuts = page("Горячие клавиши")
@@ -3096,10 +3104,16 @@ class TypeBridgeGui:
         indication = page("Индикация")
         ttk.Checkbutton(indication, text="Показывать флажок раскладки рядом с текстовым курсором",
                         variable=self.show_caret_flag).pack(anchor="w", pady=(0, 12))
-        ttk.Label(indication, text="Флажок показывает RU / EN / HE в активном поле ввода.\n"
-                  "Не забирает фокус и пропускает клики. Работает независимо\n"
-                  "от автоисправления. Если поле не сообщает положение каретки,\n"
-                  "индикатор скрывается.", wraplength=620).pack(anchor="w", pady=(0, 14))
+        ttk.Label(indication, text=INDICATOR_HELP, wraplength=620).pack(anchor="w", pady=(0, 14))
+
+    def _set_event_log_visibility(self):
+        frame = getattr(self, 'log_frame', None)
+        if frame is None:
+            return
+        if self.show_events.get():
+            frame.pack(fill="both", expand=True, pady=(6, 0))
+        else:
+            frame.pack_forget()
 
     def change_ui_language(self, event=None):
         selected = next((code for code, name in LANGUAGES.items() if name == self.ui_language.get()), None)
@@ -3362,6 +3376,8 @@ class TypeBridgeGui:
                             self.experimental_password_guard.get()
                             if getattr(self, 'experimental_password_guard', None) is not None
                             else getattr(self.search_settings, 'experimental_password_guard', False)),
+                        show_events=(self.show_events.get() if getattr(self, 'show_events', None) is not None
+                                     else getattr(self.search_settings, 'show_events', False)),
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
                         manual_key=self.manual_key.get(),

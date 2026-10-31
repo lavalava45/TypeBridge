@@ -133,7 +133,7 @@ class WordCycleTests(unittest.TestCase):
         self.assertEqual(self.text, "שלום ")
 
     def test_focus_move_and_cursor_move_discard_last_word(self):
-        for action in ("focus", "left", "backspace"):
+        for action in ("focus", "left"):
             self.setUp()
             self.type("xyzzy ")
             if action == "focus":
@@ -143,6 +143,17 @@ class WordCycleTests(unittest.TestCase):
             before = self.text
             self.cycle()
             self.assertEqual(self.text, before)
+
+    def test_backspace_removes_known_separator_before_manual_cycle(self):
+        # Pause lexical decisions to isolate navigation from corpus contents.
+        self.hook.paused = True
+        self.type('xyzzy ')
+        self.assertEqual(key(self.hook, VK_BACK), 0)
+        self.text = self.text[:-1]  # apply the forwarded physical Backspace
+        key(self.hook, VK_BACK, WM_KEYUP)
+        expected = self.engine.mapper.word(list(self.hook.keys), 'he')
+        self.cycle()
+        self.assertEqual(self.text, expected)
 
     def test_next_word_replaces_history_and_enter_discards_it(self):
         self.type("hello xyzzy ")
