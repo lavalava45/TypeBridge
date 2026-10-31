@@ -4,6 +4,28 @@ This describes the current source version. The published alpha EXE may contain
 fewer features; see [roadmap and limitations](../ROADMAP.md). This is a description
 of behavior and limitations, not a claim of independent security certification.
 
+**Source-only update, 31 October 2026 (supersedes the 27 October source status
+below, not the published EXE):** an *experimental*, **default-off** option now
+connects `PasswordFieldGuard` at GUI/headless hook startup. It requires fresh
+out-of-process UIA metadata identifying the focused element, including distinct
+HTML elements within one HWND. `unknown`, `password`, stale responses and missing
+element IDs deny corrective writes while allowing ordinary keystrokes through.
+Changing this option requires a complete application restart; it is not a hot
+reload. When active, the correction hook disables plaintext word/readback
+diagnostics even if old diagnostic flags are present. Historical log files are
+NOT deleted. This is unaccepted source code: asynchronous focus races, provider
+misreporting, real browser/password editors, physical input and Undo remain
+unverified. **Do not rely on this experimental mode to protect actual secrets.**
+
+**Обновление исходников от 31.10.2026:** экспериментальная проверка паролей
+подключена к запуску GUI/headless, но по умолчанию выключена. В режиме R04
+неизвестные и парольные поля, просроченные ответы и отсутствие идентификатора
+UIA-элемента блокируют исправления, но обычный ввод пропускается. Изменение
+опции действует только после полного перезапуска. Запись набранных слов
+в Diagnostics в этом режиме отключается, ранее созданные журналы не удаляются.
+Реальная защита браузерных паролей и физический ввод **не проверены**;
+перед вводом секретов по-прежнему необходимо выходить из TypeBridge.
+
 ## English
 
 **Known alpha security limitation (current source, 27 October 2026):**

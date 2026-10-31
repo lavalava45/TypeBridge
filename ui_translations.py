@@ -1585,4 +1585,28 @@ CATALOG.update({
     'en': 'This layout is not in the active language selection',
     'he': 'פריסת מקלדת זו אינה בין השפות הפעילות'
   },
+  'Экспериментальная проверка парольных полей (R04, после перезапуска)': {
+    'en': 'Experimental password-field guard (R04, restart required)',
+    'he': 'הגנה ניסיונית על שדות סיסמה (R04, נדרשת הפעלה מחדש)'
+  },
+  'Проверка парольных полей изменена: полностью выйди из TypeBridge и запусти снова': {
+    'en': 'Password-field guard changed: exit TypeBridge completely and restart it',
+    'he': 'הגנת שדות הסיסמה השתנתה: צא לחלוטין מ־TypeBridge והפעל אותו מחדש'
+  },
+  'Установить языковой пакет ZIP…': {
+    'en': 'Install language ZIP package…',
+    'he': 'התקנת חבילת שפה ZIP…'
+  },
+  'Обновить пакет ZIP…': {
+    'en': 'Update ZIP package…',
+    'he': 'עדכון חבילת ZIP…'
+  },
+  'Удалить отключённый пакет…': {
+    'en': 'Remove inactive package…',
+    'he': 'הסרת חבילה לא פעילה…'
+  },
+  'Восстановить пакет…': {
+    'en': 'Restore package…',
+    'he': 'שחזור חבילה…'
+  },
 })

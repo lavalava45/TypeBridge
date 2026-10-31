@@ -226,8 +226,13 @@ class Snapshot:
 
 
 class PasswordFieldGuard:
-    def __init__(self, changed=lambda: None, *, clock=time.monotonic):
+    def __init__(self, changed=lambda: None, *, clock=time.monotonic,
+                 require_element_id=False):
         self.changed, self.clock = changed, clock
+        # The real GUI/headless opt-in must never accept the legacy 3/5-field
+        # protocol, because it cannot distinguish different HTML inputs.
+        # Legacy model fixtures may still explicitly exercise that protocol.
+        self.require_element_id = bool(require_element_id)
         self.snapshot = Snapshot()
         self.invalidated_at = 0.0
         self.last_response = self.clock()
@@ -272,9 +277,16 @@ class PasswordFieldGuard:
                 raise ValueError()
             reason = parts[4] if len(parts) >= 5 else 'checked'
             element_id = parts[5] if len(parts) == 6 else ''
+            if self.require_element_id and state == 'safe' and len(parts) != 6:
+                state, reason = 'unknown', 'missing-element-id'
+            valid_uia = (element_id.startswith('uia:') and
+                         bool(element_id[4:]) and
+                         all(item.lstrip('-').isdigit() and item not in ('', '-')
+                             for item in element_id[4:].split(',')))
+            valid_win32 = (element_id == f'win32:{focus}' and focus > 0)
             if len(parts) == 6 and state == 'safe' and (
                     not element_id or len(element_id) > 256
-                    or not element_id.startswith(('uia:', 'win32:'))):
+                    or not (valid_uia or valid_win32)):
                 state, reason, element_id = 'unknown', 'missing-element-id', ''
             if len(parts) >= 5:
                 started = (int(parts[3]) - 621355968000000000) / 10_000_000

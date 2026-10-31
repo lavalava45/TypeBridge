@@ -113,3 +113,51 @@ that fixture was corrected; its individual suite passed 6/6, and the complete
 111/111 regression was then rerun successfully in 417.106 seconds.
 All Win32 hook and input operations in these tests are mocked/in-memory;
 no live password provider was started and no physical No01 acceptance occurred.
+
+## P0 continuation, 31 October 2026 — opt-in GUI/headless wiring (SOURCE ONLY)
+
+`Settings.experimental_password_guard` defaults to `false`, is strictly
+validated and round-trips through a copied settings file. The GUI now exposes
+a plainly labelled experimental checkbox; headless and GUI startup both use
+`staged_password_guard(settings)` when constructing the **real** `LiveHook`.
+The helper is *not* started in constructors or while settings are edited.
+It starts only inside a later, separately authorized `LiveHook.run()`.
+
+The opted-in factory requires the six-field element-identity protocol.
+Legacy short `safe` messages, unknown/password states, missing IDs and expired
+responses cannot enable mutation. The running hook refuses hot-swapping the
+guard at runtime: saved changes apply only after a full exit and restart.
+With R04 enabled, plaintext diagnostic word/readback traces are suppressed
+regardless of the pre-existing debug-word flag; old files are not deleted.
+If metadata becomes safe halfway through a word, the untracked suffix remains
+uncorrected through the first separator, preventing a partial token from being
+misidentified as a whole word. Physical keys still pass normally.
+
+**R01/R03/No01 integration:** after a verified native replacement, focus and
+password metadata are rechecked before CapsLock/HKL side effects. For generic
+`SendInput` the existing bounded single-remainder logic prevents replaying
+an accepted prefix; a new real-constructor test verifies a transition into
+`password` after partial acceptance stops the remainder. This only verifies
+Windows input *submission* behavior on mocks, never editor document contents
+or physical Undo. The six RU/EN/HE paths and strict before-Space/HKL/Undo
+criteria are described in the separate plan:
+[`P0-R04-NO01-PHYSICAL-ACCEPTANCE-20261031.md`](P0-R04-NO01-PHYSICAL-ACCEPTANCE-20261031.md).
+
+**Remaining risks:** UIA provider misreporting, silent DOM changes between
+polling and a Windows mutation, real metadata-helper load/timing, plaintext
+already logged before guard activation, clipboard/journal features (separate
+protections), Unicode/IME/unknown editors, physical key loss, and true
+application Undo. Default-off does **not** make the old published alpha safe
+for secrets. **R04 OPEN; R01/R03 PARTIAL; physical No01 BLOCKED.**
+
+**Final source validation (31 October 2026):** the combined 18-module
+integration/regression suite completed with **227/227 tests, zero failures or
+errors** in 359.125 seconds on Python 3.12. It covered the real LiveHook
+constructor with mocked Win32, R04 opt-in/metadata, R01/R03 held/partial input,
+off-hook/native paths, snippets, manual cycle, GUI/localization, six-direction
+models and No01 acceptance predicates. Earlier overlapping targeted runs
+included 129/129 transport tests, 24/24 six-direction-related checks and 34/34
+GUI/localization checks; these counts must NOT be added to 227. Compilation
+of the modified Python sources and `git diff --check` also succeeded.
+No live metadata helper, physical input, global hooks, frozen EXE, active
+user settings or public release were used in this validation.

@@ -163,6 +163,9 @@ class Settings:
     # Persisted in R16/2b but not enabled in runtime until GUI/HKL/hotkey gates.
     active_languages: tuple[str, ...] = DEFAULT_ACTIVE_LANGUAGES
     corrections_enabled: bool = False
+    # R04 staging: a per-profile, explicit opt-in. Applied only at hook startup.
+    # False preserves existing alpha behavior for every existing profile.
+    experimental_password_guard: bool = False
     conservative: bool = True
     only_window_title: str = ""
     manual_f8: bool = True
@@ -230,7 +233,7 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
     excluded = raw.get("excluded_processes", list(Settings.excluded_processes))
     if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
         raise ValueError("excluded_processes must be a JSON array of names")
-    for name in ("conservative", "manual_f8", "early_correction", "early_native", "show_caret_flag",
+    for name in ("conservative", "manual_f8", "early_correction", "early_native", "show_caret_flag", "experimental_password_guard",
                  "fix_caps_lock", "autostart", "corrections_enabled", "clipboard_history", "plain_paste", "journal_enabled", "quick_search"):
         if name in raw and type(raw[name]) is not bool:
             raise ValueError(f"{name} must be true or false")
@@ -267,6 +270,7 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
                     quick_search_engines=validate_engines(raw.get("quick_search_engines", DEFAULT_ENGINES), raw.get("quick_search_engine", "Google")),
                     journal_days=raw.get("journal_days", 7), journal_apps=journal_apps,
                     excluded_categories=categories, corrections_enabled=raw.get("corrections_enabled", False),
+                    experimental_password_guard=raw.get("experimental_password_guard", False),
                     conservative=raw.get("conservative", True),
                     manual_f8=raw.get("manual_f8", True),
                     manual_key=raw.get("manual_key", "Scroll Lock"),
@@ -311,6 +315,19 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
                 and chord.strip().casefold() != 'отключено'))
     compile_bindings(settings, catalog)
     return settings
+
+
+def staged_password_guard(settings: Settings):
+    """Construct opt-in R04 metadata only at startup; no GUI/UIA work here.
+
+    A running hook never hot-swaps guards on a settings save: changing the
+    setting requires a complete stop/restart of TypeBridge. The default None
+    path preserves old behavior, including all public alpha compatibility.
+    """
+    if not settings.experimental_password_guard:
+        return None
+    from password_fields import PasswordFieldGuard
+    return PasswordFieldGuard(require_element_id=True)
 
 
 def save_settings(settings: Settings, path: Path = SETTINGS_PATH, *, catalog=None) -> None:
@@ -550,12 +567,16 @@ class LiveHook:
         self.snippets = SnippetMatcher(snippets or SnippetConfig())
         self.pending_snippets = None
         self.pipeline_debug = DEBUG_ENABLED
-        self.debug_words = DEBUG_WORDS_ENABLED
+        # Opt-in R04 must not persist plaintext diagnostics while a helper
+        # can be stale or miss a same-HWND DOM password transition. Existing
+        # files are not deleted; no new word/readback trace is generated here.
+        self.debug_words = DEBUG_WORDS_ENABLED and password_guard is None
         self._browser_field_revision = 0
         # The HWND can stay unchanged while the focused browser DOM element
         # changes. A fresh metadata revision must start a new word, even if
         # the process, native focus HWND and keyboard layout all match.
         self._tracked_password_revision = None
+        self._guard_skipped_token = False
         self.debug_keyboard_callbacks = 0
         self.debug_keydowns = 0
         self.debug_mouse_callbacks = 0
@@ -2115,6 +2136,14 @@ class LiveHook:
                 self._quarantine_native()
                 self.token_blocked = True
             return False  # Forward the delimiter; never retry a possibly partial word edit.
+        # A verified editor write does not authorize subsequent HKL/CapsLock
+        # changes if focus or protected-field metadata changed meanwhile.
+        # Do not attempt a speculative Undo on the original document.
+        if not valid():
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('diagnostic', 'native-postwrite-layout-refused:context-changed')
+            return False
         if caps:
             events = (Input * 2)(input_key(VK_CAPITAL), input_key(VK_CAPITAL, KEYEVENTF_KEYUP))
             self.user32.SendInput(2, events, ctypes.sizeof(Input))
@@ -2237,6 +2266,13 @@ class LiveHook:
             self.clear_token()
             if password_guard is not None:
                 self._tracked_password_revision = None
+                # A portion of a word was delivered without tracking while
+                # metadata was unknown/password. If it later turns safe, the
+                # remaining suffix is NOT an independently verified word.
+                if vk in (VK_SPACE, VK_RETURN, VK_TAB):
+                    self._guard_skipped_token = False
+                elif 0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2:
+                    self._guard_skipped_token = True
             self.last_focus = 0
             self.last_language = ""
             return self.user32.CallNextHookEx(
@@ -2250,6 +2286,14 @@ class LiveHook:
                 self.last_focus = 0
                 self.last_language = ""
                 self._tracked_password_revision = revision
+            if getattr(self, '_guard_skipped_token', False):
+                # Do not convert a tail as a complete word, or consume manual
+                # commands. The first delimiter establishes a new safe token.
+                if vk in (VK_SPACE, VK_RETURN, VK_TAB):
+                    self._guard_skipped_token = False
+                self.clear_token()
+                return self.user32.CallNextHookEx(
+                    self.keyboard_hook, code, message, param)
         if vk != VK_BACK:
             # Retyping, shortcuts or navigation interrupt a consecutive run
             # of deletes. Never reuse its count for a different document span.
@@ -2419,6 +2463,7 @@ class LiveHook:
             password_guard = getattr(self, 'password_guard', None)
             if password_guard is not None:
                 password_guard.invalidate()
+                self._guard_skipped_token = False
             self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
             gate = getattr(self, 'native_queue', None)
             if gate is not None and gate.busy:
@@ -2504,6 +2549,10 @@ class LiveHook:
         # A new subset requires a fresh LayoutMapper and hook. Defer only that
         # field until restart; other settings retain their existing reload path.
         runtime_settings = running_engine_settings(settings, self.engine)
+        # Guard lifecycle is immutable for a running hook: an opt-in/opt-out
+        # saved during a session takes effect only after a full restart.
+        runtime_settings = replace(runtime_settings,
+            experimental_password_guard=self.password_guard is not None)
         index = cached_early_index(self.engine, lexicon) if settings.early_correction else None
         self.pending_config = (runtime_settings, lexicon, index)
         if self.thread_id:
@@ -2706,6 +2755,8 @@ class TypeBridgeGui:
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
         self.corrections_enabled = tk.BooleanVar(value=settings.corrections_enabled)
+        self.experimental_password_guard = tk.BooleanVar(
+            value=settings.experimental_password_guard)
         additional_keys = dict(settings.direct_extra)
         generic_keys = dict(settings.language_shortcuts)
         self.direct_keys = {
@@ -2840,6 +2891,15 @@ class TypeBridgeGui:
         early_option = self._make_early_option(frame)
         early_option.pack(anchor="w", pady=(6, 0))
         Tooltip(early_option, "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.")
+        guard_option = ttk.Checkbutton(
+            frame, text="Экспериментальная проверка парольных полей (R04, после перезапуска)",
+            variable=self.experimental_password_guard)
+        guard_option.pack(anchor="w", pady=(6, 0))
+        Tooltip(guard_option,
+                "По умолчанию отключено. При включении неизвестные поля не исправляются; "
+                "проверка UI Automation выполняется в отдельном процессе. "
+                "Изменение действует только после полного выхода из TypeBridge и нового запуска. "
+                "Защита браузерных паролей ещё НЕ прошла физическую приёмку.")
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
@@ -3192,6 +3252,10 @@ class TypeBridgeGui:
                         quick_search_engine=self.search_settings.quick_search_engine,
                         quick_search_engines=self.search_settings.quick_search_engines,
                         corrections_enabled=self.corrections_enabled.get(),
+                        experimental_password_guard=(
+                            self.experimental_password_guard.get()
+                            if getattr(self, 'experimental_password_guard', None) is not None
+                            else getattr(self.search_settings, 'experimental_password_guard', False)),
                         conservative=self.conservative.get(),
                         manual_f8=self.manual_f8.get(),
                         manual_key=self.manual_key.get(),
@@ -3299,8 +3363,12 @@ class TypeBridgeGui:
             self._apply_caret_indicator(settings.show_caret_flag)
             subset_pending = (settings.active_languages != getattr(
                 self, 'launch_languages', settings.active_languages))
+            guard_pending = (hook is not None and settings.experimental_password_guard !=
+                             bool(getattr(hook, 'password_guard', None)))
             self.emit("info", "Языки сохранены: полностью выйди из TypeBridge и запусти его снова" if
                       subset_pending else
+                      "Проверка парольных полей изменена: полностью выйди из TypeBridge и запусти снова" if
+                      guard_pending else
                       "Настройки сохранены; будут применены после загрузки" if
                       self.run_state == 'starting' and hook is None else
                       "Настройки сохранены и переданы переключателю")
@@ -3876,7 +3944,8 @@ class TypeBridgeGui:
                         engine.conservative = current.conservative
                         engine.user_lexicon = current_lexicon
                         self.hook = LiveHook(engine, current, self.emit,
-                                             snippets=self.snippet_config)
+                                             snippets=self.snippet_config,
+                                             password_guard=staged_password_guard(current))
                     if self.cancel_start.is_set():
                         self.hook.request_stop()
                     self.hook.run()
@@ -4025,7 +4094,8 @@ def main(argv=None) -> int:
             LiveHook(engine, settings,
                      lambda kind, msg: print(f"[{kind}] {msg}", flush=True),
                      accept_injected=args.accept_injected,
-                     snippets=SnippetConfig.load(USER_DIR / 'snippets.json')).run()
+                     snippets=SnippetConfig.load(USER_DIR / 'snippets.json'),
+                     password_guard=staged_password_guard(settings)).run()
         return 0
     root = tk.Tk()
     try:
