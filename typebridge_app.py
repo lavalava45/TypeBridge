@@ -813,6 +813,34 @@ class LiveHook:
         if not preserve_snippets and getattr(self, "snippets", None):
             self.snippets.reset()
 
+    def _restore_known_backspace(self, context, previous) -> bool:
+        """Resume only an exact in-memory word at the unchanged tracked caret.
+
+        No document/clipboard reads and no synthetic keys. The physical
+        Backspace is still delivered once by the caller.
+        """
+        if (previous is None or previous.scope != self._word_scope(context)
+                or previous.language != context.language or self.pressed(VK_SHIFT)
+                or not previous.text.isalpha() or len(previous.text) != len(previous.keys)
+                or len(previous.keys) > 40 or not all(ord(c) <= 0xFFFF for c in previous.text)
+                or previous.suffix.strip(' ')):
+            return False
+        try:
+            if self.engine.mapper.word(list(previous.keys), context.language) != previous.text:
+                return False
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            return False
+        suffix = previous.suffix[:-1] if previous.suffix else ''
+        keys = list(previous.keys) if previous.suffix else list(previous.keys[:-1])
+        self.clear_token(preserve_snippets=True)
+        if suffix:
+            previous.suffix = suffix  # At least one known space still separates words.
+            self.last_word = previous
+        else:
+            self.keys = keys
+        emit_pipeline(self, 'token-resumed', reason='known-word-backspace', interval=1)
+        return True
+
     def _native_blocked(self, context) -> bool:
         if getattr(self, 'native_edit_disabled', False):
             return True
@@ -2462,6 +2490,8 @@ class LiveHook:
                     # The entire tracked token is gone; its early conversion
                     # must not suppress recognition of the next typed word.
                     self.clear_token(preserve_snippets=True)
+            elif self._restore_known_backspace(context, previous):
+                pass
             else:
                 remaining = getattr(self, '_backspace_remaining', 0)
                 if (not remaining and previous is not None

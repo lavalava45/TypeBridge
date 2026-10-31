@@ -35,23 +35,81 @@ class BackspaceTrackingTests(unittest.TestCase):
         self.assertEqual(key(hook, VK_SPACE), 1)
         hook.user32.SendInput.assert_called_once()
 
-    def test_partial_deletion_keeps_unknown_word_tail_blocked(self):
+    def test_typing_after_known_separator_deletion_tracks_the_whole_word(self):
         hook = self.fixture()
         self.remember(hook)
         key(hook, VK_BACK)
         key(hook, ord('X'))
-        self.assertTrue(hook.token_blocked)
-        self.assertEqual(hook.keys, [])
+        self.assertFalse(hook.token_blocked)
+        self.assertEqual(hook.keys, [(ord(c.upper()), False) for c in 'testingx'])
         hook.user32.SendInput.assert_not_called()
 
-    def test_typing_during_deletion_invalidates_known_remaining_count(self):
+    def test_deleting_retyped_known_prefix_keeps_exact_remaining_key(self):
         hook = self.fixture()
         self.remember(hook)
         key(hook, VK_BACK)
         key(hook, ord('X'))
         for _ in range(7):
             key(hook, VK_BACK)
+        self.assertFalse(hook.token_blocked)
+        self.assertEqual(hook.keys, [(ord('T'), False)])
+
+    def test_removing_known_separator_restores_complete_tracked_word(self):
+        hook = self.fixture()
+        self.remember(hook)
+        key(hook, VK_BACK)
+        self.assertEqual(hook.keys, [(ord(c.upper()), False) for c in 'testing'])
+        self.assertFalse(hook.token_blocked)
+        key(hook, ord('X'))
+        self.assertEqual(len(hook.keys), 8)
+        self.assertEqual(key(hook, VK_SPACE), 1)
+        packet = hook.user32.SendInput.call_args.args[1]
+        deletes = [e for e in packet if e.u.ki.wVk == VK_BACK and not e.u.ki.dwFlags & 2]
+        self.assertEqual(len(deletes), 8)  # no trailing-only replacement
+
+    def test_remaining_known_separator_starts_independent_word(self):
+        hook = self.fixture()
+        self.remember(hook)
+        hook.last_word.suffix = '  '
+        key(hook, VK_BACK)
+        self.assertFalse(hook.token_blocked)
+        self.assertEqual(hook.last_word.suffix, ' ')
+        key(hook, ord('X'))
+        self.assertEqual(hook.keys, [(ord('X'), False)])
+
+    def test_mapping_mismatch_does_not_restore_known_prefix(self):
+        hook = self.fixture()
+        self.remember(hook)
+        hook.engine.mapper.word = lambda *_: 'different'
+        key(hook, VK_BACK)
         self.assertTrue(hook.token_blocked)
+        self.assertEqual(hook.keys, [])
+
+    def test_foreign_word_scope_never_restores_keys(self):
+        hook = self.fixture()
+        self.remember(hook)
+        hook.last_word.scope = ('another-field',)
+        key(hook, VK_BACK)
+        self.assertTrue(hook.token_blocked)
+        self.assertEqual(hook.keys, [])
+
+    def test_shift_backspace_does_not_guess_selection_behavior(self):
+        from typebridge_app import VK_SHIFT
+        hook = self.fixture()
+        self.remember(hook)
+        hook.pressed = lambda vk: vk == VK_SHIFT
+        key(hook, VK_BACK)
+        self.assertTrue(hook.token_blocked)
+        self.assertEqual(hook.keys, [])
+
+    def test_known_unfinished_word_restores_only_its_surviving_prefix(self):
+        hook = self.fixture()
+        self.remember(hook)
+        hook.last_word.suffix = ''
+        key(hook, VK_BACK)
+        self.assertEqual(hook.keys, [(ord(c.upper()), False) for c in 'testin'])
+        self.assertFalse(hook.token_blocked)
+        hook.user32.SendInput.assert_not_called()
 
     def test_backspace_into_unknown_text_keeps_existing_guard(self):
         hook = self.fixture()
