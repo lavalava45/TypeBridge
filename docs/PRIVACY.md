@@ -29,6 +29,12 @@ ES_PASSWORD или свежие UIA-метаданные с идентифика
 текст и не блокируется общим правилом R04. Атомарной гарантии для DOM-фокуса
 нет; проверка на реальном вводе и полное закрытие R04 ещё впереди.
 
+Desktop custom fields may additionally be checked through writable ValuePattern
+metadata or the current TextPattern selection's IsReadOnly attribute. This check
+reads no Value/GetText content and does not scan the whole document. Unknown or
+mixed attributes do not authorize a mutation. See
+[desktop editor compatibility](DESKTOP-EDITOR-COMPATIBILITY.md).
+
 ## English
 
 **Current alpha limitation (31 October 2026):** the correction hook now uses

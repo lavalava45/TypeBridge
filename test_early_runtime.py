@@ -167,14 +167,14 @@ class KeyboardEarlyTests(unittest.TestCase):
         self.hook.user32.SendInput.side_effect = lambda *args: 0
         self.driver.type('hello')
         self.assertEqual((self.driver.text,self.driver.language),('руддщ','ru'))
-        self.assertFalse(getattr(self.hook,'native_early_disabled',False))
+        self.assertFalse(getattr(self.hook,'keyboard_early_disabled',False))
         self.assertTrue(self.hook.token_blocked)
 
     def test_partial_insertions_do_not_retry_or_change_layout(self):
         self.driver.language = self.hook.last_language = 'ru'
         self.hook.user32.SendInput.side_effect = lambda *args: 1
         self.driver.type('hello')
-        self.assertTrue(self.hook.native_early_disabled)
+        self.assertTrue(self.hook.keyboard_early_disabled)
         self.assertTrue(self.hook.token_blocked)
         self.assertEqual(self.hook.user32.SendInput.call_count,2)  # Batch + keyup cleanup only.
         self.hook.user32.SendMessageTimeoutW.assert_not_called()

@@ -78,17 +78,52 @@ public static class PasswordMetadata {
         }
         return false;
     }
-    static bool EditableElement(AutomationElement element) {
+    public static bool EditableMetadata(int kind, bool enabled, bool focused,
+                                        bool value, bool valueReadOnly,
+                                        bool text, int textReadOnly, bool shared) {
+        if (!enabled || !focused) return false;
+        bool standard = kind == ControlType.Edit.Id || kind == ControlType.Document.Id;
+        // Retain the existing browser/WebView metadata policy unchanged.
+        if (shared) return standard && (value ? !valueReadOnly : text);
+        bool custom = kind == ControlType.Custom.Id || kind == ControlType.Pane.Id
+                      || kind == ControlType.ComboBox.Id;
+        if (!standard && !custom) return false;
+        if (value) return !valueReadOnly;
+        // TextPattern alone also exists in read-only documents. A non-native
+        // desktop editor must explicitly expose a writable current selection.
+        return text && textReadOnly == 0;
+    }
+    static bool EditableElement(AutomationElement element, bool shared) {
         object kind = element.GetCurrentPropertyValue(AutomationElement.ControlTypeProperty, true);
         object enabled = element.GetCurrentPropertyValue(AutomationElement.IsEnabledProperty, true);
         object focused = element.GetCurrentPropertyValue(AutomationElement.HasKeyboardFocusProperty, true);
-        if (!(enabled is bool) || !(bool)enabled || !(focused is bool) || !(bool)focused
-            || !(kind is ControlType) || ((ControlType)kind != ControlType.Edit && (ControlType)kind != ControlType.Document)) return false;
-        object value;
-        if (element.TryGetCurrentPattern(ValuePattern.Pattern, out value))
-            return !((ValuePattern)value).Current.IsReadOnly;
-        object text = element.GetCurrentPropertyValue(AutomationElement.IsTextPatternAvailableProperty, true);
-        return text is bool && (bool)text;
+        if (!(kind is ControlType) || !(enabled is bool) || !(focused is bool)
+            || !(bool)enabled || !(bool)focused) return false;
+        if (shared && (ControlType)kind != ControlType.Edit
+                   && (ControlType)kind != ControlType.Document) return false;
+        object pattern;
+        bool value = element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern);
+        bool valueReadOnly = value && ((ValuePattern)pattern).Current.IsReadOnly;
+        bool text = false; int textReadOnly = -1;
+        if (!value) {
+            if (shared) {
+                object available = element.GetCurrentPropertyValue(AutomationElement.IsTextPatternAvailableProperty, true);
+                text = available is bool && (bool)available;
+            } else {
+                text = element.TryGetCurrentPattern(TextPattern.Pattern, out pattern);
+                if (text) {
+                    // Query only metadata at the current selection/caret. Do
+                    // not fetch text or scan the whole office document.
+                    var ranges = ((TextPattern)pattern).GetSelection();
+                    if (ranges != null && ranges.Length == 1) {
+                        object readOnly = ranges[0].GetAttributeValue(TextPattern.IsReadOnlyAttribute);
+                        if (readOnly is bool) textReadOnly = (bool)readOnly ? 1 : 0;
+                    }
+                }
+            }
+        }
+        return EditableMetadata(((ControlType)kind).Id, (bool)enabled, (bool)focused,
+                                value, valueReadOnly, text, textReadOnly, shared);
     }
     static readonly object Sync = new object();
     public static readonly AutoResetEvent Wake = new AutoResetEvent(false);
@@ -162,7 +197,8 @@ public static class PasswordMetadata {
         try {
             scope = Scope();
             int native = NativeState(scope);
-            if (native >= 0 && !SharedScope(scope)) {
+            bool shared = SharedScope(scope);
+            if (native >= 0 && !shared) {
                 bool blocked = native == 1;
                 try {
                     AutomationElement nativeElement = AutomationElement.FromHandle(new IntPtr(scope[1]));
@@ -213,7 +249,7 @@ public static class PasswordMetadata {
                         int[] runtimeId = element.GetRuntimeId();
                         if (runtimeId != null && runtimeId.Length > 0) {
                             elementId = "uia:" + string.Join(",", runtimeId);
-                            state = blocked ? "password" : EditableElement(element) ? "safe" : "unknown";
+                            state = blocked ? "password" : EditableElement(element, shared) ? "safe" : "unknown";
                             reason = state == "unknown" ? "not-editable-element" : "checked";
                             checkedElement = state == "safe" ? element : null;
                         } else reason = "missing-runtime-id";

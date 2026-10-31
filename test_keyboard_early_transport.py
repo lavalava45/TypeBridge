@@ -13,7 +13,7 @@ class KeyboardEarlyTransportTests(unittest.TestCase):
     def fixture(self):
         hook = make_hook()
         hook.keys = [(0x47, False), (0x48, False), (0x42, False)]
-        hook.native_early_disabled = False
+        hook.keyboard_early_disabled = False
         hook._finish_early_layout = Mock(return_value=True)
         decision = Decision('ghb', 'при', 'ru', 'unique dictionary match')
         return hook, decision
@@ -143,6 +143,7 @@ class KeyboardEarlyTransportTests(unittest.TestCase):
         hook.user32.SendInput.assert_called_once()
         self.assertTrue(hook.native_queue.trigger_irreversible)
         self.assertTrue(hook.native_edit_disabled)
+        self.assertTrue(hook.keyboard_early_disabled)
 
     def test_post_write_fault_replays_independent_following_key_not_original(self):
         from test_app_controls import key
@@ -186,7 +187,7 @@ class KeyboardEarlyTransportTests(unittest.TestCase):
         hook._finish_early_layout.assert_not_called()
         self.assertEqual(hook.native_queue.aborted_reason,
                          'field-revision-changed-after-submit')
-        self.assertTrue(hook.native_early_disabled)
+        self.assertTrue(hook.keyboard_early_disabled)
 
     def test_mutation_exception_after_mouse_clears_keys_does_not_index_last_key(self):
         hook, decision = self.live_fixture()
@@ -230,7 +231,7 @@ class KeyboardEarlyTransportTests(unittest.TestCase):
         self.assertEqual(calls[0][0], (8, 0))
         self.assertEqual(calls[2], [(8, 2)])
         self.assertTrue(hook.token_blocked)
-        self.assertTrue(hook.native_early_disabled)
+        self.assertTrue(hook.keyboard_early_disabled)
         self.assertIn(0x42, hook.suppressed_keyups)
         hook._finish_early_layout.assert_not_called()
 

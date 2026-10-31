@@ -537,6 +537,7 @@ class LiveHook:
         self.early_done = False
         self.early_disabled = False
         self.native_early_disabled = False
+        self.keyboard_early_disabled = False
         self.native_edit_disabled = False
         self.native_blocked_scopes = set()
         self.native_edit_attempts = 0
@@ -1105,6 +1106,12 @@ class LiveHook:
                     self.emit('diagnostic', 'keyboard-job-refused:context-changed')
                     return False
                 return job()
+            except Exception:
+                if not layout_only:
+                    # Preserve the old stop-after-an-uncertain-worker-error
+                    # behavior for keyboard packets as well as native edits.
+                    self.keyboard_early_disabled = True
+                raise
             finally:
                 pending = getattr(self, '_keyboard_job_release', None)
                 if pending is not None and pending[0] == serial:
@@ -1150,6 +1157,7 @@ class LiveHook:
         if gate is not None and gate.busy:
             gate.abort('field-revision-changed-after-submit')
         self.native_early_disabled = True
+        self.keyboard_early_disabled = True
         self.clear_token()
         self.token_blocked = True
         self.emit('error', 'Поле браузера изменилось после отправки текста; '
@@ -1493,23 +1501,23 @@ class LiveHook:
                 or getattr(self, "early_done", False)):
             return False
         native = context.process_name != "notepad++.exe"
-        disabled_attribute = "native_early_disabled" if native else "early_disabled"
-        if getattr(self, disabled_attribute, False):
-            return False
-        if native and self._native_blocked(context):
-            return False
-        if native and getattr(self, 'native_early_deferred', False):
-            return False
         if native:
             if not self.settings.early_native:
                 return False
             name = ctypes.create_unicode_buffer(128)
             self.user32.GetClassNameW(context.focus, name, len(name))
             keyboard = not supports_native_edit(name.value)
-            if not keyboard and self._native_blocked(context):
-                return False
         else:
             keyboard = False
+        # A RichEdit timeout must not disable desktop web, office, Qt/WPF or
+        # other editors using keyboard packets. Each transport owns its state.
+        disabled_attribute = ("keyboard_early_disabled" if keyboard else
+                              "native_early_disabled" if native else "early_disabled")
+        if getattr(self, disabled_attribute, False):
+            return False
+        if native and not keyboard and (self._native_blocked(context)
+                or getattr(self, 'native_early_deferred', False)):
+            return False
         decision = suggest_live_early(self.engine, self.keys, context.language)
         if decision is None:
             if await_native_keyup:
@@ -1696,7 +1704,7 @@ class LiveHook:
                 return False  # Nothing inserted: deliver the held physical key normally.
             self._queue_browser_readback(context, decision.typed, decision.replacement,
                                          'early-partial', revision=readback_revision)
-            self.native_early_disabled = True
+            self.keyboard_early_disabled = True
             self.suppressed_keyups.add(current_vk)
             self.clear_token()
             self.token_blocked = True
@@ -1704,7 +1712,7 @@ class LiveHook:
         self.suppressed_keyups.add(current_vk)
         if self._browser_field_changed_after_submission(context, readback_revision):
             return True
-        finished = self._finish_early_layout(context, decision, "native_early_disabled",
+        finished = self._finish_early_layout(context, decision, "keyboard_early_disabled",
                                              keyboard=True)
         self._queue_browser_readback(context, decision.typed, decision.replacement,
                                      'early', revision=readback_revision)
