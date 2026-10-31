@@ -74,6 +74,17 @@ secure-input properties, field identity, deployment, Undo and six-direction
 compatibility would all need their own acceptance. No TSF component is installed
 or enabled by this patch; the existing transports remain in place.
 
+## User-reported manual field trial — 1 November 2026
+
+The user reported **3/3** in `tools/password-field-trial.html` using the current
+dc18665 EXE: ordinary correction, unchanged dummy password string, ordinary
+correction after leaving the password field. No actual secret was requested.
+This is a real-user final-state report, not an agent-observed key/UIA trace.
+Browser/version and navigation method were not recorded; refusal as password
+versus unknown was not distinguished. Script-driven same-HWND focus races,
+late provider responses and uncertain partial writes remain unaccepted.
+**R04 remains OPEN; this does not establish stable-release readiness.**
+
 ## Historical milestones (superseded by the current section above)
 
 Status: **SOURCE-ONLY, OPT-IN FOR UNIT/MODEL FIXTURES; NOT ENABLED IN GUI**.
