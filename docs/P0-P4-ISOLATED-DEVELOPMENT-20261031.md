@@ -5,6 +5,20 @@ The user authorized autonomous tests and builds. The real hardware keyboard
 still requires a human participant; injected or private-desktop events are
 not equivalent. No VM was used or authorized.
 
+## Update: rebuilt EXE and user hardware observation (31 October 2026)
+
+The approved local builder published Public and Diagnostics from clean feature
+commit `adda6a2d837df08e98d17cfe75cadc39e9b38145`. Frozen self-tests:
+**6/6 layout directions per profile**, plus 46/46 targeted post-build tests.
+Five existing profile JSON files retained their original SHA-256 hashes.
+After launching the updated Public EXE, the user replied to the six-direction
+physical typing instructions: **«все хорошо. со всеми раскладками»**.
+Treat this as a **user-reported successful physical RU/EN/HE six-direction
+trial**. It is not instrumented proof of each before-Space timing, HKL,
+Undo/Redo, stress input, focus transition or live password-field check.
+The basic hardware trial is no longer entirely untested, but full P0 and R04
+stable-release acceptance criteria remain open.
+
 ## P0: input delivery and native editor Undo
 
 `py -3.12 early_native_harness.py --runtime-self-test` ran on a separate,
