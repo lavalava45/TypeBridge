@@ -98,9 +98,8 @@ class HostedFocusTests(unittest.TestCase):
             lambda hwnd, output, size: setattr(output, 'value',
                 'ApplicationFrameWindow' if hwnd == 10 else 'Windows.UI.Core.CoreWindow'))
         self.assertEqual(layout_owner(hook.user32, 10, 20, 11, 22), (10, 11))
-        # The native HKL routing contract survives; opaque CoreWindow text
-        # mutation is now correctly denied by the default R04 gate.
-        self.assertIsNone(hook.context())
+        context = hook.context()
+        self.assertEqual((context.thread_id, context.language, context.layout_window), (11, "ru", 10))
 
     def test_normal_editor_still_uses_child_layout(self):
         hook = self.fixture()

@@ -1,25 +1,80 @@
 # TypeBridge: R04 staged password-field hardening, 2026-10-30
 
-## Release-candidate change: unconditional conservative field scope (31 October)
+## Current correction — field-level checks, 31 October 2026
 
-Earlier opt-in-only paragraphs below describe historical milestones. They no
-longer describe the **current source** default: `r04_text_target.py` now
-requires one of `EDIT`, `RichEdit20W`, `RichEdit50W`, `RichEditD2DPT`, or
-Scintilla *owned and hosted by Notepad++*. The real `LiveHook.context()`
-rejects browser/WebView processes and all unknown/custom controls BEFORE
-starting recognition, snippet matching, manual correction or hotkeys.
-This is enforced regardless of `experimental_password_guard`, whose native
-UIA worker can still restrict supported controls further. Unverified DOM
-fields within one HWND cannot race into a text mutation because **no DOM field
-is ever an allowed target**. Native EDIT/RichEdit are synchronously checked
-for `ES_PASSWORD` before the context is exposed, including at each worker
-revalidation. Normal physical input passes through without editing.
+The blanket browser/WebView/custom-control ban in `33c968c` was a regression.
+It is removed. Browser names and top-level classes no longer decide whether
+text correction is allowed; they only select the appropriate metadata source.
 
-Consequence: browser/Electron/custom-editor autocorrection is deliberately
-disabled by default, even for ordinary unmasked text. No exception whitelist
-for individual sites is permitted. Separate clipboard/global-hotkey routes,
-malformed native controls and all real physical acceptance remain distinct
-risks; this is not a blanket guarantee for every password manager or editor.
+GUI/headless startup constructs a metadata guard without reading text or
+changing settings. With the experimental checkbox OFF, ordinary native
+EDIT/RichEdit still use synchronous ES_PASSWORD, and Notepad++ Scintilla keeps
+its existing transport. Shared/browser/custom controls require a fresh safe
+UIA focused-element Runtime ID. The optional checkbox adds UIA checks to native
+editors too. It does not disable browsers. Unknown/password/stale responses
+refuse that field's text mutation while physical keys pass through.
+
+All generic text writes (early/boundary/manual/cycle/snippets and replay) use
+the existing guarded SendInput route. Its worker requires another safe metadata
+query after the pre-write request and checks the expected scope again. No UIA
+wait is introduced into WH_KEYBOARD_LL. Direct HKL commands use a separate
+scope/exclusion check and do not require text-mutation permission. A layout-only
+worker cannot authorize a subsequent text write on the keyboard thread.
+
+**Remaining limit:** UIA replies and SendInput are not one atomic DOM operation.
+A script-driven focus change or provider misreport after the last check remains
+possible. Neither these changes nor model tests establish universal password
+safety. R04 remains OPEN; no browser extension, VM, real password, global hook
+or physical typing was used to implement this patch. The Scintilla Undo fix
+`f4cae1e` is retained unchanged.
+
+Rollback: `typebridge/_r16_backups/20261031-r04-browser-field-fix-150929`, a
+SHA-256-verified 292-file source checkpoint at `33c968c`.
+
+## Verification of this correction (31 October 2026)
+
+- Full isolated sweep: all 116 `test_*.py` modules attempted. Two outdated
+  expectations (app-exclusion fixture and external-language startup) failed
+  first and passed after correction. `test_engine_user_lexicon` and
+  `test_word_recovery` exceeded the runner's 180-second cutoff; unchanged
+  test logic passed on longer reruns (4 tests / 322.313 s and 5 / 183.600 s).
+- Final combined module results: 1,107 test executions, 1 intentional skip,
+  zero remaining failures/errors. These are module-by-module results plus
+  recorded reruns, not a second full sweep after every edit.
+- Final field-scope fix passed 66 targeted checks: an untracked prefix remains
+  blocked in its original field, but does not poison the next native editor or
+  an ordinary field entered after an excluded window. The real constructor,
+  context, automatic/manual packet path in six directions, cycle routing,
+  HKL-only worker, helper failure, stale data and same-HWND ID changes are covered.
+- All 215 tracked Python files parsed; native helper C# compiled through the
+  real short-command/stdin launcher. Expanded script no longer overflows the
+  Windows command-line length limit. Shared-field pre-write waits are off-hook.
+- Source transports `early_scintilla.py`, `early_native_edit.py`,
+  `input_transport.py` and `native_transaction_queue.py` are unchanged.
+- No foreground typing, global hook or browser extension was used for this
+  patch's verification. These results do not prove real-browser document
+  results, universal password detection or physical before-Space acceptance.
+
+Local evidence (not committed):
+`typebridge/_r16_backups/20261031-r04-browser-field-fix-150929/regressions-final.json`
+and individual module/final rerun logs. Build identity and frozen profile
+checks are recorded separately by the canonical build's manifests.
+
+## Remaining architectural investigation (not implemented)
+
+SendInput has no DOM-element target: a newer UIA sample cannot make its
+subsequent event injection atomic with that element. Raising a timeout or
+whitelisting a browser cannot supply this missing binding. A candidate for
+separate investigation is a Windows TSF text service with edit sessions tied
+to an ITfContext, rather than a browser extension. Microsoft's
+[ITfContext::RequestEditSession](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-requesteditsession)
+provides document-context read/write sessions with lock/error semantics.
+That API capability does **not** prove browser compatibility or password safety:
+secure-input properties, field identity, deployment, Undo and six-direction
+compatibility would all need their own acceptance. No TSF component is installed
+or enabled by this patch; the existing transports remain in place.
+
+## Historical milestones (superseded by the current section above)
 
 Status: **SOURCE-ONLY, OPT-IN FOR UNIT/MODEL FIXTURES; NOT ENABLED IN GUI**.
 Do not mark R04 or physical No01 complete. This work deliberately prioritizes

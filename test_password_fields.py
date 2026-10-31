@@ -1,18 +1,17 @@
 """Password metadata and staged hook checks; no live hooks or typed input.
 
-The real GUI does not enable the metadata guard; explicitly injected guards
-must deny unknown/password/stale contexts and preserve native exclusions.
+The GUI supplies a field metadata guard. These offline fixtures also exercise
+explicit guards, unknown/password/stale refusal and native exclusions.
 """
 import unittest
 from unittest.mock import Mock, patch
 import os
 import queue
-import base64
 import json
 from pathlib import Path
 import subprocess
 
-from password_fields import PasswordFieldGuard, WATCH_SCRIPT
+from password_fields import PasswordFieldGuard, WATCH_SCRIPT, SCRIPT_BOOTSTRAP
 from test_app_controls import make_hook, key
 import test_short_words_settings as settings_tests
 import test_word_cycle as cycle_tests
@@ -31,9 +30,8 @@ class MetadataTests(unittest.TestCase):
 ) | ConvertTo-Json -Compress
 '''
         exe = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        result = subprocess.run([str(exe), '-NoProfile', '-NonInteractive', '-MTA', '-EncodedCommand',
-                                 base64.b64encode(script.encode('utf-16-le')).decode('ascii')],
-                                capture_output=True, timeout=15, creationflags=0x08000000)
+        result = subprocess.run([str(exe), '-NoProfile', '-NonInteractive', '-MTA', '-Command', SCRIPT_BOOTSTRAP],
+                                input=script.encode('utf-8'), capture_output=True, timeout=15, creationflags=0x08000000)
         self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
         self.assertEqual(json.loads(result.stdout.decode('utf-8-sig').strip().splitlines()[-1]), [0,1,0,1,-1])
 
@@ -51,9 +49,8 @@ class MetadataTests(unittest.TestCase):
 ) | ConvertTo-Json -Compress
 '''
         executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        result = subprocess.run([str(executable), '-NoProfile', '-NonInteractive', '-EncodedCommand',
-                                 base64.b64encode(script.encode('utf-16-le')).decode('ascii')],
-                                capture_output=True, timeout=15, creationflags=0x08000000)
+        result = subprocess.run([str(executable), '-NoProfile', '-NonInteractive', '-Command', SCRIPT_BOOTSTRAP],
+                                input=script.encode('utf-8'), capture_output=True, timeout=15, creationflags=0x08000000)
         self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
         output = result.stdout.decode('utf-8-sig').strip().splitlines()[-1]
         self.assertEqual(json.loads(output), [False, True, True, True, True, True])

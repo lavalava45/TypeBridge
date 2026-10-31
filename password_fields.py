@@ -4,7 +4,6 @@ The hook reads only a short-lived immutable snapshot. Unknown/stale states deny
 processing. UIA focus events are asynchronous; this is not a guarantee against
 providers that misreport password state, nor does it uninstall keyboard hooks.
 """
-import base64
 from dataclasses import dataclass
 import os
 import queue
@@ -12,6 +11,11 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+
+# Stream the fixed, local script instead of expanding it into -EncodedCommand:
+# UTF-16/base64 can exceed CreateProcess's 32767-character command-line limit.
+SCRIPT_BOOTSTRAP = ('[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); '
+                    '& ([ScriptBlock]::Create([Console]::In.ReadToEnd()))')
 
 
 WATCH_SCRIPT = r'''
@@ -55,6 +59,36 @@ public static class PasswordMetadata {
         long style = GetWindowLongPtrW(new IntPtr(scope[1]), -16).ToInt64();
         if (style == 0 && Marshal.GetLastWin32Error() != 0) return -1;
         return NativeStyleState(name.ToString(), style);
+    }
+    static bool SharedScope(long[] scope) {
+        if (scope == null) return false;
+        foreach (long hwnd in scope) {
+            var name = new System.Text.StringBuilder(128);
+            GetClassName(new IntPtr(hwnd), name, name.Capacity);
+            string cls = name.ToString().ToLowerInvariant();
+            foreach (string prefix in new string[] { "chrome_", "chromium", "cef", "webview", "mozilla", "ieframe", "internet explorer_server" })
+                if (cls.StartsWith(prefix)) return true;
+            uint pid; GetWindowThreadProcessId(new IntPtr(hwnd), out pid);
+            try {
+                using (var process = System.Diagnostics.Process.GetProcessById((int)pid)) {
+                    string exe = process.ProcessName.ToLowerInvariant();
+                    if (Array.IndexOf(new string[] { "chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "msedgewebview2", "webview2", "cefclient", "cefsharp.browsersubprocess" }, exe) >= 0) return true;
+                }
+            } catch { return true; } // Use element metadata when the owner cannot be resolved.
+        }
+        return false;
+    }
+    static bool EditableElement(AutomationElement element) {
+        object kind = element.GetCurrentPropertyValue(AutomationElement.ControlTypeProperty, true);
+        object enabled = element.GetCurrentPropertyValue(AutomationElement.IsEnabledProperty, true);
+        object focused = element.GetCurrentPropertyValue(AutomationElement.HasKeyboardFocusProperty, true);
+        if (!(enabled is bool) || !(bool)enabled || !(focused is bool) || !(bool)focused
+            || !(kind is ControlType) || ((ControlType)kind != ControlType.Edit && (ControlType)kind != ControlType.Document)) return false;
+        object value;
+        if (element.TryGetCurrentPattern(ValuePattern.Pattern, out value))
+            return !((ValuePattern)value).Current.IsReadOnly;
+        object text = element.GetCurrentPropertyValue(AutomationElement.IsTextPatternAvailableProperty, true);
+        return text is bool && (bool)text;
     }
     static readonly object Sync = new object();
     public static readonly AutoResetEvent Wake = new AutoResetEvent(false);
@@ -128,7 +162,7 @@ public static class PasswordMetadata {
         try {
             scope = Scope();
             int native = NativeState(scope);
-            if (native >= 0) {
+            if (native >= 0 && !SharedScope(scope)) {
                 bool blocked = native == 1;
                 try {
                     AutomationElement nativeElement = AutomationElement.FromHandle(new IntPtr(scope[1]));
@@ -179,9 +213,9 @@ public static class PasswordMetadata {
                         int[] runtimeId = element.GetRuntimeId();
                         if (runtimeId != null && runtimeId.Length > 0) {
                             elementId = "uia:" + string.Join(",", runtimeId);
-                            state = blocked ? "password" : "safe";
-                            reason = "checked";
-                            checkedElement = element;
+                            state = blocked ? "password" : EditableElement(element) ? "safe" : "unknown";
+                            reason = state == "unknown" ? "not-editable-element" : "checked";
+                            checkedElement = state == "safe" ? element : null;
                         } else reason = "missing-runtime-id";
                     }
                 }
@@ -227,17 +261,16 @@ class Snapshot:
 
 class PasswordFieldGuard:
     def __init__(self, changed=lambda: None, *, clock=time.monotonic,
-                 require_element_id=False, native_only=False):
+                 require_element_id=False, native_only=False, native_fast_path=False):
         self.changed, self.clock = changed, clock
         # The real GUI/headless opt-in must never accept the legacy 3/5-field
         # protocol, because it cannot distinguish different HTML inputs.
         # Legacy model fixtures may still explicitly exercise that protocol.
         self.require_element_id = bool(require_element_id)
-        # An asynchronous UIA snapshot cannot prove that a DOM element in a
-        # shared browser HWND has not changed immediately before SendInput.
-        # Production opt-in therefore restricts mutation to native editors
-        # whose actual style can also be checked synchronously by LiveHook.
+        # Kept for constructor compatibility with older harnesses only. No
+        # production policy refuses a browser based on this historical flag.
         self.native_only = bool(native_only)
+        self.native_fast_path = bool(native_fast_path)
         self.snapshot = Snapshot()
         self.invalidated_at = 0.0
         self.last_response = self.clock()
@@ -245,6 +278,7 @@ class PasswordFieldGuard:
         self.unknown_notified = False
         self.stopped = threading.Event()
         self.lock = threading.RLock()
+        self.refreshed = threading.Condition(self.lock)
         self.process = None
         self.worker = None
 
@@ -266,6 +300,7 @@ class PasswordFieldGuard:
             self.snapshot = Snapshot(top, focus, state,
                                      self.clock() if checked_at is None else checked_at,
                                      previous.revision + int(changed), reason, element_id)
+            self.refreshed.notify_all()
         if notice_changed:
             self.changed()
 
@@ -337,6 +372,30 @@ class PasswordFieldGuard:
         self.worker = threading.Thread(target=self._watch, name='password-metadata', daemon=True)
         self.worker.start()
 
+    def revalidate(self, top, focus, revision, *, timeout=.35):
+        """Off-hook check using metadata queried after this request.
+
+        This narrows the asynchronous UIA race; it cannot atomically bind a
+        SendInput call to a DOM element. No field contents are read.
+        """
+        started = self.clock()
+        deadline = time.monotonic() + timeout
+        with self.refreshed:
+            while not self.stopped.is_set():
+                permitted = self.permit_revision(top, focus)
+                sample = self.snapshot
+                if permitted != revision:
+                    return False
+                # Windows monotonic can have a coarse clock tick: equality
+                # is NOT evidence that another provider query has finished.
+                if sample.element_id.startswith('win32:') or sample.checked > started:
+                    return True
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self.refreshed.wait(min(remaining, .05))
+        return False
+
     def _watch(self):
         while not self.stopped.is_set():
             self._watch_once()
@@ -347,13 +406,14 @@ class PasswordFieldGuard:
     def _watch_once(self):
         try:
             executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-            encoded = base64.b64encode(WATCH_SCRIPT.encode('utf-16-le')).decode('ascii')
             self.process = subprocess.Popen([str(executable), '-NoProfile', '-NonInteractive', '-MTA',
-                                              '-EncodedCommand', encoded], stdin=subprocess.DEVNULL,
+                                              '-Command', SCRIPT_BOOTSTRAP], stdin=subprocess.PIPE,
                                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                              text=True, encoding='utf-8', creationflags=0x08000000)
             if self.stopped.is_set():
                 return
+            self.process.stdin.write(WATCH_SCRIPT)
+            self.process.stdin.close()
             replies = queue.Queue()
             process = self.process
             def read_lines():

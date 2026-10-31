@@ -5,13 +5,27 @@
 [ROADMAP.md](ROADMAP.md). Инструкции: [RU](README-RU.md), [EN](README.md),
 [HE](README-HE.md).
 
-**Внимание (актуальные исходники, 27.10.2026):** исторические записи ниже
-о `PasswordFieldGuard`/UIA отражают прежние реализации и эксперименты.
-Общий UIA guard **сейчас отключён от `LiveHook`**. Пароли в браузерных полях
-не определяются надёжно; возможно исправление секретного ввода и его запись
-при специально включённой диагностике слов. Документация исправлена,
-сам дефект остаётся открытым. См. [PRIVACY.md](docs/PRIVACY.md) и R04
-в [ROADMAP.md](ROADMAP.md).
+**Текущие исходники, 31.10.2026:** UIA-проверка конкретного поля подключена
+к hook для браузерных/нестандартных контролов; общий запрет браузеров снят.
+Исторические записи отражают прежние реализации. Атомарной гарантии между
+UIA и DOM/SendInput нет: R04 остаётся открытым. Состояние опубликованного EXE
+проверяется отдельно. См. [PRIVACY.md](docs/PRIVACY.md).
+
+## Unreleased — field-level R04 browser regression fix (2026-10-31)
+
+- Removed blanket browser/WebView/custom-editor exclusions. GUI/headless now
+  obtain focused-element metadata for shared/custom fields; the optional UIA
+  setting additionally checks native editors. ES_PASSWORD and app exclusions stay.
+- Restored automatic/manual/cycle eligibility in verified ordinary browser fields
+  and separated direct HKL selection from permission to change field text.
+- Added worker-only pre-write metadata refresh; stale/unknown/password/different
+  elements refuse mutation. Plaintext tracing stays suppressed with a guard.
+- Scoped skipped-prefix tracking to the field that missed input, preserving the
+  first word after leaving own/excluded windows or another unverified editor.
+- Streamed the fixed UIA script through stdin to avoid Windows command-line
+  overflow; no temporary script or execution-policy change is needed.
+- Preserved Scintilla/NativeEdit transports and `f4cae1e` Undo behavior. UIA still
+  has a non-atomic DOM-focus race; R04/physical acceptance remain open.
 
 ## Не выпущено — после v0.1.0-alpha.6
 

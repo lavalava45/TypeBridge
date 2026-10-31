@@ -64,7 +64,7 @@ BROWSER_APPS = frozenset({'chrome.exe', 'msedge.exe', 'firefox.exe',
                           'brave.exe', 'opera.exe', 'vivaldi.exe'})
 TRACE_APPS = BROWSER_APPS | frozenset({'notepad.exe', 'notepad++.exe'})
 from early_native_edit import NativeEditBridge, supports_native_edit
-from r04_text_target import trusted_mutation_target
+from r04_text_target import native_field_metadata
 from word_recovery import recover_prefix
 from input_transport import send_with_remainder, unmatched_keydowns
 from native_transaction_queue import NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES
@@ -319,16 +319,14 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
 
 
 def staged_password_guard(settings: Settings):
-    """Construct opt-in R04 metadata only at startup; no GUI/UIA work here.
+    """Shared/custom text fields always need metadata; strict native UIA is optional.
 
-    A running hook never hot-swaps guards on a settings save: changing the
-    setting requires a complete stop/restart of TypeBridge. The default None
-    path preserves old behavior, including all public alpha compatibility.
+    Construction does no UIA work. run() owns helper lifetime. The default
+    keeps proven native style checks independent of provider startup.
     """
-    if not settings.experimental_password_guard:
-        return None
     from password_fields import PasswordFieldGuard
-    return PasswordFieldGuard(require_element_id=True, native_only=True)
+    return PasswordFieldGuard(require_element_id=True,
+                              native_fast_path=not settings.experimental_password_guard)
 
 
 def save_settings(settings: Settings, path: Path = SETTINGS_PATH, *, catalog=None) -> None:
@@ -524,11 +522,10 @@ class LiveHook:
         self.settings = settings
         self.emit = emit
         self.accept_injected = accept_injected
-        # R04 staged integration. A guard is injected only by an explicitly
-        # controlled test harness; the existing GUI/runtime never supplies it.
-        # Unknown and stale snapshots are rejected, never queried via UIA in
-        # the low-level keyboard callback. Default behavior stays unchanged
-        # until independent physical acceptance has proved this mode safe.
+        # Startup supplies the field guard. Shared/custom controls require
+        # metadata; default native editors retain synchronous style checks.
+        # Explicit None remains available to isolated legacy model fixtures.
+        # No UIA provider calls or waits occur in the keyboard callback.
         self.password_guard = password_guard
         self.user32 = ctypes.WinDLL("user32", use_last_error=True)
         self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -699,6 +696,16 @@ class LiveHook:
             self.kernel32.CloseHandle(handle)
 
     def context(self) -> FocusContext | None:
+        layout_only = getattr(getattr(self, '_native_worker_tls', None), 'layout_only', False)
+        return self._context(for_layout=layout_only is True)
+
+    def layout_context(self) -> FocusContext | None:
+        """Scope/exclusions for an HKL change; never permission to edit text."""
+        return self._context(for_layout=True)
+
+    def _context(self, *, for_layout=False) -> FocusContext | None:
+        if not for_layout:
+            self.protection_scope = None  # Own/excluded windows are not failed field checks.
         top = int(self.user32.GetForegroundWindow() or 0)
         if not top:
             emit_pipeline(self, 'context-rejected', reason='no-foreground', interval=4)
@@ -742,48 +749,32 @@ class LiveHook:
             top_buffer = ctypes.create_unicode_buffer(128)
             self.user32.GetClassNameW(top, top_buffer, len(top_buffer))
             top_class = top_buffer.value.casefold()
-        # Mandatory R04 gate, independent of the experimental UIA checkbox.
-        # HTML/password inputs can change while sharing one native HWND, even
-        # between two UIA samples. The only reliable default is to NOT mutate
-        # browser/WebView or unverified custom controls at all. Native EDIT/
-        # RichEdit use the synchronous ES_PASSWORD check below; Scintilla is
-        # admitted only in the specifically supported Notepad++ process.
-        if not trusted_mutation_target(process, host_process, focus_class, top_class):
-            emit_pipeline(self, 'context-rejected', reason='r04-unverified-text-target', interval=4)
-            return None
         password_guard = getattr(self, 'password_guard', None)
-        if password_guard is not None and getattr(password_guard, 'native_only', False):
-            # The helper samples UIA asynchronously. A same-HWND HTML input
-            # can become a password field between two samples, including
-            # between valid() and SendInput. Fail closed on ALL browser/custom
-            # controls until per-mutation target binding is available.
-            # Pure native EDIT/RichEdit has a synchronous ES_PASSWORD style
-            # check below, in addition to fresh helper metadata.
-            if (process in BROWSER_APPS or host_process in BROWSER_APPS
-                    or focus_class not in ('edit', 'richedit20w', 'richedit50w',
-                                           'richeditd2dpt')):
-                emit_pipeline(self, 'context-rejected', reason='r04-native-only', interval=4)
-                return None
+        native_metadata = native_field_metadata(process, host_process, focus_class, top_class)
+        check_metadata = (not for_layout and password_guard is not None and not (
+            getattr(password_guard, 'native_fast_path', False) is True
+            and native_metadata))
         # These are navigation/list surfaces, not text editors. Their
         # type-ahead may look like a word to the hook, but injecting Backspace
         # can navigate folders, move selection or trigger other commands.
         # Keep actual EDIT/RichEdit/Scintilla and browser content widgets
         # eligible; this is a targeted exclusion, NOT a universal text-field
         # detector for arbitrary custom controls.
-        if (focus_class in ('syslistview32', 'systreeview32', 'shelldll_defview',
+        if not for_layout and (focus_class in ('syslistview32', 'systreeview32', 'shelldll_defview',
                             'directuihwnd', 'toolbarwindow32')
                 or (process == 'explorer.exe' and focus_class in
                     ('cabinetwclass', 'explorewclass', 'shell_traywnd',
                      'progman', 'workerw'))):
             emit_pipeline(self, 'context-rejected', reason='non-text-navigation-control', interval=4)
             return None
-        if (focus_class in ("edit", "richedit20w", "richedit50w", "richeditd2dpt")
+        if (not for_layout and focus_class in ("edit", "richedit20w", "richedit50w", "richeditd2dpt")
                 and self.user32.GetWindowLongPtrW(focus, GWL_STYLE)
                 & ES_PASSWORD):
             emit_pipeline(self, 'context-rejected', reason='protected-edit', interval=4)
             return None
         password_revision = 0
-        if password_guard is not None:
+        if check_metadata:
+            self.protection_scope = (top, focus)
             # Metadata comes exclusively from an independent worker. Never
             # block a callback on the UIA provider, and never interpret
             # 'unknown' as permission. The revision is part of every scope
@@ -791,6 +782,11 @@ class LiveHook:
             password_revision = password_guard.permit_revision(top, focus)
             if password_revision is None:
                 emit_pipeline(self, 'context-rejected', reason='password-metadata-unverified', interval=4)
+                return None
+            if (not native_metadata
+                    and getattr(password_guard, 'require_element_id', False) is True
+                    and not password_guard.snapshot.element_id.startswith('uia:')):
+                emit_pipeline(self, 'context-rejected', reason='missing-uia-element-id', interval=4)
                 return None
         owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
         raw_hkl = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFFFFFF
@@ -969,6 +965,22 @@ class LiveHook:
         """
         if not valid():
             return 0, 'context-changed-before-send'
+        guard = getattr(self, 'password_guard', None)
+        layout_only = getattr(getattr(self, '_native_worker_tls', None), 'layout_only', False)
+        if guard is not None and layout_only is not True:
+            # Never wait for UIA in WH_KEYBOARD_LL. All live generic text
+            # mutations are scheduled off-hook before reaching this method.
+            if (getattr(self, '_in_keyboard_callback', False)
+                    and not self._native_is_off_hook()):
+                return 0, 'password-check-requires-worker'
+            current = self.context()
+            if current is None:
+                return 0, 'password-field-unverified'
+            if current.password_revision and not guard.revalidate(
+                    current.top, current.focus, current.password_revision):
+                return 0, 'password-field-changed-before-send'
+            if not valid():
+                return 0, 'context-changed-after-password-check'
 
         def send(part):
             if before_send is not None:
@@ -995,7 +1007,8 @@ class LiveHook:
         return PhysicalKey(int(vk), int(event.scanCode), int(event.flags),
                            int(message), trigger)
 
-    def _schedule_native(self, context, job, *, trigger=None, drop_always=False):
+    def _schedule_native(self, context, job, *, trigger=None, drop_always=False,
+                         layout_only=False):
         """Start a native editor transaction off WH_KEYBOARD_LL.
 
         The hook then only captures physical keys to a bounded queue. On
@@ -1013,10 +1026,13 @@ class LiveHook:
                 command_trigger=drop_always):
             return False
 
+        gate.layout_only = layout_only
+
         def work():
             drop_trigger = bool(drop_always)
             try:
                 self._native_worker_tls.active = True
+                self._native_worker_tls.layout_only = layout_only
                 current = self.context()
                 if (not self.stopping and current is not None and
                         self._native_scope(current) == gate.target_scope):
@@ -1041,6 +1057,7 @@ class LiveHook:
                     self.emit('error', 'Ошибка возврата клавиш: ' + type(error).__name__)
                 finally:
                     self._native_worker_tls.active = False
+                    self._native_worker_tls.layout_only = False
 
         thread = threading.Thread(target=work, name='TypeBridgeNativeEdit', daemon=True)
         self.native_worker = thread
@@ -1053,7 +1070,7 @@ class LiveHook:
             return False
 
     def _schedule_keyboard(self, context, job, *, trigger, drop_always=False,
-                           allow_paused=False):
+                           allow_paused=False, layout_only=False):
         """Hold the physical event, then send only after the hook has returned.
 
         A posted message, not a sleep or a reentrant callback flag, acknowledges
@@ -1093,8 +1110,9 @@ class LiveHook:
                 if pending is not None and pending[0] == serial:
                     self._keyboard_job_release = None
 
+        options = {'layout_only': True} if layout_only else {}
         started = self._schedule_native(context, released_job, trigger=trigger,
-                                        drop_always=drop_always)
+                                        drop_always=drop_always, **options)
         if not started:
             self._keyboard_job_release = None
         else:
@@ -1746,7 +1764,7 @@ class LiveHook:
             if not self._schedule_keyboard(
                     context, lambda: self._switch_direct(context, language),
                     trigger=self._last_physical_event, drop_always=True,
-                    allow_paused=True):
+                    allow_paused=True, layout_only=True):
                 self.emit('diagnostic', 'direct-layout-worker-unavailable')
             return  # Never fall back to waiting inside the hook.
         try:
@@ -2212,11 +2230,14 @@ class LiveHook:
                 self.keyboard_hook, code, message, param)
         password_guard = getattr(self, 'password_guard', None)
         if (password_guard is not None and message in (WM_KEYDOWN, WM_SYSKEYDOWN)
-                and (vk in (VK_TAB, VK_RETURN, 0x1B, 0x21, 0x22, 0x23, 0x24,
+                and (vk in (VK_TAB, 0x1B, 0x21, 0x22, 0x23, 0x24,
                             0x25, 0x26, 0x27, 0x28)
                      or (vk not in MODIFIER_VKS and any(
                          self.pressed(mod) for mod in
                          (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN))))):
+            # Enter may delimit text: its worker rechecks the element before
+            # the still-held delimiter is delivered. Do not invalidate its
+            # word prematurely. Actual focus changes have their own UIA ID.
             # Keyboard-only focus navigation can change the DOM text field
             # while its native HWND remains unchanged. Invalidate before a
             # callback may act on the previous element's 'safe' snapshot.
@@ -2243,7 +2264,8 @@ class LiveHook:
                     self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
                     gate.abort('field-revision-changed')
                 try:
-                    current = self.context()
+                    current = (self.layout_context() if getattr(gate, 'layout_only', False)
+                               else self.context())
                     same = (current is not None and
                             (gate.target_scope is None or
                              self._native_scope(current) == gate.target_scope))
@@ -2291,6 +2313,30 @@ class LiveHook:
                 self.keyboard_hook, code, message, param)
         self._last_physical_event = self._physical_event(vk, message, event, trigger=True)
         emit_pipeline(self, 'hook-keydown', interval=5)
+        if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
+                and self.pressed(VK_MENU) and self.layout_context() is not None):
+            # Pause is another non-mutating command, independent of UIA state.
+            if vk not in self.suppressed_keyups:
+                self.toggle_pause()
+                self.suppressed_keyups.add(vk)
+            return 1
+        # Selecting HKL does not mutate field text. Keep this command usable
+        # in password/unknown UIA fields while honoring window/app exclusions.
+        if vk not in MODIFIER_VKS and not (self.pressed(VK_LWIN) or self.pressed(VK_RWIN)):
+            chord = Chord(vk, frozenset(key for key in (VK_CONTROL, VK_MENU, VK_SHIFT)
+                                       if self.pressed(key)))
+            if getattr(self, '_binding_settings', None) is not self.settings:
+                self._direct_bindings = compile_bindings(
+                    self.settings, getattr(self.engine, 'language_catalog', None))
+                self._binding_settings = self.settings
+            language = self._direct_bindings.get(chord)
+            if language:
+                layout_context = self.layout_context()
+                if layout_context is not None:
+                    if vk not in self.suppressed_keyups:
+                        self.suppressed_keyups.add(vk)
+                        self._switch_direct(layout_context, language)
+                    return 1
         context = self.context()
         if context is None:
             self.clear_token()
@@ -2299,10 +2345,12 @@ class LiveHook:
                 # A portion of a word was delivered without tracking while
                 # metadata was unknown/password. If it later turns safe, the
                 # remaining suffix is NOT an independently verified word.
-                if vk in (VK_SPACE, VK_RETURN, VK_TAB):
+                skipped_scope = getattr(self, 'protection_scope', None)
+                if skipped_scope is None or vk in (VK_SPACE, VK_RETURN, VK_TAB):
                     self._guard_skipped_token = False
                 elif 0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2:
                     self._guard_skipped_token = True
+                    self._guard_skipped_scope = skipped_scope
             self.last_focus = 0
             self.last_language = ""
             return self.user32.CallNextHookEx(
@@ -2316,6 +2364,10 @@ class LiveHook:
                 self.last_focus = 0
                 self.last_language = ""
                 self._tracked_password_revision = revision
+            if (getattr(self, '_guard_skipped_token', False)
+                    and getattr(self, '_guard_skipped_scope', (context.top, context.focus))
+                    != (context.top, context.focus)):
+                self._guard_skipped_token = False  # A skipped prefix belongs only to its field.
             if getattr(self, '_guard_skipped_token', False):
                 # Do not convert a tail as a complete word, or consume manual
                 # commands. The first delimiter establishes a new safe token.
@@ -2332,13 +2384,6 @@ class LiveHook:
                             VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN, 0xA2, 0xA3, 0xA4, 0xA5)
                 or any(self.pressed(k) for k in (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN))):
             self._browser_field_revision = getattr(self, '_browser_field_revision', 0) + 1
-        if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
-                and self.pressed(VK_MENU)):
-            # Key-repeat must not toggle the pause state more than once.
-            if vk not in self.suppressed_keyups:
-                self.toggle_pause()
-                self.suppressed_keyups.add(vk)
-            return 1
         if (context.focus != self.last_focus
                 or context.language != self.last_language):
             if self.keys:
@@ -2352,19 +2397,6 @@ class LiveHook:
                 self.clear_token()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
-        if not (self.pressed(VK_LWIN) or self.pressed(VK_RWIN)):
-            chord = Chord(vk, frozenset(key for key in (VK_CONTROL, VK_MENU, VK_SHIFT)
-                                       if self.pressed(key)))
-            if getattr(self, "_binding_settings", None) is not self.settings:
-                self._direct_bindings = compile_bindings(
-                    self.settings, getattr(self.engine, 'language_catalog', None))
-                self._binding_settings = self.settings
-            language = self._direct_bindings.get(chord)
-            if language:
-                if vk not in self.suppressed_keyups:
-                    self.suppressed_keyups.add(vk)
-                    self._switch_direct(context, language)
-                return 1
         if (vk == CYCLE_KEYS[self.settings.cycle_key] and vk != 0
                 and not any(self.pressed(key) for key in
                             (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN))):
@@ -2582,7 +2614,8 @@ class LiveHook:
         # Guard lifecycle is immutable for a running hook: an opt-in/opt-out
         # saved during a session takes effect only after a full restart.
         runtime_settings = replace(runtime_settings,
-            experimental_password_guard=getattr(self, 'password_guard', None) is not None)
+            experimental_password_guard=(getattr(self, 'password_guard', None) is not None
+                and getattr(self.password_guard, 'native_fast_path', False) is not True))
         index = cached_early_index(self.engine, lexicon) if settings.early_correction else None
         self.pending_config = (runtime_settings, lexicon, index)
         if self.thread_id:
@@ -2922,20 +2955,13 @@ class TypeBridgeGui:
         early_option.pack(anchor="w", pady=(6, 0))
         Tooltip(early_option, "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.")
         scope_note = ttk.Label(frame,
-            text="R04: браузеры, WebView и неизвестные редакторы не исправляются")
+            text="Защита паролей: проверяется поле, а не весь браузер", wraplength=620)
         scope_note.pack(anchor="w", pady=(3, 0))
         guard_option = ttk.Checkbutton(
-            frame, text="Дополнительная экспериментальная UIA-проверка (после перезапуска)",
+            frame, text="Дополнительная UIA-проверка нативных полей",
             variable=self.experimental_password_guard)
         guard_option.pack(anchor="w", pady=(6, 0))
-        Tooltip(guard_option,
-                "Браузеры, WebView и неизвестные поля не исправляются ВСЕГДА, "
-                "независимо от этой галочки. В обычном режиме поддержаны нативные "
-                "EDIT/RichEdit и Scintilla только в Notepad++. Экспериментальный "
-                "UIA-режим дополнительно ограничивает коррекцию нативными EDIT/RichEdit. "
-                "UI Automation выполняется в отдельном процессе. "
-                "Изменение действует только после полного выхода из TypeBridge и нового запуска. "
-                "Не является полной сертификацией защиты всех парольных полей.")
+        Tooltip(guard_option, 'Браузерные и нестандартные поля проверяются всегда: парольные и непроверенные поля не изменяются. Эта опция дополнительно требует UIA для нативных редакторов. Проверка идёт в отдельном процессе без чтения текста. После изменения нужен полный перезапуск. Асинхронная UIA не гарантирует отсутствие гонки DOM-фокуса; R04 ещё не прошёл полную приёмку.')
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
@@ -3400,7 +3426,8 @@ class TypeBridgeGui:
             subset_pending = (settings.active_languages != getattr(
                 self, 'launch_languages', settings.active_languages))
             guard_pending = (hook is not None and settings.experimental_password_guard !=
-                             bool(getattr(hook, 'password_guard', None)))
+                             (getattr(hook, 'password_guard', None) is not None
+                              and getattr(hook.password_guard, 'native_fast_path', False) is not True))
             self.emit("info", "Языки сохранены: полностью выйди из TypeBridge и запусти его снова" if
                       subset_pending else
                       "Проверка парольных полей изменена: полностью выйди из TypeBridge и запусти снова" if

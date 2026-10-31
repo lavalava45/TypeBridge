@@ -31,19 +31,15 @@ class P0GuardTransportIntegration(unittest.TestCase):
         fixture = focus_tests.HostedFocusTests().fixture()
         hook.user32 = fixture.user32
         hook.process_name = fixture.process_name
-        if guard is not None and getattr(guard, 'native_only', False):
-            # The production opt-in explicitly admits native EDIT/RichEdit
-            # only; these metadata tests use a disposable native EDIT mock.
-            hook.user32.GetClassNameW.side_effect = (
-                lambda hwnd, output, size: setattr(
-                    output, 'value', 'Edit' if hwnd == 20 else 'TestWindow'))
-            hook.user32.GetWindowLongPtrW.return_value = 0
         hook.user32.CallNextHookEx.return_value = 0
         hook.user32.SendInput.side_effect = lambda count, *_: count
+        if guard is not None:
+            guard.revalidate = Mock(side_effect=lambda top, focus, revision:
+                guard.permit_revision(top, focus) == revision)
         return hook
 
     def test_profile_opt_in_is_strict_off_by_default_and_reversible(self):
-        self.assertIsNone(staged_password_guard(Settings()))
+        self.assertTrue(staged_password_guard(Settings()).native_fast_path)
         with TemporaryDirectory() as directory:
             path = Path(directory) / 'settings.json'
             save_settings(Settings(), path)
@@ -54,10 +50,11 @@ class P0GuardTransportIntegration(unittest.TestCase):
             guard = staged_password_guard(load_settings(path))
             self.assertIsInstance(guard, PasswordFieldGuard)
             self.assertTrue(guard.require_element_id)
-            self.assertTrue(guard.native_only)
+            self.assertFalse(guard.native_fast_path)
+            self.assertFalse(guard.native_only)
             self.assertIsNone(guard.worker)  # Not started by configuration.
             save_settings(Settings(), path)
-            self.assertIsNone(staged_password_guard(load_settings(path)))
+            self.assertTrue(staged_password_guard(load_settings(path)).native_fast_path)
             path.write_text('{"experimental_password_guard":"true"}', encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'experimental_password_guard'):
                 load_settings(path)
@@ -100,22 +97,22 @@ class P0GuardTransportIntegration(unittest.TestCase):
         self.assertNotEqual(first.password_revision, last.password_revision)
         self.assertEqual((first.top, first.focus), (last.top, last.focus))
 
-    def test_r04_production_guard_refuses_custom_browser_even_with_fresh_safe_metadata(self):
+    def test_r04_production_guard_accepts_verified_browser_element(self):
         guard = staged_password_guard(replace(Settings(), experimental_password_guard=True))
         hook = self.hook(guard)
         guard.ingest(metadata('uia:1,100'))
-        self.assertIsNotNone(hook.context())  # Native EDIT with safe style.
+        self.assertIsNotNone(hook.context())  # Verified field, not an app whitelist.
         hook.user32.GetClassNameW.side_effect = (
             lambda hwnd, output, size: setattr(
                 output, 'value', 'Chrome_WidgetWin_1' if hwnd == 20 else 'TestWindow'))
-        self.assertIsNone(hook.context())
+        self.assertIsNotNone(hook.context())
         hook.user32.SendInput.assert_not_called()
-        # A browser process is denied even if it exposes a native EDIT child.
+        # A browser process uses element metadata even with a native EDIT child.
         hook.user32.GetClassNameW.side_effect = (
             lambda hwnd, output, size: setattr(
                 output, 'value', 'Edit' if hwnd == 20 else 'TestWindow'))
         hook.process_name = lambda pid: 'chrome.exe' if pid == 200 else 'test.exe'
-        self.assertIsNone(hook.context())
+        self.assertIsNotNone(hook.context())
 
     def test_strict_runtime_rejects_empty_malformed_or_wrong_win32_identity(self):
         guard = staged_password_guard(replace(Settings(), experimental_password_guard=True))

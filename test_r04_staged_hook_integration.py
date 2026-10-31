@@ -1,7 +1,7 @@
 """Real LiveHook constructor + context integration, no global hook or typing.
 
-The explicit injected metadata provider is an offline staging experiment;
-real user-facing GUI does NOT activate it. No User32 hook installation.
+The metadata messages are simulated; real GUI startup supplies the guard.
+These tests do not start a live provider or install a User32 hook.
 """
 
 import ctypes

@@ -1,4 +1,4 @@
-"""Exclude nontext/uncertain controls, including browser/WebView text entry.
+"""Exclude navigation controls without excluding browsers by application name.
 
 Mock the real Win32 context() path only; no global hook, foreground changes,
 or physical keystrokes are used by these tests.
@@ -46,7 +46,7 @@ class NonTextFocusTests(unittest.TestCase):
                 hook = self.focus(name, process)
                 self.assertIsNotNone(hook.context())
 
-    def test_browser_widgets_and_browser_host_edit_fail_closed_by_default(self):
+    def test_browser_widgets_are_not_globally_excluded_without_metadata_guard(self):
         for name, process in (('Chrome_RenderWidgetHostHWND', 'chrome.exe'),
                               ('MozillaWindowClass', 'firefox.exe'),
                               ('Edit', 'msedge.exe'),
@@ -54,7 +54,7 @@ class NonTextFocusTests(unittest.TestCase):
                               ('Chrome_WidgetWin_1', 'custom-app.exe')):
             with self.subTest(focus=name, process=process):
                 hook = self.focus(name, process)
-                self.assertIsNone(hook.context())
+                self.assertIsNotNone(hook.context())
 
     def test_existing_password_edit_rejection_remains(self):
         hook = self.focus('Edit')
@@ -62,9 +62,9 @@ class NonTextFocusTests(unittest.TestCase):
         self.assertIsNone(hook.context())
 
     def test_unknown_custom_control_is_not_automatically_certified_text_safe(self):
-        # R04: unknown custom controls no longer reach automatic/manual edits.
+        # Eligibility is checked per element by the production metadata guard.
         hook = self.focus('CustomWidgetXYZ', 'custom-app.exe')
-        self.assertIsNone(hook.context())
+        self.assertIsNotNone(hook.context())
 
 
 if __name__ == '__main__':

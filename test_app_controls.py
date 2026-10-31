@@ -93,6 +93,7 @@ def make_hook():
     hook.thread_id = 0
     hook.pressed = lambda vk: False
     hook.context = lambda: FocusContext(90, 100, 1, "en", "editor.exe", "test")
+    hook.layout_context = lambda: hook.context()
     return hook
 
 

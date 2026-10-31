@@ -58,7 +58,11 @@ class StartupDiagnosticsTests(unittest.TestCase):
                           password_guard=None):
                 # A genuine LanguageEngine and verified lexical data made it
                 # through startup; this is the ONLY hook boundary we mock.
-                self.assertIsNone(password_guard)  # Default-off R04.
+                from password_fields import PasswordFieldGuard
+                self.assertIsInstance(password_guard, PasswordFieldGuard)
+                self.assertTrue(password_guard.require_element_id)
+                self.assertTrue(password_guard.native_fast_path)
+                self.assertIsNone(password_guard.worker)  # Hook owns its start.
                 hooked.append((engine, current))
                 self.assertEqual(current.active_languages, ('en', 'ar'))
                 self.assertEqual(set(engine.words), {'en', 'ar'})
