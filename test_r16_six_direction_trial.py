@@ -161,6 +161,7 @@ class TrialPreparationTests(unittest.TestCase):
         runner.generation = 1
         runner.mode = 'observe'
         runner.early = runner.space = runner.undo = None
+        runner.last_pre = None
         runner.focus_safe = True
         runner.edit = 22
         runner.api = Mock()
@@ -182,9 +183,39 @@ class TrialPreparationTests(unittest.TestCase):
         self.assertEqual(len(runner.results), 1)
         self.assertTrue(runner.results[0]['physical_case_pass'])
         self.assertTrue(runner.results[0]['release_gate_blocked'])
+        self.assertEqual(runner.results[0]['last_no_space_langid'], '0419')
+        self.assertTrue(runner.results[0]['last_no_space_observation']['matches_expected'])
         runner._save_report.assert_called_once()
         runner.api.user32 = Mock()
         runner.api.user32.SendInput.assert_not_called()
+
+    def test_failed_early_result_retains_hashed_actual_pre_space_observation(self):
+        runner = trial.AcceptanceWindow.__new__(trial.AcceptanceWindow)
+        runner.phase = 'typing'
+        runner.index = 2  # EN -> RU
+        runner.generation = 1
+        runner.mode = 'inject'
+        runner.early = runner.space = runner.undo = runner.last_pre = None
+        runner.focus_safe = True
+        runner.edit = 22
+        runner.api = Mock()
+        runner.api.foreground_is_own_edit.return_value = True
+        runner.api.text.side_effect = ['ghbdtn', 'привет ', 'ghbdtn']
+        runner.api.langid.side_effect = [0x0409, 0x0419, 0x0409]
+        runner.root = Mock()
+        runner.status = Mock()
+        runner.start_btn = Mock()
+        runner.next_btn = Mock()
+        runner.results = []
+        runner._save_report = Mock()
+        runner.poll(); runner.poll(); runner.poll()
+        record = runner.results[0]
+        self.assertFalse(record['before_space'])
+        self.assertTrue(record['space_exact'])
+        self.assertEqual(record['last_no_space_langid'], '0409')
+        self.assertEqual(record['last_no_space_observation']['length'], 6)
+        self.assertFalse(record['last_no_space_observation']['matches_expected'])
+        self.assertNotIn('ghbdtn', str(record))
 
     def test_special_process_guard_allows_only_one_trial_process_tree(self):
         # PyInstaller onefile commonly spawns 2+ TypeBridge.exe processes.

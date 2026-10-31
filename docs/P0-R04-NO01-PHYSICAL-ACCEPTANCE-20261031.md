@@ -73,3 +73,13 @@ Source-only tests, successful SendInput event counts, screenshots or mere hooks
 being installed do not satisfy this gate.
 
 **Current status: R04 OPEN; R01/R03 PARTIAL; No01 BLOCKED.**
+
+## Execution note (31 October 2026)
+
+After the original plan, the user explicitly authorized a controlled build
+and test. The automated `SendInput` runs and the separate real UIA native
+password-field test are recorded in
+[P0-WINDOWS-TRIAL-RESULTS-20261031.md](P0-WINDOWS-TRIAL-RESULTS-20261031.md).
+**The physical human-keyboard matrix above was NOT executed.** A confirmed
+test window focus and synthetic OS input do not make an injected trial a
+physical-keyboard trial. Live real-browser password transitions remain open.

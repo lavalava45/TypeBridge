@@ -99,3 +99,21 @@ or replace No01**; synthetic key-event timing and hook paths may differ.
 
 The next **authorized** trial should start with observation (physical keys),
 then decide whether the separate synthetic mode adds useful coverage.
+
+## Trial evidence, 31 October 2026
+
+After explicit user permission, the canonical Public EXE was rebuilt and
+run with `--headless --accept-injected` for test-only synthetic native-EDIT
+trials. A first focus-confirmed run and a repeat after startup CPU stabilized
+each showed 6/6 exact results after Space, but only 2/6 observed exact text
+and target HKL **before** Space, and 4/6 complete source-word Undo results.
+An intervening trial started before the hook was demonstrably ready and is
+excluded from acceptance figures. The runner now also records the last
+pre-Space text/HKL as only length, SHA-256 and LANGID on failed cases.
+
+**Critical interpretation:** `LiveHook` intentionally aborts an active native
+input barrier on *any* injected key, even in `--accept-injected` mode. The
+source-level mode does not reproduce hardware key scheduling while a worker is
+busy. Do not weaken the protection to make a synthetic test pass and do not
+credit these results as physical No01 acceptance. Detailed evidence and
+report paths: [P0-WINDOWS-TRIAL-RESULTS-20261031.md](P0-WINDOWS-TRIAL-RESULTS-20261031.md).

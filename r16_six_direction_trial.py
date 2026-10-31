@@ -273,6 +273,7 @@ class AcceptanceWindow:
         self.early = None
         self.space = None
         self.undo = None
+        self.last_pre = None  # Last *observed* no-Space text/HKL, including failures.
         self.focus_safe = True
         self.results = []
         self.report_path = None
@@ -347,7 +348,7 @@ class AcceptanceWindow:
             self.api.clear(self.edit)
             self.generation += 1
             self.phase = 'typing'
-            self.early = self.space = self.undo = None
+            self.early = self.space = self.undo = self.last_pre = None
             self.focus_safe = True
             self.start_btn.configure(state='disabled')
             self.status.set('Набирай заданные клавиши; перед Space выдержи паузу.')
@@ -408,9 +409,14 @@ class AcceptanceWindow:
                     lang = self.api.langid(self.edit)
                     case = CASES[self.index]
                     if self.phase == 'typing':
-                        if ' ' not in text and text == case.expected and lang == LANGIDS[case.target]:
-                            self.early = (text, lang)
-                            self.status.set('До Space: ожидаемое слово и целевая HKL подтверждены.')
+                        if ' ' not in text:
+                            # Do not reduce a failed pre-Space state to an empty
+                            # observation. Preserve only a hash and length in
+                            # the final report; never log arbitrary typed text.
+                            self.last_pre = (text, lang)
+                            if text == case.expected and lang == LANGIDS[case.target]:
+                                self.early = (text, lang)
+                                self.status.set('До Space: ожидаемое слово и целевая HKL подтверждены.')
                         if ' ' in text:
                             self.space = (text, lang)
                             self.phase = 'space'
@@ -434,6 +440,9 @@ class AcceptanceWindow:
         record = classify(case, pre_space=pre[0], pre_langid=pre[1],
                           after_space=after[0], after_langid=after[1],
                           after_undo=undone, focus_safe=self.focus_safe)
+        last = self.last_pre or ('', 0)
+        record['last_no_space_observation'] = diagnostic(last[0], case.expected)
+        record['last_no_space_langid'] = f'{last[1]:04x}'
         record['input_mode'] = 'physical_user_keys' if self.mode == 'observe' else 'injected_SendInput'
         record['physical_case_pass'] = (self.mode == 'observe' and
                                         record['before_space'] and record['space_exact'] and
@@ -465,7 +474,7 @@ class AcceptanceWindow:
             return
         self.generation += 1
         self.phase = 'idle'
-        self.early = self.space = self.undo = None
+        self.early = self.space = self.undo = self.last_pre = None
         self.focus_safe = True
         self.api.clear(self.edit)
         self._show_case()

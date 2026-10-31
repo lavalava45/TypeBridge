@@ -161,3 +161,19 @@ GUI/localization checks; these counts must NOT be added to 227. Compilation
 of the modified Python sources and `git diff --check` also succeeded.
 No live metadata helper, physical input, global hooks, frozen EXE, active
 user settings or public release were used in this validation.
+
+## Subsequent controlled Windows native-field check — 31 October 2026
+
+**This section describes a later, separately authorized trial**, not the
+source-only validation above. An actual out-of-process UIA helper was started
+only when our disposable test window had foreground focus. It polled two own
+native Win32 EDIT controls, one ordinary and one `ES_PASSWORD`, without any
+keyboard hook or typed text. In five-second windows: ordinary `safe` **44/50**
+(six initial unknown/startup samples), password `password` **51/51**, and
+ordinary after returning `safe` **50/50**. The helper exited cleanly, and
+field focus remained in our window. This supports the native EDIT password
+classification but **does not establish browser/DOM identity safety, timing
+under real typing, IME behavior or live mutation prevention**. R04 remains
+OPEN; default-off must remain unchanged. Separate evidence and broader
+synthetic transport limitations:
+[P0-WINDOWS-TRIAL-RESULTS-20261031.md](P0-WINDOWS-TRIAL-RESULTS-20261031.md).
