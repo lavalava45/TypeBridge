@@ -14,7 +14,9 @@ class WindowsZipConfinementTests(TestCase):
     def setUp(self):
         self.context = TemporaryDirectory()
         self.addCleanup(self.context.cleanup)
-        self.home = Path(self.context.name)
+        # The installer resolves its destination. Canonicalize the fixture
+        # too: Windows runners may provide RUNNER~1 and resolve to runneradmin.
+        self.home = Path(self.context.name).resolve()
         self.root = self.home / 'installed'
         self.root.mkdir()
         self.source = self.home / 'source'

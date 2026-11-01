@@ -1637,3 +1637,30 @@ CATALOG.update({
     EVENT_LOG_TITLE: {'en': 'Program log', 'he': 'יומן פעילות התוכנה'},
     RARE_WORDS_HELP: {'en': 'Include rare words when choosing a layout. This increases dictionary coverage but also the chance of incorrect switching. Leave it off for more predictable behavior.', 'he': 'התחשבות במילים נדירות בעת בחירת הפריסה. כך ניתן לזהות יותר מילים, אך גדל גם הסיכוי להחלפה שגויה. להתנהגות צפויה יותר מומלץ להשאיר את האפשרות כבויה.'},
 })
+
+# The text journal does not capture browser HTML fields; this is separate from
+# browser layout correction. Keep the current complete UI sentence localized.
+CATALOG.update({
+    ('Снимки активного текстового поля раз в 2 секунды; сохраняются также '
+     'вставки и исправления. По умолчанию — Блокнот и Notepad++ (до 64 КБ в UTF-8). '
+     'Другие приложения требуют поддерживаемого обычного текстового поля. '
+     'Парольные, неизвестные поля и исключённые приложения пропускаются. '
+     'Дневник пока не сохраняет снимки текста из браузерных HTML-полей. '
+     'Это ограничение только дневника — автоматическое исправление раскладки '
+     'в браузерах работает отдельно.'): {
+        'en': ('Snapshots of the active text field are taken every 2 seconds; '
+               'pastes and corrections are saved too. By default, Notepad and '
+               'Notepad++ are supported (up to 64 KB in UTF-8). Other applications '
+               'require a supported ordinary text field. Password fields, unknown '
+               'fields and excluded applications are skipped. The journal does '
+               'not yet save snapshots from browser HTML fields. This limitation '
+               'applies only to the journal; automatic layout correction in '
+               'browsers works separately.'),
+        'he': ('תמונות מצב של שדה הטקסט הפעיל נשמרות כל 2 שניות; גם הדבקות ותיקונים '
+               'נשמרים. כברירת מחדל — פנקס הרשימות ו־Notepad++ (עד 64 KB בקידוד '
+               'UTF-8). יישומים אחרים דורשים שדה טקסט רגיל נתמך. שדות סיסמה, '
+               'שדות לא מזוהים ויישומים מוחרגים אינם נרשמים. היומן עדיין אינו '
+               'שומר תמונות מצב של שדות HTML בדפדפן. ההגבלה חלה רק על היומן; '
+               'תיקון פריסת המקלדת האוטומטי בדפדפן פועל בנפרד.'),
+    },
+})

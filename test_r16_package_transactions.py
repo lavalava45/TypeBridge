@@ -21,7 +21,9 @@ class PackageTransactionRecoveryTests(TestCase):
                                 return_value=False))
         self.enterContext(TemporaryDirectory())
         self.temp = self.enterContext(TemporaryDirectory())
-        self.parent = Path(self.temp)
+        # Match the canonical directory used by the transaction manager;
+        # Windows temporary folders can arrive under an 8.3 short path.
+        self.parent = Path(self.temp).resolve()
         self.root = self.parent / 'language_packs'
         self.root.mkdir()
         source = self.parent / 'source'
