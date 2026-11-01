@@ -1,2 +1,7 @@
 # Preserve upstream dictionary bytes for the recorded SHA-256 provenance.
 /dictionary_packs/upstream/* -text
+
+# R16 demo language packs have byte-exact SHA-256 manifests. Git for Windows
+# defaults to core.autocrlf=true on hosted runners; keep their checked-out
+# license, words and manifests in LF, as shipped and signed by the fixtures.
+/fixtures/r16-demo-packs/** text eol=lf
