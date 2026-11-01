@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import unittest
 
@@ -44,13 +45,27 @@ class P4ReadinessTests(unittest.TestCase):
                 manifest = json.loads((ROOT / 'bundled_language_packs' / code /
                                        'manifest.json').read_text('utf-8'))
                 filename = manifest['dictionary_file']
-                old = ROOT / 'dist' / 'data' / filename
+                data_root = Path(os.environ.get('TYPEBRIDGE_DICTIONARY_TEST_DIR', ROOT / 'dist' / 'data'))
+                old = data_root / filename
                 self.assertTrue(old.is_file(), f'legacy data absent: {filename}')
                 self.assertEqual(digest(old), digest(ROOT / 'bundled_language_packs' /
                                                     code / filename))
 
-    def test_existing_public_exe_profile_and_hash_agree(self):
+    def installed_public_build(self):
+        """Local post-build artifacts are not created by the pre-freeze CI gate.
+
+        CI validates its new frozen EXE/manifest later in build_public_release.
+        A partially present local build is an error, never a reason to skip.
+        """
         base = ROOT / 'dist'
+        required = [base / name for name in ('TypeBridge.exe', 'BUILD-INFO.json', 'BUILD-PROFILE.json')]
+        if os.environ.get('TYPEBRIDGE_DICTIONARY_TEST_DIR') and not any(p.exists() for p in required):
+            self.skipTest('Pre-freeze CI: frozen artifact checks run after build_public_release creates the EXE')
+        self.assertTrue(all(p.is_file() for p in required), 'Incomplete local Public build')
+        return base
+
+    def test_existing_public_exe_profile_and_hash_agree(self):
+        base = self.installed_public_build()
         info = json.loads((base / 'BUILD-INFO.json').read_text('utf-8'))
         profile = json.loads((base / 'BUILD-PROFILE.json').read_text('utf-8'))
         for document in (info, profile):
@@ -62,7 +77,7 @@ class P4ReadinessTests(unittest.TestCase):
         self.assertEqual(info['exe_sha256'], profile['exe_sha256'])
 
     def test_built_source_manifest_is_cryptographically_self_consistent(self):
-        info = json.loads((ROOT / 'dist' / 'BUILD-INFO.json').read_text('utf-8'))
+        info = json.loads((self.installed_public_build() / 'BUILD-INFO.json').read_text('utf-8'))
         manifest = info['source_sha256']
         self.assertGreater(len(manifest), 25)
         for name, expected in manifest.items():
