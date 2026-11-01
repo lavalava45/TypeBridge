@@ -73,6 +73,12 @@ failed in `test_portable_diagnostics` at module 52/119, comparing a Windows
 failures were fixed; the complete unit gate has not yet passed. Do not describe
 this run as green or its package as published.
 
+The path comparison test has since been corrected to compare the report's
+resolved path against an independently resolved expected pack root. The
+isolated local diagnostics module passed (8/8). The change **still requires
+a fresh Windows CI run** before the release gate can be marked green; no new
+build or publication was started during this documentation/banner update.
+
 Pre-freeze dictionary tests use `TYPEBRIDGE_DICTIONARY_TEST_DIR`; an empty clean
 checkout must not need an installed local EXE. Partially present build artifacts
 remain an error. Post-build frozen/profile/ZIP checks remain mandatory.

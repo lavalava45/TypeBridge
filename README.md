@@ -1,4 +1,4 @@
-![TypeBridge: keyboard layout correction across Russian, English and Hebrew](docs/images/typebridge-banner.png)
+![TypeBridge: three built-in language examples and extensible keyboard layout correction](docs/images/typebridge-banner-v2.png)
 
 # TypeBridge
 

@@ -61,8 +61,13 @@ class PortableDiagnosticsTests(unittest.TestCase):
             self.assertIn('Словарь AR:', report)
             self.assertNotIn('Словарь RU:', report)
             self.assertNotIn('Словарь HE:', report)
-            self.assertIn(str(pack / 'words.txt'), report)
-            self.assertIn(str(pack / 'confident.txt'), report)
+            # The report normalizes pack_root with Path.resolve(). On Windows
+            # CI the temporary directory can be supplied as an 8.3 short path
+            # (RUNNER~1), while resolve() expands it (runneradmin). Compare
+            # canonical paths, preserving the check of the actual pack files.
+            canonical_pack = (base / 'language_packs').resolve() / 'ar'
+            self.assertIn(str(canonical_pack / 'words.txt'), report)
+            self.assertIn(str(canonical_pack / 'confident.txt'), report)
             self.assertNotIn('private', report)
             self.assertNotIn('secret', report)
 
