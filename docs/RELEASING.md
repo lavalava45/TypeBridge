@@ -3,8 +3,9 @@
 The `Windows portable release` GitHub Actions workflow builds on Windows x64
 with Python 3.12. Push a new version tag (for example `v0.1.0-alpha.3`) to build
 and publish a release. Tags containing a hyphen are marked as prereleases.
-Manual **Run workflow** on `main` builds downloadable Actions artifacts without
-publishing a release. A published release is never overwritten by a rerun.
+Manual **Run workflow** on a reviewed branch builds downloadable Actions
+artifacts without publishing a release. Select the development branch explicitly
+when testing changes that are not merged into `main`. A published release is never overwritten by a rerun.
 
 The builder takes committed source with `git archive`, downloads the pinned,
 SHA-256-verified full FrequencyWords/OpenSubtitles RU/EN/HE tables and the pinned
@@ -50,8 +51,7 @@ administrator rights nor an installer are needed for ordinary use. Settings
 are stored in `TypeBridge-data` beside the EXE and move with it. The containing
 folder must be writable. Old AppData settings are copied once; originals remain.
 The encrypted journal is bound to its Windows user and is not portable between PCs. Autostart is optional
-and refers to the executable's current location. Installed RU/EN/HE Windows
-keyboard layouts are still required.
+and refers to the executable's current location. Windows keyboard layouts for every selected active language are still required.
 
 Maintainers can verify a downloaded archive in PowerShell:
 
@@ -63,3 +63,22 @@ Get-Content .\SHA256SUMS.txt
 Workflow actions are pinned to commit hashes. Updating those hashes is a
 deliberate maintenance operation. Releases use GitHub's built-in token with
 `contents: write`; no additional repository secret is needed.
+
+## Current release gate — 1 November 2026
+
+Alpha.6 is the latest published prerelease. The development run
+[41284863878](https://github.com/lavalava45/TypeBridge/actions/runs/41284863878)
+failed in `test_portable_diagnostics` at module 52/119, comparing a Windows
+8.3 path with its long form. Earlier Backspace and pre-freeze readiness fixture
+failures were fixed; the complete unit gate has not yet passed. Do not describe
+this run as green or its package as published.
+
+Pre-freeze dictionary tests use `TYPEBRIDGE_DICTIONARY_TEST_DIR`; an empty clean
+checkout must not need an installed local EXE. Partially present build artifacts
+remain an error. Post-build frozen/profile/ZIP checks remain mandatory.
+
+The local installed EXEs are separate from this CI gate; their manifests identify
+source `a28e349`. See [current status](STATUS.md). Documentation-only changes do
+not rebuild EXEs or require a new workflow run. Creating a version tag publishes
+a release automatically, so perform that step only for an explicitly approved
+release. Alpha/beta packaging checks do not close the stable No01/R04 gates.
