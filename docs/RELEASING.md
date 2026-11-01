@@ -66,6 +66,23 @@ deliberate maintenance operation. Releases use GitHub's built-in token with
 
 ## Current release gate — 1 November 2026
 
+**Update after Windows CI [41292774844](https://github.com/lavalava45/TypeBridge/actions/runs/41292774844), source `9e3c091`:**
+The previous `RUNNER~1`/`runneradmin` path-comparison failure is **resolved on
+the Windows runner** (`test_portable_diagnostics`, module 52/119, 8/8 passed).
+The overall run still **failed** at module 60/119, `test_r16_4b_parallel`:
+
+1. `ModuleNotFoundError: No module named 'jsonschema'` when importing
+   `Draft202012Validator`; the clean release test environment needs the
+   dependency.
+2. `ValueError: v2 payload checksum mismatch: LICENSE.txt` while loading the
+   Arabic demonstration v2 package; inspect how the manifest and license bytes
+   are produced/copied on the Windows runner. Do not weaken package integrity
+   or license verification to make the test pass.
+
+A **new full CI pass and release ZIP** are still required. The prior text
+below is kept as the historical state from run 41284863878, not the current
+blocker. No version tag or release publication has been authorized here.
+
 Alpha.6 is the latest published prerelease. The development run
 [41284863878](https://github.com/lavalava45/TypeBridge/actions/runs/41284863878)
 failed in `test_portable_diagnostics` at module 52/119, comparing a Windows
