@@ -136,7 +136,7 @@ using the actual file and its origin; do not blindly disable security software.
 
 ## Русский
 
-**Текущие исходники, 31.10.2026:** исправляющий hook использует проверку
+**Текущие исходники, 01.11.2026:** исправляющий hook использует проверку
 конкретного поля: ES_PASSWORD у нативных редакторов, свежие UIA-метаданные и
 Runtime ID у браузерных/нестандартных. Парольные, неизвестные и устаревшие
 состояния запрещают замену. Асинхронная UIA не связывает изменение атомарно
@@ -217,7 +217,7 @@ UIA-наблюдатель подключён к исправляющему hook
 
 ## עברית
 
-**הקוד הנוכחי, 31.10.2026:** מנגנון התיקון משתמש במטא-נתונים של השדה:
+**הקוד הנוכחי, 01.11.2026:** מנגנון התיקון משתמש במטא-נתונים של השדה:
 ES_PASSWORD בעורכים נייטיביים, וזהות UIA עדכנית בשדות דפדפן ובפקדים מותאמים.
 שדה סיסמה, מצב לא ידוע או מידע ישן אינם מאפשרים שינוי טקסט. UIA ו-SendInput
 אינם פעולה אטומית מול רכיב DOM, ולכן R04 עדיין פתוח. קובצי EXE ישנים עשויים
@@ -299,7 +299,6 @@ failures do not activate it. Previously copied text is never searched.
 בקשת המשתמש; תהליך מוחרג או בלתי נגיש נשאר חסום. השדה שבמיקוד כעת אינו
 מוכיח מהו מקור תוכן הלוח או אם הוא רגיש.
 
-
 ### Clipboard privacy metadata / Признаки приватности буфера / פרטיות הלוח
 
 Plain-text paste and history refuse clipboard content marked as excluded from
@@ -329,7 +328,6 @@ buffers retained after a timeout are not freed unsafely; retries are bounded.
 Причина пропуска снимка показывается без содержимого документа. Память Scintilla,
 оставшаяся после таймаута, не освобождается небезопасным способом.
 
-
 ### Local dictionary cache / Локальный кэш словарей / מטמון מילונים מקומי
 
 Prepared dictionary data is cached in `TypeBridge-data/dictionary-cache`.
@@ -348,3 +346,10 @@ custom dictionary additions are included. Deleting it forces preparation again.
 תוכן קובצי המקור נבדק בכל הפעלה; מקור חובה חסר עדיין מונע הפעלה.
 המטמון מכיל ערכי מילון, לרבות תוספות, ללא קלט שנלכד או צילומי יומן.
 זהו מידע מקומי לא מוצפן, כמו המילונים המקוריים. מחיקתו מחייבת הכנה מחדש.
+
+## Scope of this revision
+
+This policy describes the development branch, not every older released EXE.
+[Current status](STATUS.md) identifies the source and installed builds. The
+reported three-field password trial passed 3/3 with dummy text; it does not
+prove atomic DOM focus protection or safety for every provider. R04 remains open.

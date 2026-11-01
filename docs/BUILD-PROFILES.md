@@ -34,7 +34,7 @@ requires a clean committed source and creates the two variants below:
 | Profile | EXE location | Content tracing | GitHub Releases |
 |---|---|---|---|
 | Public | `dist/TypeBridge.exe` | Not present in the frozen EXE | Only eligible variant |
-| Diagnostics | `dist/profiles/Diagnostics/TypeBridge.exe` | Explicit opt-in using both debug flags | Never uploaded |
+| Diagnostics | `dist/profiles/Diagnostics/TypeBridge.exe` | Contains tracing capability; ordinary password guard suppresses plaintext tracing | Never uploaded |
 
 Each folder contains its own `data/`, default settings, `BUILD-PROFILE.json`
 with the Git commit, profile, EXE SHA-256, dictionary hashes and frozen self-test,
@@ -69,3 +69,16 @@ to public GitHub issues without carefully reviewing their contents.
 **Scope:** This protects Public from word-trace logging. It does not repair
 the unresolved alpha limitation in browser password-field correction. Full
 No01 physical acceptance and the stable-release gate remain outstanding.
+
+## Runtime tracing and installed versions
+
+Packaging capability and runtime permission are separate. Diagnostics contains
+tracing modules, but the normally attached password guard suppresses plaintext
+word/browser tracing even if both flags are present. Older or explicitly
+unguarded diagnostics can record sensitive text; do not enable them around
+secrets. Public excludes these modules. See [privacy](PRIVACY.md).
+
+The [current status](STATUS.md) records the verified installed source commits,
+hashes and self-test results separately from the last published release and CI.
+Neither a documentation commit nor a test-only change makes an unchanged runtime
+EXE stale; compare its manifest/source hashes before deciding to rebuild.

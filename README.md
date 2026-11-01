@@ -2,6 +2,13 @@
 
 # TypeBridge
 
+**Development snapshot — 1 November 2026:** this guide describes the
+[development branch](https://github.com/lavalava45/TypeBridge/tree/feature/r04-password-guard-staged-20261030),
+whose application changes have not yet been merged into `main`. The latest
+published release is alpha.6; local builds include newer changes. The latest
+release CI failed, so no new verified release is available.
+[Current status, build versions and acceptance limits](docs/STATUS.md).
+
 This guide describes current development; published builds may differ.
 
 Automatic keyboard layout correction for Windows. Russian, English and Hebrew are included; verified language packages can add other languages. Enable one to three languages at a time.
@@ -100,13 +107,15 @@ Use a writable folder; old AppData configuration is copied once without deleting
 
 ## Run from source
 
-Requires Windows x64, Python 3.12 with tkinter, and installed Russian, English
-and Hebrew keyboard layouts. Other language combinations are planned; they are
-not implemented yet.
+Requires Windows x64, Python 3.12 with tkinter, and Windows keyboard layouts
+for the selected one to three active languages. RU/EN/HE are included; other
+languages require a valid data package and separate typing acceptance.
+The instructions below select the development source described in this guide.
 
 ```powershell
 git clone https://github.com/lavalava45/TypeBridge.git
 cd TypeBridge
+git switch --track origin/feature/r04-password-guard-staged-20261030
 py -3.12 -m pip install -r requirements.txt
 py -3.12 prepare_dictionaries.py
 py -3.12 typebridge_app.py --self-test
