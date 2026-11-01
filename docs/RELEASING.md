@@ -66,6 +66,18 @@ deliberate maintenance operation. Releases use GitHub's built-in token with
 
 ## Current release gate — 1 November 2026
 
+**Latest verified candidate:** Windows CI
+[41302267206](https://github.com/lavalava45/TypeBridge/actions/runs/41302267206)
+at `13acca0` passed **all 119 isolated unittest modules**, frozen Public and
+Diagnostics checks and upload of the verified `TypeBridge-windows-x64`
+artifact. Earlier failures at modules 52/60/66/78 were corrected without
+weakening content-hash or ZIP safety validation. The branch run does **not**
+publish a GitHub Release. The `alpha.7` tag workflow will rebuild and publish
+only if its own validations succeed; confirm the published files, source commit
+and checksums afterwards. R04/No01 physical/security acceptance is still OPEN.
+
+The following run-failure notes are **historical** and describe earlier CI.
+
 **Update after Windows CI [41292774844](https://github.com/lavalava45/TypeBridge/actions/runs/41292774844), source `9e3c091`:**
 The previous `RUNNER~1`/`runneradmin` path-comparison failure is **resolved on
 the Windows runner** (`test_portable_diagnostics`, module 52/119, 8/8 passed).

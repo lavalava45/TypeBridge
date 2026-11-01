@@ -2,12 +2,13 @@
 
 # TypeBridge
 
-**Development snapshot — 1 November 2026:** this guide describes the
-[development branch](https://github.com/lavalava45/TypeBridge/tree/feature/r04-password-guard-staged-20261030),
-whose application changes have not yet been merged into `main`. The latest
-published release is alpha.6; local builds include newer changes. The latest
-release CI failed, so no new verified release is available.
-[Current status, build versions and acceptance limits](docs/STATUS.md).
+**Alpha.7 release candidate — 1 November 2026:** Windows CI
+[41302267206](https://github.com/lavalava45/TypeBridge/actions/runs/41302267206)
+passed 119 test modules and the portable release checks. See
+[Releases](https://github.com/lavalava45/TypeBridge/releases) for the latest
+**published** version and [current status, build versions and acceptance
+limits](docs/STATUS.md). CI success does not certify password safety or every
+physical-keyboard/editor scenario.
 
 This guide describes current development; published builds may differ.
 

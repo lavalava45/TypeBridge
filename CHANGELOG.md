@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.0-alpha.7 — candidate, 01.11.2026
+
+- Windows release CI [41302267206](https://github.com/lavalava45/TypeBridge/actions/runs/41302267206)
+  on `13acca0` passed 119 unittest modules, release packaging and frozen checks.
+- Expanded runtime language packages (1–3 active, RU/EN/HE bundled), field-level
+  password metadata instead of browser-wide exclusion, desktop editor/Undo and
+  Backspace recovery, GUI event log, caret indicators and updated banner.
+- CI fixes: `jsonschema` dependency, byte-exact LF for demo-pack manifests,
+  and canonical Windows short/long path comparisons in tests.
+- Browser DOM-focus/password safety and full physical No01 acceptance remain
+  open. This is an alpha prerelease, not a stable-security certification.
+
+Earlier entries below retain their development-time `Unreleased` labels as
+historical notes from before this release candidate.
+
 История изменений TypeBridge. Даты — даты разработки, а не обещание доступности
 в каждом опубликованном EXE. Ограничения и планы:
 [ROADMAP.md](ROADMAP.md). Инструкции: [RU](README-RU.md), [EN](README.md),
