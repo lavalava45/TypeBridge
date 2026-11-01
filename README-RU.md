@@ -9,7 +9,7 @@
 
 Инструкция описывает текущую разработку; опубликованные сборки могут отличаться.
 
-[English](README.md) · [הוראות בעברית](README-HE.md) · [Готовая сборка Windows](https://github.com/lavalava45/TypeBridge/releases)
+[English](README.md) · [הוראות בעברית](README-HE.md) · [Сложности разработки](docs/ENGINEERING-CHALLENGES-RU.md) · [Готовая сборка Windows](https://github.com/lavalava45/TypeBridge/releases)
 
 **Языки:** русский, английский и иврит включены в комплект. Дополнительные
 языки подключаются проверяемыми ZIP-пакетами; одновременно можно выбрать от

@@ -14,7 +14,7 @@ This guide describes current development; published builds may differ.
 
 Automatic keyboard layout correction for Windows. Russian, English and Hebrew are included; verified language packages can add other languages. Enable one to three languages at a time.
 
-[Русская инструкция](README-RU.md) · [הוראות בעברית](README-HE.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
+[Русская инструкция](README-RU.md) · [הוראות בעברית](README-HE.md) · [Engineering challenges](docs/ENGINEERING-CHALLENGES.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
 
 **Two build profiles:** `build-typebridge.ps1` automatically creates separate
 Public and Diagnostics EXEs from the same Git commit. Only Public is eligible
