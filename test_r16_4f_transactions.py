@@ -78,13 +78,19 @@ class Package4fTests(TestCase):
     def test_install_real_publish_rename_fault_recover_clean_startup(self):
         from language_package_manager import os as manager_os
         real = manager_os.rename
+        # The package manager canonicalizes destination roots. On Windows CI,
+        # RUNNER~1 may be expanded to runneradmin during that resolution.
+        destination = self.root.resolve(strict=True) / 'ar'
+        injected = []
         def fault(src, dst):
-            if Path(dst) == self.root / 'ar':
+            if Path(dst).resolve(strict=False) == destination:
+                injected.append((Path(src), Path(dst)))
                 raise OSError('crash before commit')
             return real(src, dst)
         with patch('language_package_manager.os.rename', side_effect=fault):
             with self.assertRaisesRegex(OSError, 'crash before commit'):
                 install_directory(self.pack, self.root)
+        self.assertEqual(len(injected), 1)
         recover_package_transactions(self.root)
         self.assertFalse((self.root / 'ar').exists())
         self.assertTrue((self.pack / 'manifest.json').is_file())
