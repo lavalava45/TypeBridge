@@ -46,7 +46,7 @@ def display_icon_code(language, active_codes):
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
                 "running": "Автоисправление включено", "paused": "Автоисправление выключено",
                 "stopping": "Останавливается…", "error": "Ошибка запуска",
-                "degraded": "Автоисправление ограничено (RichEdit)"}
+                "degraded": "Автоисправление ограничено"}
 
 
 ICON_HEALTH_TTL = 5.0
@@ -81,7 +81,10 @@ def menu_items(state: str, detail: str = "", caret_flag: bool = False,
     status = STATE_LABELS[state]
     if state in ("error", "degraded") and detail:
         status = detail
-    status_row = ((0, status[:180], False, False),) if busy or state in ("error", "degraded") else ()
+    # A scoped warning is shown briefly; its enduring degraded state remains
+    # visible in the tray tooltip without occupying a full-width menu row.
+    status_row = ((0, status[:180], False, False),) if busy or state == "error" or (
+        state == "degraded" and detail) else ()
     journal_row = ((0, "● Дневник включён", False, False),) if journal_enabled else ()
     recovery_row = ((MENU_RESTORE_INPUT, "Вернуть задержанные клавиши в исходное поле…",
                      True, False),) if recovery_available else ()

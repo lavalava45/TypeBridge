@@ -114,6 +114,16 @@ class HookControlTests(unittest.TestCase):
         self.assertEqual(hook.emit.call_args.args[0], 'transport-quarantine')
         self.assertIn('запустите заново', hook.emit.call_args.args[1])
 
+    def test_scoped_quarantine_uses_short_message_and_remains_blocked(self):
+        hook = make_hook()
+        context = hook.context()
+        hook._quarantine_native('input-barrier-lost', context)
+        self.assertEqual(hook.emit.call_args.args[0], 'transport-quarantine-scoped')
+        self.assertEqual(hook.emit.call_args.args[1],
+                         'Автоисправление ограничено в одном поле. Проверь введённый текст.')
+        self.assertTrue(hook._native_blocked(context))
+        self.assertFalse(getattr(hook, 'native_edit_disabled', False))
+
     def test_boundary_rechecks_focus_before_sendinput(self):
         hook = make_hook()
         context = hook.context()

@@ -884,15 +884,13 @@ class LiveHook:
                 'worker-error': 'из-за ошибки рабочего потока',
             }.get(reason, 'из-за ошибки нативной коррекции')
             if scoped:
-                message = ('Нативные исправления ограничены для исходного поля '
-                           'из-за потери задержанных клавиш. Другие поля доступны. '
-                           'Вернись в исходное поле и проверь текст; восстановление '
-                           'задержанного ввода автоматически не выполняется.')
+                message = 'Автоисправление ограничено в одном поле. Проверь введённый текст.'
             else:
                 message = ('Нативные исправления заблокированы ' + cause + '. '
                            'Остальные функции могут работать. Для восстановления закройте '
                            'TypeBridge через «Выход» и запустите заново.')
-            self.emit('transport-quarantine', message)
+            self.emit('transport-quarantine-scoped' if scoped else 'transport-quarantine',
+                      message)
 
     def _note_native_mutation(self, bridge) -> None:
         # Do not count expensive read-only preflight or declined admissions as
@@ -2784,6 +2782,7 @@ class TypeBridgeGui:
         self.run_state = "stopped"
         self.last_start_error = ""
         self.native_quarantine_message = ""
+        self.native_quarantine_notice_until = None
         self._hook_watchdog = None
         self._raw_probe = None
         self._control_probe = None
@@ -3265,6 +3264,12 @@ class TypeBridgeGui:
     def _update_tray(self) -> None:
         if self.closing:
             return
+        notice_until = getattr(self, 'native_quarantine_notice_until', None)
+        if notice_until is not None and notice_until > 0 and monotonic() >= notice_until:
+            # Only the menu banner expires. Native correction stays quarantined
+            # and the tray tooltip continues to report degraded operation.
+            self.native_quarantine_notice_until = 0.0
+            self._sync_tray_state()
         if getattr(self, 'hook', None) is not None:
             self.hook.expire_native_pending()
         try:
@@ -3346,7 +3351,10 @@ class TypeBridgeGui:
 
     def _tray_state(self):
         if self.run_state == 'running' and getattr(self, 'native_quarantine_message', ''):
-            return 'degraded', self.native_quarantine_message
+            until = getattr(self, 'native_quarantine_notice_until', None)
+            detail = (self.native_quarantine_message
+                      if until is None or until > monotonic() else '')
+            return 'degraded', detail
         return self.run_state, self.last_start_error
 
     def current_settings(self) -> Settings:
@@ -3935,8 +3943,10 @@ class TypeBridgeGui:
                         if action:
                             action()
                         continue
-                if kind == 'transport-quarantine':
+                if kind in ('transport-quarantine', 'transport-quarantine-scoped'):
                     self.native_quarantine_message = message
+                    self.native_quarantine_notice_until = (monotonic() + 30.0
+                        if kind == 'transport-quarantine-scoped' else None)
                 elif kind == 'native-recovery-available':
                     if self.tray:
                         self.tray.set_native_recovery(bool(message))
@@ -3947,6 +3957,7 @@ class TypeBridgeGui:
                             not getattr(hook, 'native_edit_disabled', False)
                             and not getattr(hook, 'native_blocked_scopes', set())):
                         self.native_quarantine_message = ''
+                        self.native_quarantine_notice_until = None
                     if self.tray:
                         self.tray.set_native_recovery(False)
                 if kind == "ready":
@@ -3959,6 +3970,7 @@ class TypeBridgeGui:
                     self.last_start_error = message
                 elif kind == "stopped":
                     self.native_quarantine_message = ""
+                    self.native_quarantine_notice_until = None
                     if self.run_state == "error":
                         message = self.last_start_error
                     else:

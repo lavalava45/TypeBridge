@@ -1,3 +1,4 @@
+import queue
 import threading
 import unittest
 from pathlib import Path
@@ -25,6 +26,74 @@ class TrayRecoveryTests(unittest.TestCase):
         tray.language = 'idle'
         tray.journal_enabled = False
         self.assertIn('ограничены', tray._icon_data()[-1])
+
+    def test_expired_scoped_notice_hides_menu_row_but_keeps_degraded_tooltip(self):
+        from tray_win32 import menu_items, MENU_ENABLE
+        gui = TypeBridgeGui.__new__(TypeBridgeGui)
+        gui.run_state = 'running'
+        gui.last_start_error = ''
+        gui.native_quarantine_message = 'Автоисправление ограничено в одном поле. Проверь введённый текст.'
+        gui.native_quarantine_notice_until = 130.0
+        with patch('typebridge_app.monotonic', return_value=120.0):
+            self.assertEqual(gui._tray_state(), ('degraded', gui.native_quarantine_message))
+        with patch('typebridge_app.monotonic', return_value=131.0):
+            self.assertEqual(gui._tray_state(), ('degraded', ''))
+        rows = menu_items('degraded', '')
+        self.assertNotIn(0, [row[0] for row in rows])
+        toggle = next(row for row in rows if row[0] == MENU_ENABLE)
+        self.assertTrue(toggle[3])  # Auto correction still running.
+        tray = self.fixture()
+        tray.run_state = ('degraded', '')
+        tray.hwnd, tray.icons = 123, {'idle': 456}
+        tray.language = 'idle'
+        self.assertIn('ограничено', tray._icon_data()[-1])
+        self.assertEqual(gui.native_quarantine_message,
+                         'Автоисправление ограничено в одном поле. Проверь введённый текст.')
+
+    def test_scoped_notice_expiry_refreshes_tray_without_clearing_safety_state(self):
+        gui = TypeBridgeGui.__new__(TypeBridgeGui)
+        gui.closing = False
+        gui.hook = None
+        gui.run_state = 'running'
+        gui.last_start_error = ''
+        gui.native_quarantine_message = 'Автоисправление ограничено в одном поле.'
+        gui.native_quarantine_notice_until = 130.0
+        gui.tray = None
+        gui.root = Mock()
+        gui.caret_indicator = None
+        gui._sync_tray_state = Mock()
+        gui._update_taskbar_language_icon = Mock()
+        with patch('typebridge_app.monotonic', return_value=131.0), \
+             patch('typebridge_app.foreground_language', return_value='en'):
+            gui._update_tray()
+            gui._update_tray()
+        self.assertEqual(gui.native_quarantine_notice_until, 0.0)
+        self.assertEqual(gui._tray_state(), ('degraded', ''))
+        gui._sync_tray_state.assert_called_once()
+        self.assertEqual(gui.root.after.call_count, 2)
+
+    def test_scoped_event_sets_transient_notice_but_global_failure_does_not(self):
+        gui = TypeBridgeGui.__new__(TypeBridgeGui)
+        gui.closing = False
+        gui.worker = None
+        gui.events = queue.Queue()
+        gui.root = Mock()
+        gui.tray = None
+        gui.run_state = 'running'
+        gui.last_start_error = ''
+        gui.status = Mock()
+        gui.log = Mock()
+        gui.log.index.return_value = '3.0'
+        gui._sync_tray_state = Mock()
+        gui._queue_diagnostic = Mock()
+        gui.events.put(('transport-quarantine-scoped', 'Ограничение для поля'))
+        with patch('typebridge_app.monotonic', return_value=100.0):
+            gui._drain()
+        self.assertEqual(gui.native_quarantine_notice_until, 130.0)
+        gui.events.put(('transport-quarantine', 'Глобальная ошибка'))
+        gui._drain()
+        self.assertIsNone(gui.native_quarantine_notice_until)
+        self.assertEqual(gui.native_quarantine_message, 'Глобальная ошибка')
 
     def test_tray_recovery_command_requires_manual_request(self):
         from tray_win32 import menu_items, MENU_RESTORE_INPUT
