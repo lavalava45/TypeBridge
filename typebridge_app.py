@@ -67,7 +67,8 @@ from early_native_edit import NativeEditBridge, supports_native_edit
 from r04_text_target import native_field_metadata
 from word_recovery import recover_prefix
 from input_transport import send_with_remainder, unmatched_keydowns
-from native_transaction_queue import NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES
+from native_transaction_queue import (NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES,
+                                      MODIFIER_VKS as TRANSACTION_MODIFIER_VKS)
 from windows_shortcuts import read_windows_shortcuts, open_windows_keyboard_settings
 from settings_copy import (LANGUAGE_SELECTION_HELP, PASSWORD_CHECK_NOTE,
     PASSWORD_CHECK_LABEL, PASSWORD_CHECK_HELP, INDICATOR_HELP,
@@ -1317,6 +1318,7 @@ class LiveHook:
                 local_failure = (reason in ('focus-changed', 'focus-changed-before-commit',
                                             'field-revision-changed',
                                             'buffer-overflow', 'external-injected-input',
+                                            'modifier-state-changed',
                                             'unsafe-replay-context-changed-before-send'))
                 self._quarantine_native('input-barrier-lost' if local_failure
                                         else 'uncertain-write', context if local_failure else None)
@@ -2294,6 +2296,12 @@ class LiveHook:
                 # as our physical key. Another input tool may be injecting
                 # during the transaction; abandon the barrier instead.
                 gate.abort('external-injected-input')
+                return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
+            if (vk in TRANSACTION_MODIFIER_VKS and
+                    message in (WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP)):
+                # Never put physical modifiers behind a field-scoped replay
+                # barrier, even after that barrier has already been aborted.
+                gate.capture(self._physical_event(vk, message, event))
                 return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
             # The barrier belongs to one specific focused control. If the
             # user clicks another field, do not swallow that field's typing.

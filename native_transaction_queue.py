@@ -14,6 +14,8 @@ from dataclasses import dataclass, replace
 from threading import Lock
 
 KEYUP_MESSAGES = frozenset({0x101, 0x105})
+MODIFIER_VKS = frozenset({0x10, 0x11, 0x12, 0x5B, 0x5C,
+                          0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5})
 # A bounded, generous buffer for several seconds of unusually fast typing.
 MAX_BUFFERED_EVENTS = 256
 
@@ -42,6 +44,7 @@ class NativeTransactionQueue:
         self.trigger_repeated = False
         self.trigger_irreversible = False
         self.target_scope = None
+        self.modifier_states = {}
 
     def begin(self, initial=None, *, target_scope=None, command_trigger=False):
         with self._lock:
@@ -56,11 +59,21 @@ class NativeTransactionQueue:
             self.trigger_repeated = False
             self.trigger_irreversible = False
             self.target_scope = target_scope
+            self.modifier_states = {}
             return True
 
     def capture(self, event):
         """Returns True if the physical event must be held by the hook."""
         with self._lock:
+            if self.busy and event.vk in MODIFIER_VKS:
+                # Modifier state belongs to Windows, not to the text queue.
+                # In particular, holding a KEYUP can strand an already
+                # delivered KEYDOWN when focus changes or replay fails.
+                self.modifier_states[event.vk] = event.message not in KEYUP_MESSAGES
+                self.active = False
+                if not self.aborted_reason:
+                    self.aborted_reason = 'modifier-state-changed'
+                return False
             if not self.active:
                 return False
             if self.trigger_up_pending and event.vk == self.trigger_vk:

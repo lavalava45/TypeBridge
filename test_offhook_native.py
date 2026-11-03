@@ -10,6 +10,31 @@ from typebridge_app import LiveHook, TypeBridgeGui, WM_KEYDOWN, WM_KEYUP, VK_SPA
 
 
 class OffHookNativeTests(unittest.TestCase):
+    def test_right_shift_release_passes_through_and_is_never_replayed(self):
+        for abort_first in (False, True):
+            with self.subTest(abort_first=abort_first):
+                hook = self.fixture()
+                ctx = hook.context()
+                gate = hook.native_queue
+                gate.begin(target_scope=hook._native_scope(ctx))
+                self.assertEqual(key(hook, 0x41), 1)
+                if abort_first:
+                    gate.abort('focus-changed')
+                # Model a Shift KEYDOWN delivered before the transaction.
+                # The physical KEYUP must reach CallNextHookEx immediately.
+                self.assertEqual(key(hook, 0xA1, WM_KEYUP), 0)
+                self.assertIs(gate.modifier_states[0xA1], False)
+                hook.user32.CallNextHookEx.assert_called()
+                self.assertEqual(key(hook, 0xA1), 0)
+                self.assertEqual(key(hook, 0xA1, WM_KEYUP), 0)
+                hook._drain_native_input(ctx, gate, None, False)
+                hook.user32.SendInput.assert_not_called()
+                self.assertFalse(gate.busy)
+                self.assertFalse(hook.native_edit_disabled)
+                self.assertTrue(hook._native_blocked(ctx))
+                if hook.native_pending_recovery is not None:
+                    self.assertTrue(all(e.vk != 0xA1 for e in hook.native_pending_recovery[1]))
+
     def fixture(self):
         hook = make_hook()
         hook.native_queue = NativeTransactionQueue()

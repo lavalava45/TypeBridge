@@ -1,10 +1,35 @@
 import unittest
 from threading import Thread
 
-from native_transaction_queue import NativeTransactionQueue, PhysicalKey
+from native_transaction_queue import NativeTransactionQueue, PhysicalKey, MODIFIER_VKS
 
 
 class NativeTransactionQueueTests(unittest.TestCase):
+    def test_modifiers_never_enter_text_queue_and_cancel_replay(self):
+        for vk in MODIFIER_VKS:
+            for message in (0x100, 0x101, 0x104, 0x105):
+                with self.subTest(vk=vk, message=message):
+                    gate = NativeTransactionQueue()
+                    gate.begin()
+                    self.assertTrue(gate.capture(self.key(0x41)))
+                    self.assertFalse(gate.capture(self.key(vk, message)))
+                    self.assertEqual(gate.modifier_states[vk], message in (0x100, 0x104))
+                    self.assertEqual(gate.aborted_reason, 'modifier-state-changed')
+                    self.assertFalse(gate.active)
+                    self.assertTrue(gate.busy)
+                    self.assertEqual([e.vk for e in gate.close()], [0x41])
+
+    def test_modifier_release_after_abort_is_observed_without_replacing_reason(self):
+        gate = NativeTransactionQueue()
+        gate.begin()
+        gate.abort('focus-changed')
+        self.assertFalse(gate.capture(self.key(0xA1, 0x101)))
+        self.assertIs(gate.modifier_states[0xA1], False)
+        self.assertEqual(gate.aborted_reason, 'focus-changed')
+        self.assertEqual(gate.close(), [])
+        gate.begin()
+        self.assertEqual(gate.modifier_states, {})
+
     def key(self, vk, message=0x100, trigger=False):
         return PhysicalKey(vk, vk, 0, message, trigger)
 
