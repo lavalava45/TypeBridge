@@ -18,6 +18,71 @@ from tray_layouts import LayoutTarget
 
 
 class SearchTests(unittest.TestCase):
+    def test_receive_rechecks_deadline_after_window_validation(self):
+        target = LayoutTarget(10, 11, 12, 13)
+        settings = replace(Settings(), quick_search=True)
+        for delay in (1.0, 30.0):
+            with self.subTest(delay=delay):
+                now = [0.0]
+                layouts = Mock()
+                layouts.capture.return_value = target
+                def valid(_):
+                    now[0] = delay
+                    return True
+                layouts.valid.side_effect = valid
+                opener = Mock(return_value=True)
+                service = QuickSearch(Mock(), opener=opener)
+                service.busy = True
+                service.request_deadline = 8.0
+                with patch('quick_search.time.monotonic', side_effect=lambda: now[0]), \
+                     patch('app_exclusions.target_allowed', return_value=True):
+                    message = service.receive((0, target, settings, 'https://example.org/', None),
+                                              settings, layouts)
+                self.assertFalse(service.busy)
+                self.assertIsNone(service.request_deadline)
+                if delay > 8:
+                    opener.assert_not_called()
+                    self.assertEqual(message, 'Поиск отменён: истёк срок запроса')
+                else:
+                    opener.assert_called_once_with('https://example.org/')
+
+    def test_worker_start_failure_completes_and_allows_retry(self):
+        target = LayoutTarget(10, 11, 12, 13)
+        settings = replace(Settings(), quick_search=True)
+        layouts = Mock()
+        layouts.capture.return_value = target
+        layouts.valid.return_value = True
+        results = queue.Queue()
+        reader, opener = Mock(return_value='test'), Mock(return_value=True)
+        service = QuickSearch(results.put, reader, opener)
+        with patch('app_exclusions.target_allowed', return_value=True):
+            for failure in ('constructor', 'start'):
+                with self.subTest(failure=failure):
+                    with patch('quick_search.threading.Thread') as thread:
+                        if failure == 'constructor':
+                            thread.side_effect = RuntimeError('private-provider-detail')
+                        else:
+                            thread.return_value.start.side_effect = RuntimeError('private-provider-detail')
+                        service.request(target, settings, layouts)
+                        self.assertTrue(service.busy)
+                        # No second request until the GUI consumes the error.
+                        service.request(target, settings, layouts)
+                        self.assertEqual(thread.call_count, 1)
+                    reader.assert_not_called()
+                    opener.assert_not_called()
+                    result = results.get_nowait()
+                    self.assertTrue(results.empty())
+                    self.assertEqual(service.receive(result, settings, layouts),
+                                     'Не удалось запустить поиск')
+                    self.assertFalse(service.busy)
+                    self.assertNotIn('private-provider-detail', str(result))
+            service.request(target, settings, layouts)
+            result = results.get(timeout=2)
+            self.assertEqual(service.receive(result, settings, layouts), 'Поиск открыт в браузере')
+            self.assertFalse(service.busy)
+            reader.assert_called_once_with(target)
+            opener.assert_called_once()
+
     def test_defaults_roundtrip_and_invalid_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'settings.json'

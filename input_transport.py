@@ -1,7 +1,7 @@
 """Bounded completion of a partially submitted serial input batch."""
 
 
-def send_with_remainder(events, send, valid):
+def send_with_remainder(events, send, valid, *, on_progress=None):
     """Never replay an accepted prefix; attempt the unsubmitted suffix once.
 
     SendInput counts inserted events, not document changes. This cannot repair a
@@ -11,12 +11,16 @@ def send_with_remainder(events, send, valid):
     accepted = int(send(events))
     if not 0 <= accepted <= len(events):
         raise ValueError('invalid-input-acceptance-count')
+    if on_progress is not None:
+        on_progress(accepted)
     if 0 < accepted < len(events) and valid():
         remaining = events[accepted:]
         progress = int(send(remaining))
         if not 0 <= progress <= len(remaining):
             raise ValueError('invalid-input-acceptance-count')
         accepted += progress
+        if on_progress is not None:
+            on_progress(accepted)
     return accepted
 
 

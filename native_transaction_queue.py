@@ -33,6 +33,8 @@ class NativeTransactionQueue:
     def __init__(self, limit=MAX_BUFFERED_EVENTS):
         self._lock = Lock()
         self._events = []
+        self.owner = 0
+        self.finishing = False
         self.active = False
         self.busy = False
         self.overflow = False
@@ -45,11 +47,19 @@ class NativeTransactionQueue:
         self.trigger_irreversible = False
         self.target_scope = None
         self.modifier_states = {}
+        self.expected_hkl = None
+        self.expected_language = None
+        self.replay_modifiers = None
+        self.replay_thread_id = 0
 
-    def begin(self, initial=None, *, target_scope=None, command_trigger=False):
+    def begin(self, initial=None, *, target_scope=None, command_trigger=False,
+              expected_hkl=None, expected_language=None, replay_modifiers=None,
+              replay_thread_id=0):
         with self._lock:
             if self.busy:
                 return False
+            self.owner += 1
+            self.finishing = False
             self.active, self.busy, self.overflow = True, True, False
             self.aborted_reason = ''
             self._events = [initial] if initial is not None else []
@@ -60,11 +70,17 @@ class NativeTransactionQueue:
             self.trigger_irreversible = False
             self.target_scope = target_scope
             self.modifier_states = {}
+            self.expected_hkl = expected_hkl
+            self.expected_language = expected_language
+            self.replay_modifiers = replay_modifiers
+            self.replay_thread_id = replay_thread_id
             return True
 
     def capture(self, event):
         """Returns True if the physical event must be held by the hook."""
         with self._lock:
+            if self.finishing:
+                return False
             if self.busy and event.vk in MODIFIER_VKS:
                 # Modifier state belongs to Windows, not to the text queue.
                 # In particular, holding a KEYUP can strand an already
@@ -102,18 +118,26 @@ class NativeTransactionQueue:
                 self._events.append(event)
             return True
 
-    def mark_trigger_irreversible(self):
+    def mark_trigger_irreversible(self, *, owner=None):
         """A held trigger might already have affected text: never replay it."""
         with self._lock:
+            if owner is not None and owner != self.owner:
+                return
             if self.busy:
                 self.trigger_irreversible = True
 
-    def reset_unaccepted_trigger(self):
+    def reset_unaccepted_trigger(self, *, owner=None):
         """Only after SendInput explicitly reports zero accepted events."""
         with self._lock:
+            if owner is not None and owner != self.owner:
+                return
             self.trigger_irreversible = False
 
-    def abort(self, reason):
+    def owns(self, owner):
+        with self._lock:
+            return self.owner == owner
+
+    def abort(self, reason, *, owner=None):
         """Stop swallowing input immediately; worker still owns cleanup.
 
         Keeping busy=True prevents a second transaction from racing the
@@ -121,35 +145,43 @@ class NativeTransactionQueue:
         delivered safely to a new target and are explicitly reported lost.
         """
         with self._lock:
-            if not self.busy:
+            if (owner is not None and owner != self.owner) or not self.busy or self.finishing:
                 return 0
             self.active = False
             if not self.aborted_reason:
                 self.aborted_reason = reason
             return len(self._events)
 
-    def take(self):
+    def take(self, *, owner=None):
         """Atomically take buffered input; still capture arrivals while replaying."""
         with self._lock:
+            if owner is not None and owner != self.owner:
+                return []
             events, self._events = self._events, []
             return events
 
-    def close_if_drained(self):
+    def close_if_drained(self, *, owner=None, release=True):
         with self._lock:
+            if owner is not None and owner != self.owner:
+                return False
             if self._events:
                 return False
             self.active = False
-            self.busy = False
+            self.busy = not release
+            self.finishing = True
             self.trigger_up_pending = False
             self.target_scope = None
             return True
 
-    def close(self):
+    def close(self, *, owner=None, release=True):
         """Emergency shutdown: return unreplayed keys, do not leave a barrier."""
         with self._lock:
+            if owner is not None and owner != self.owner:
+                return []
             events, self._events = self._events, []
             self.active = False
-            self.busy = False
+            self.busy = not release
+            self.finishing = True
             self.trigger_up_pending = False
             self.target_scope = None
             return events

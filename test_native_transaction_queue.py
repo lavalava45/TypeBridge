@@ -5,6 +5,31 @@ from native_transaction_queue import NativeTransactionQueue, PhysicalKey, MODIFI
 
 
 class NativeTransactionQueueTests(unittest.TestCase):
+    def test_stale_owner_cannot_mutate_or_consume_new_transaction(self):
+        gate = NativeTransactionQueue()
+        gate.begin()
+        old = gate.owner
+        gate.close(owner=old)
+        gate.begin(target_scope=('new',))
+        current = gate.owner
+        self.assertGreater(current, old)
+        letter = self.key(0x42)
+        gate.capture(letter)
+        self.assertEqual(gate.abort('stale', owner=old), 0)
+        self.assertEqual(gate.take(owner=old), [])
+        self.assertEqual(gate.close(owner=old), [])
+        self.assertFalse(gate.close_if_drained(owner=old))
+        gate.mark_trigger_irreversible(owner=old)
+        self.assertFalse(gate.trigger_irreversible)
+        gate.mark_trigger_irreversible(owner=current)
+        gate.reset_unaccepted_trigger(owner=old)
+        self.assertTrue(gate.trigger_irreversible)
+        self.assertTrue(gate.active)
+        self.assertTrue(gate.busy)
+        self.assertFalse(gate.aborted_reason)
+        self.assertEqual(gate.target_scope, ('new',))
+        self.assertEqual(gate.take(owner=current), [letter])
+
     def test_modifiers_never_enter_text_queue_and_cancel_replay(self):
         for vk in MODIFIER_VKS:
             for message in (0x100, 0x101, 0x104, 0x105):

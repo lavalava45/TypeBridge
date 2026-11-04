@@ -107,7 +107,7 @@ class TransactionTests(unittest.TestCase):
     def test_changed_focus_oversized_copy_and_failed_restore_abort(self):
         for mode in ('focus', 'large', 'restore', 'partial'):
             n, state, valid, target, clock, sleep = self.fixture()
-            if mode == 'focus': valid.side_effect = [True, True, False]
+            if mode == 'focus': valid.side_effect = [True, True, True, False]
             elif mode == 'large': n.text.return_value = 'x' * 2001
             elif mode == 'restore': n.restore.return_value = False
             elif mode == 'partial':
@@ -151,6 +151,8 @@ class TransactionTests(unittest.TestCase):
         layouts.capture.return_value = target
         settings = replace(Settings(), quick_search=True)
         preview = SearchPreview('selected', 'https://example.org/?q=selected')
+        # Simulate an outstanding request; unsolicited/stale results are ignored.
+        service.request_deadline = __import__('time').monotonic() + 8
         with patch('app_exclusions.target_allowed', return_value=True):
             result = service.receive((0, target, settings, preview, None), settings, layouts)
         self.assertEqual(result, preview)

@@ -213,6 +213,7 @@ class FocusContext:
     title: str
     layout_window: int = 0
     password_revision: int = 0
+    hkl: int = 0
 
 
 def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
@@ -805,7 +806,7 @@ class LiveHook:
         emit_pipeline(self, 'context-ready', interval=4, app=process,
                       language=language, hkl=f'{raw_hkl:08X}')
         return FocusContext(top, focus, owner_thread, language, process, title,
-                            owner, password_revision=password_revision)
+                            owner, password_revision=password_revision, hkl=raw_hkl)
 
     def clear_token(self, *, preserve_snippets=False) -> None:
         self.keys.clear()
@@ -858,7 +859,7 @@ class LiveHook:
             return True
         vk = event.vk
         return (0x30 <= vk <= 0x5A or 0xBA <= vk <= 0xE2 or
-                vk in (VK_SPACE, VK_SHIFT, 0xA0, 0xA1)) and not event.flags & 0x20
+                vk == VK_SPACE) and not event.flags & 0x20
 
     def _quarantine_native(self, reason='uncertain-write', context=None) -> None:
         """Do not retry unsafe native mutations; expose the actual reason."""
@@ -999,6 +1000,25 @@ class LiveHook:
         same protection. A successful SendInput event count does not prove the
         editor's text changed; never report it as verified document content.
         """
+        original_valid = valid
+        def valid():
+            if not original_valid():
+                return False
+            gate = getattr(self, 'native_queue', None)
+            if gate is None or not gate.busy:
+                return True
+            if gate.aborted_reason:
+                return False
+            if gate.expected_hkl is not None and gate.replay_thread_id:
+                actual = int(self.user32.GetKeyboardLayout(gate.replay_thread_id) or 0) & 0xFFFFFFFF
+                if not actual or actual != gate.expected_hkl:
+                    gate.abort('layout-changed')
+                    return False
+            if gate.replay_modifiers is not None and self._replay_modifiers() != gate.replay_modifiers:
+                gate.abort('modifier-state-changed')
+                return False
+            return True
+
         if not valid():
             return 0, 'context-changed-before-send'
         guard = getattr(self, 'password_guard', None)
@@ -1018,8 +1038,8 @@ class LiveHook:
             if not valid():
                 return 0, 'context-changed-after-password-check'
 
-        def send(part):
-            if before_send is not None:
+        def send(part, *, cleanup=False):
+            if before_send is not None and not cleanup:
                 # Runs after the context preflight and immediately before
                 # the irreversible Windows API. An exception in SendInput or
                 # later layout verification must not replay a held trigger.
@@ -1028,20 +1048,53 @@ class LiveHook:
             ctypes.set_last_error(0)
             return int(self.user32.SendInput(len(part), batch, ctypes.sizeof(Input)))
 
-        sent = send_with_remainder(events, send, valid)
+        sent = 0
+        def record_progress(accepted):
+            nonlocal sent
+            sent = accepted
+
+        try:
+            sent = send_with_remainder(events, send, valid, on_progress=record_progress)
+        finally:
+            # Keep the proven prefix even if validation/the remainder raises.
+            # Cleanup is KEYUP-only and bypasses text-mutation callbacks.
+            if sent < len(events):
+                dangling = unmatched_keydowns(events, sent)
+                if dangling:
+                    releases = [input_key(vk, flags | KEYEVENTF_KEYUP, scan)
+                                for vk, scan, flags in reversed(dangling)]
+                    try:
+                        released = send(releases, cleanup=True) == len(releases)
+                    except Exception:
+                        released = False
+                    if not released:
+                        self.emit('error', 'SendInput: не подтверждено отпускание клавиш')
         if sent < len(events):
-            dangling = unmatched_keydowns(events, sent)
-            if dangling:
-                releases = [input_key(vk, flags | KEYEVENTF_KEYUP, scan)
-                            for vk, scan, flags in reversed(dangling)]
-                if send(releases) != len(releases):
-                    self.emit('error', 'SendInput: не подтверждено отпускание клавиш')
             return sent, 'partial'
         return sent, 'complete'
 
     def _physical_event(self, vk, message, event, *, trigger=False):
         return PhysicalKey(int(vk), int(event.scanCode), int(event.flags),
                            int(message), trigger)
+
+    def _replay_modifiers(self):
+        # Logical Shift is enough to preserve case without synthesizing either
+        # physical Shift key. CapsLock also changes replayed scan-code text.
+        held = tuple(vk for vk in (VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)
+                     if self.pressed(vk))
+        return held + ((VK_CAPITAL,) if self.user32.GetKeyState(VK_CAPITAL) & 1 else ())
+
+    def _record_replay_layout(self, context, hkl):
+        """Only an explicit application layout request may change expectation."""
+        expected = int(hkl) & 0xFFFFFFFF
+        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        gate = getattr(self, 'native_queue', None)
+        if gate is not None and gate.busy:
+            gate.expected_hkl = expected
+            gate.expected_language = self._language_from_id(expected & 0xFFFF)
+            if not observed or observed != expected:
+                gate.abort('layout-unconfirmed')
+        return observed
 
     def _schedule_native(self, context, job, *, trigger=None, drop_always=False,
                          layout_only=False):
@@ -1059,22 +1112,32 @@ class LiveHook:
             self._native_worker_tls = threading.local()
         if self.stopping or not gate.begin(
                 trigger, target_scope=self._native_scope(context),
-                command_trigger=drop_always):
+                command_trigger=drop_always,
+                expected_hkl=context.hkl or int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF,
+                expected_language=context.language, replay_modifiers=self._replay_modifiers(),
+                replay_thread_id=context.thread_id):
             return False
 
         gate.layout_only = layout_only
+        owner = gate.owner
 
         def work():
             drop_trigger = bool(drop_always)
             try:
                 self._native_worker_tls.active = True
+                self._native_worker_tls.owner = owner
                 self._native_worker_tls.layout_only = layout_only
                 current = self.context()
-                if (not self.stopping and current is not None and
+                if (not self.stopping and not gate.aborted_reason and current is not None and
                         self._native_scope(current) == gate.target_scope):
-                    drop_trigger = bool(job()) or drop_trigger
+                    actual_hkl = int(self.user32.GetKeyboardLayout(current.thread_id) or 0) & 0xFFFFFFFF
+                    if (not actual_hkl or actual_hkl != gate.expected_hkl
+                            or current.language != gate.expected_language):
+                        gate.abort('layout-changed', owner=owner)
+                    else:
+                        drop_trigger = bool(job()) or drop_trigger
                 else:
-                    gate.abort('focus-changed-before-commit')
+                    gate.abort('focus-changed-before-commit', owner=owner)
                     self.emit('diagnostic', 'native-job-refused:focus-changed')
             except Exception as error:
                 self._quarantine_native('worker-error')
@@ -1084,24 +1147,27 @@ class LiveHook:
                 # Replay in small batches without releasing the barrier in
                 # between. Physical input that arrived during replay is next.
                 try:
-                    self._drain_native_input(context, gate, trigger, drop_trigger)
+                    self._drain_native_input(context, gate, trigger, drop_trigger,
+                                             owner=owner, release=False)
                 except Exception as error:
                     # A worker exception must never leave the low-level hook
                     # swallowing every later key behind a stuck barrier.
-                    gate.close()
+                    gate.close(owner=owner, release=False)
                     self._quarantine_native('worker-error')
                     self.emit('error', 'Ошибка возврата клавиш: ' + type(error).__name__)
                 finally:
                     self._native_worker_tls.active = False
                     self._native_worker_tls.layout_only = False
+                    self._native_worker_tls.owner = None
+                    gate.close(owner=owner)
 
-        thread = threading.Thread(target=work, name='TypeBridgeNativeEdit', daemon=True)
-        self.native_worker = thread
         try:
+            thread = threading.Thread(target=work, name='TypeBridgeNativeEdit', daemon=True)
+            self.native_worker = thread
             thread.start()
             return True
         except RuntimeError:
-            gate.close()
+            gate.close(owner=owner)
             self.emit('error', 'Не удалось запустить нативную транзакцию')
             return False
 
@@ -1128,11 +1194,18 @@ class LiveHook:
         def released_job():
             try:
                 if not release.wait(.5):
+                    # Without callback acknowledgement the trigger is
+                    # ambiguous; never synthesize it a second time.
+                    self.native_queue.mark_trigger_irreversible()
                     self.native_queue.abort('keyboard-callback-release-timeout')
                     self.emit('diagnostic', 'keyboard-job-refused:callback-not-released')
                     return False
                 current = self.context()
-                if (self.stopping or current is None
+                if (current is not None and
+                        (int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF)
+                        != self.native_queue.expected_hkl):
+                    self.native_queue.abort('layout-changed')
+                if (self.stopping or current is None or self.native_queue.aborted_reason
                         or (self.paused and not allow_paused) or self.settings is not settings
                         or self._word_scope(current) != self._word_scope(context)
                         or current.language != context.language
@@ -1175,18 +1248,27 @@ class LiveHook:
         """Mark the first possible SendInput mutation before entering Win32."""
         gate = getattr(self, 'native_queue', None)
         if self._native_is_off_hook() and gate is not None:
-            gate.mark_trigger_irreversible()
+            gate.mark_trigger_irreversible(owner=getattr(self._native_worker_tls, 'owner', None))
 
     def _confirm_keyboard_trigger_acceptance(self, sent):
         """Only a definite zero-acceptance response permits trigger replay."""
         gate = getattr(self, 'native_queue', None)
         if not sent and self._native_is_off_hook() and gate is not None:
-            gate.reset_unaccepted_trigger()
+            gate.reset_unaccepted_trigger(owner=getattr(self._native_worker_tls, 'owner', None))
 
     def _browser_field_changed_after_submission(self, context, revision):
         """Never switch a browser thread's HKL for a different DOM input."""
-        if (context.process_name.lower() not in BROWSER_APPS or
-                getattr(self, '_browser_field_revision', 0) == revision):
+        if context.process_name.lower() not in BROWSER_APPS:
+            return False
+        changed = getattr(self, '_browser_field_revision', 0) != revision
+        try:
+            current = self.context()
+            changed = (changed or current is None
+                       or self._word_scope(current) != self._word_scope(context)
+                       or current.language != context.language)
+        except Exception:
+            changed = True  # Provider/context failure cannot authorize HKL.
+        if not changed:
             return False
         gate = getattr(self, 'native_queue', None)
         if gate is not None and gate.busy:
@@ -1199,15 +1281,65 @@ class LiveHook:
                   'переключение раскладки и досылка клавиш отменены')
         return True
 
+    def _postwrite_permitted(self, context, *, expected_hkl=None, browser_revision=None):
+        """Recheck the original field before any post-write HKL/state mutation.
+
+        The text may already have changed, so a refusal must never replay or
+        undo it. This barrier does not make SendInput and UIA atomic.
+        """
+        try:
+            current = self.context()
+            if (self.stopping or current is None
+                    or self._word_scope(current) != self._word_scope(context)
+                    or current.language != context.language):
+                return False
+            if (browser_revision is not None
+                    and context.process_name.lower() in BROWSER_APPS
+                    and getattr(self, '_browser_field_revision', 0) != browser_revision):
+                return False
+            if expected_hkl is not None:
+                observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+                if not observed or observed != (int(expected_hkl) & 0xFFFFFFFF):
+                    return False
+            # context() already resolves the current guard revision and
+            # rejects unknown/password/stale fields. Calling revalidate()
+            # again here would require a second asynchronous UIA update and
+            # reject otherwise verified editor transactions.
+            return True
+        except Exception:
+            return False
+
     def _drain_native_input(self, context, gate, trigger, drop_trigger,
-                            *, recovery=False):
+                            *, recovery=False, owner=None, release=True):
+        owner = gate.owner if owner is None else owner
+        if not gate.owns(owner):
+            return
+        try:
+            self._drain_owned_native_input(context, gate, trigger, drop_trigger,
+                                          recovery=recovery, owner=owner)
+        finally:
+            if release:
+                gate.close(owner=owner)
+
+    def _drain_owned_native_input(self, context, gate, trigger, drop_trigger,
+                                 *, recovery, owner):
         lost = False
         original_scope = gate.target_scope or self._native_scope(context)
         trigger_vk = trigger.vk if trigger is not None else None
         had_following_input = False
         cleared_token = False
-        attempted_replay = False
+        uncertain_replay = False
         undelivered = []
+        # Defaults support manually constructed test/legacy transactions. Live
+        # transactions capture all three values before their worker starts.
+        if gate.expected_hkl is None:
+            gate.expected_hkl = context.hkl or int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        if gate.expected_language is None:
+            gate.expected_language = context.language
+        if gate.replay_modifiers is None:
+            gate.replay_modifiers = self._replay_modifiers()
+        if not gate.replay_thread_id:
+            gate.replay_thread_id = context.thread_id
         # A hotkey is already suppressed by its hook branch; for punctuation
         # prevent a later physical KEYUP from reaching the editor when its
         # KEYDOWN was incorporated in the native replacement.
@@ -1219,7 +1351,7 @@ class LiveHook:
                 if gate.aborted_reason:
                     lost = True
                     break
-                held = gate.take()
+                held = gate.take(owner=owner)
                 if (drop_trigger and trigger_vk is not None and
                         not gate.command_trigger and gate.trigger_repeated):
                     # Physical printable auto-repeat needs its final KEYUP.
@@ -1249,18 +1381,28 @@ class LiveHook:
                 if playable:
                     def valid():
                         current = self.context()
-                        return (not gate.aborted_reason and not self.stopping and current is not None and
-                                self._native_scope(current) == original_scope)
+                        if (gate.aborted_reason or self.stopping or current is None
+                                or self._native_scope(current) != original_scope):
+                            return False
+                        actual_hkl = int(self.user32.GetKeyboardLayout(current.thread_id) or 0) & 0xFFFFFFFF
+                        if (not actual_hkl or actual_hkl != gate.expected_hkl
+                                or current.language != gate.expected_language):
+                            gate.abort('layout-changed', owner=owner)
+                            return False
+                        if self._replay_modifiers() != gate.replay_modifiers:
+                            gate.abort('modifier-state-changed', owner=owner)
+                            return False
+                        return True
                     sent, reason = self._send_guarded_inputs(playable, valid)
                     # A pre-send focus refusal accepted NO events. Preserve
                     # the still-intact physical queue for explicit recovery
                     # in its original field, rather than treating the mere
                     # attempt to call SendInput as an irreversible replay.
-                    if sent:
-                        attempted_replay = True
+                    if sent and sent != len(playable):
+                        uncertain_replay = True
                     if sent != len(playable):
                         lost = True
-                        gate.abort('unsafe-replay-' + reason)
+                        gate.abort('unsafe-replay-' + reason, owner=owner)
                         self.emit('error', 'Задержанные клавиши не полностью доставлены: ' + reason)
                     else:
                         undelivered.clear()
@@ -1277,13 +1419,13 @@ class LiveHook:
                 if gate.aborted_reason:
                     lost = True
                     break
-                if gate.close_if_drained():
+                if gate.close_if_drained(owner=owner, release=False):
                     break
             else:
                 lost = True
         finally:
             if gate.busy:
-                waiting = gate.close()
+                waiting = gate.close(owner=owner, release=False)
                 undelivered.extend(waiting)
                 lost = bool(waiting) or lost
             if gate.overflow:
@@ -1293,11 +1435,13 @@ class LiveHook:
             if lost:
                 reason = gate.aborted_reason or 'replay-error'
                 # Preserve an untouched backlog in volatile memory ONLY if
-                # no replay was attempted and focus switched. Never insert
+                # this batch was never partially submitted. Never insert
                 # it into an unrelated target or silently discard it.
                 if (reason in ('focus-changed', 'focus-changed-before-commit',
-                               'unsafe-replay-context-changed-before-send')
-                        and not attempted_replay and undelivered
+                               'unsafe-replay-context-changed-before-send',
+                               'modifier-state-changed', 'layout-changed', 'layout-unconfirmed',
+                               'keyboard-callback-release-timeout')
+                        and not uncertain_replay and undelivered
                         and getattr(self, 'native_pending_recovery', None) is None
                         and (context.process_name.lower() not in BROWSER_APPS or
                              self._native_scope(context) == original_scope)
@@ -1305,20 +1449,21 @@ class LiveHook:
                                 for e in undelivered)):
                     self.native_pending_recovery = (context, tuple(undelivered),
                                                     bool(drop_trigger), trigger,
-                                                    self.last_language if getattr(self, 'last_language', '')
-                                                    in getattr(self.engine, 'active_languages', LANGS)
-                                                    else context.language,
+                                                    gate.expected_language,
                                                     original_scope,
+                                                    gate.expected_hkl, gate.replay_modifiers,
                                                     perf_counter())
                     self.emit('native-recovery-available', len(undelivered))
                 # A refused (zero-event) replay, focus change or overflow
                 # does not prove the editor's text was mutated. Limit that
                 # quarantine to the source field. An uncertain partial replay
                 # or unexplained failure still requires a global stop.
-                local_failure = (reason in ('focus-changed', 'focus-changed-before-commit',
+                local_failure = (not uncertain_replay and reason in ('focus-changed', 'focus-changed-before-commit',
                                             'field-revision-changed',
                                             'buffer-overflow', 'external-injected-input',
                                             'modifier-state-changed',
+                                            'layout-changed', 'layout-unconfirmed',
+                                            'keyboard-callback-release-timeout',
                                             'unsafe-replay-context-changed-before-send'))
                 self._quarantine_native('input-barrier-lost' if local_failure
                                         else 'uncertain-write', context if local_failure else None)
@@ -1356,8 +1501,13 @@ class LiveHook:
         if len(recovery) == 6:  # Legacy in-memory/test snapshot without DOM revision.
             original, held, drop_trigger, trigger, expected_language, timestamp = recovery
             expected_scope = self._native_scope(original)
-        else:
+            expected_hkl, expected_modifiers = None, None
+        elif len(recovery) == 7:
             original, held, drop_trigger, trigger, expected_language, expected_scope, timestamp = recovery
+            expected_hkl, expected_modifiers = None, None
+        else:
+            (original, held, drop_trigger, trigger, expected_language, expected_scope,
+             expected_hkl, expected_modifiers, timestamp) = recovery
         if perf_counter() - timestamp > 180:
             self.expire_native_pending()
             return False
@@ -1368,10 +1518,18 @@ class LiveHook:
             self.emit('error', 'Для возврата клавиш активируй исходное поле '
                       'и нужную раскладку (' + expected_language.upper() + ')')
             return False
-        # Only printable physical typing and optional Shift are recoverable.
+        actual_hkl = int(self.user32.GetKeyboardLayout(current.thread_id) or 0) & 0xFFFFFFFF
+        if ((expected_hkl is not None and (not actual_hkl or actual_hkl != expected_hkl))
+                or (expected_modifiers is not None and self._replay_modifiers() != expected_modifiers)):
+            self.emit('error', 'Для возврата клавиш восстанови исходную раскладку и состояние Shift/Caps Lock')
+            return False
+        # Only printable physical typing is recoverable. Modifiers always
+        # pass through physically; recovery never synthesizes their state.
         # Never replay Win/Alt/Ctrl shortcuts, Tab/Enter navigation, or
         # arbitrary hotkeys later at a possibly different caret position.
-        if not all(self._native_recovery_key_safe(e, drop_trigger) for e in held):
+        unsafe_modifiers = (VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)
+        if ((expected_modifiers is not None and any(vk in expected_modifiers for vk in unsafe_modifiers))
+                or not all(self._native_recovery_key_safe(e, drop_trigger) for e in held)):
             self.emit('error', 'Отложенные клавиши содержат управляющую комбинацию; '
                       'автоматический возврат небезопасен')
             return False
@@ -1397,21 +1555,27 @@ class LiveHook:
         if len(paired) > gate.limit:
             self.emit('error', 'Буфер восстановления превышает безопасный лимит')
             return False
-        if not gate.begin(target_scope=expected_scope):
+        if not gate.begin(target_scope=expected_scope,
+                          expected_hkl=expected_hkl if expected_hkl is not None else actual_hkl,
+                          expected_language=expected_language,
+                          replay_modifiers=expected_modifiers if expected_modifiers is not None else self._replay_modifiers(),
+                          replay_thread_id=current.thread_id):
             self.emit('info', 'Нативная операция ещё выполняется; восстановление не начато')
             return False
-        self.native_pending_recovery = None
-        self.emit('native-recovery-available', 0)
+        owner = gate.owner
         for item in paired:
             if not gate.capture(item):
-                gate.close()
+                gate.close(owner=owner)
+                # No replay occurred. Preserve the original retry snapshot.
                 self.emit('error', 'Буфер восстановления переполнен; возврат отменён')
                 return False
+        self.native_pending_recovery = None
+        self.emit('native-recovery-available', 0)
 
         def restore():
             try:
                 self._drain_native_input(original, gate, trigger, drop_trigger,
-                                         recovery=True)
+                                         recovery=True, owner=owner, release=False)
                 if (not getattr(self, 'native_edit_disabled', False)
                         and not gate.aborted_reason and not gate.overflow):
                     getattr(self, 'native_blocked_scopes', set()).discard(
@@ -1419,17 +1583,19 @@ class LiveHook:
                     self.emit('native-recovery-complete', 'Отложенный ввод отправлен '
                               'в исходное поле; проверь результат и позицию каретки')
             except Exception as error:
-                gate.close()
+                gate.close(owner=owner, release=False)
                 self._quarantine_native('worker-error')
                 self.emit('error', 'Ошибка возврата клавиш: ' + type(error).__name__)
+            finally:
+                gate.close(owner=owner)
 
-        thread = threading.Thread(target=restore, name='TypeBridgeNativeRecovery', daemon=True)
-        self.native_worker = thread
         try:
+            thread = threading.Thread(target=restore, name='TypeBridgeNativeRecovery', daemon=True)
+            self.native_worker = thread
             thread.start()
             return True
         except RuntimeError:
-            gate.close()
+            gate.close(owner=owner)
             # No physical input was replayed; restore the recoverable snapshot
             # so a failed thread start does not erase the user's last chance.
             self.native_pending_recovery = recovery
@@ -1757,12 +1923,18 @@ class LiveHook:
         return finished
 
     def _finish_early_layout(self, context, decision, disabled_attribute, *, keyboard=False):
+        if not self._postwrite_permitted(context, expected_hkl=context.hkl or None):
+            setattr(self, disabled_attribute, True)
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('diagnostic', 'early-postwrite-layout-refused:field-changed')
+            return True  # The write may already be committed; do not replay.
         hkl = int(self.engine.mapper.layouts[decision.language])
         result = ctypes.c_size_t()
         self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             30, ctypes.byref(result))
-        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        observed = self._record_replay_layout(context, hkl)
         emit_pipeline(self, 'layout-result', target=decision.language,
                       hkl=f'{hkl & 0xFFFFFFFF:08X}', observed=f'{observed:08X}',
                       result='confirmed' if observed == hkl & 0xFFFFFFFF else 'unconfirmed')
@@ -1822,6 +1994,7 @@ class LiveHook:
             if hkl is None:
                 raise OSError("Нужная раскладка не загружена")
             service.request(target, hkl)
+            self._record_replay_layout(context, hkl)
             self.last_language = language
             self.emit("ok", f"Раскладка → {language.upper()}")
         except (OSError, ValueError) as error:
@@ -1898,13 +2071,18 @@ class LiveHook:
             self.emit('diagnostic' if reason == 'context-changed-before-send' else 'error',
                       f'Ручная замена: отправлено {sent}/{len(events)}; {reason}; повтор отменён')
             return
+        if not self._postwrite_permitted(context, expected_hkl=context.hkl or None):
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('diagnostic', 'manual-cycle-postwrite-refused:field-changed')
+            return
         hkl = self.engine.mapper.layouts[language]
         result = ctypes.c_size_t()
         self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             180, ctypes.byref(result))
-        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
-        self.last_language = self._language_from_id(observed)
+        observed = self._record_replay_layout(context, hkl)
+        self.last_language = self._language_from_id(observed & 0xFFFF)
         word.text, word.language = replacement, language
         self.keys.clear()
         # Extending a manually changed unfinished word must not auto-correct
@@ -1964,14 +2142,19 @@ class LiveHook:
         self._trace_word('manual-cycle-result', context, source=word.text,
                          replacement=replacement, state='verified',
                          observed=self._native_word_excerpt(bridge))
+        if not self._postwrite_permitted(context, expected_hkl=source_hkl):
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('diagnostic', 'native-manual-cycle-postwrite-refused:field-changed')
+            return
         hkl = int(self.engine.mapper.layouts[language])
         response = ctypes.c_size_t()
         self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             180, ctypes.byref(response))
-        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
-        self.last_language = self._language_from_id(observed)
-        if observed != hkl & 0xFFFF:
+        observed = self._record_replay_layout(context, hkl)
+        self.last_language = self._language_from_id(observed & 0xFFFF)
+        if observed != hkl & 0xFFFFFFFF:
             # The text changed but the language did not. Without verified HKL,
             # no additional cycle is allowed on this remembered word.
             self.clear_token()
@@ -2148,6 +2331,13 @@ class LiveHook:
                 self._queue_browser_readback(context, decision.typed, decision.replacement,
                                              'boundary-partial', revision=readback_revision)
             return sent > 0
+        if not self._postwrite_permitted(context, expected_hkl=context.hkl or None,
+                                         browser_revision=readback_revision):
+            if not self._browser_field_changed_after_submission(context, readback_revision):
+                self.clear_token()
+                self.token_blocked = True
+                self.keyboard_early_disabled = True
+            return True  # Do not retry an already accepted packet.
         if self._browser_field_changed_after_submission(context, readback_revision):
             return True
         target_hkl = int(self.engine.mapper.layouts[decision.language])
@@ -2155,9 +2345,9 @@ class LiveHook:
         self.user32.SendMessageTimeoutW(
             context.layout_window or context.focus, WM_INPUTLANGCHANGEREQUEST, 0, target_hkl,
             SMTO_ABORTIFHUNG | SMTO_BLOCK, 180, ctypes.byref(result))
-        observed_language_id = int(
-            self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
-        changed = observed_language_id == (target_hkl & 0xFFFF)
+        observed_hkl = self._record_replay_layout(context, target_hkl)
+        observed_language_id = observed_hkl & 0xFFFF
+        changed = observed_hkl == (target_hkl & 0xFFFFFFFF)
         emit_pipeline(self, 'layout-result', target=decision.language,
                       observed=f'{observed_language_id:04X}',
                       hkl=f'{target_hkl & 0xFFFFFFFF:08X}',
@@ -2233,31 +2423,48 @@ class LiveHook:
         # A verified editor write does not authorize subsequent HKL/CapsLock
         # changes if focus or protected-field metadata changed meanwhile.
         # Do not attempt a speculative Undo on the original document.
-        if not valid():
+        if not valid() or not self._postwrite_permitted(context,
+                                                      expected_hkl=context.hkl or None):
             self.clear_token()
             self.token_blocked = True
             self.emit('diagnostic', 'native-postwrite-layout-refused:context-changed')
             return False
         if caps:
-            events = (Input * 2)(input_key(VK_CAPITAL), input_key(VK_CAPITAL, KEYEVENTF_KEYUP))
-            self.user32.SendInput(2, events, ctypes.sizeof(Input))
+            events = [input_key(VK_CAPITAL), input_key(VK_CAPITAL, KEYEVENTF_KEYUP)]
+            try:
+                sent, reason = self._send_guarded_inputs(events, valid)
+            except Exception:
+                self._quarantine_native('uncertain-write')
+                self.token_blocked = True
+                self.emit('error', 'CapsLock: отправка не подтверждена; нативный транспорт остановлен')
+                return False
+            if sent != len(events):
+                self._quarantine_native('uncertain-write')
+                self.token_blocked = True
+                self.emit('error', f'CapsLock: отправлено {sent}/{len(events)} ({reason}); смена раскладки отменена')
+                return False
             keys = [(vk, not shift if 0x41 <= vk <= 0x5A else shift) for vk, shift in keys]
+            if not self._postwrite_permitted(context):
+                self.clear_token()
+                self.token_blocked = True
+                self.emit('diagnostic', 'caps-postwrite-layout-refused:field-changed')
+                return False
         hkl = int(self.engine.mapper.layouts[decision.language])
         result = ctypes.c_size_t()
         self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
             WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
             30, ctypes.byref(result))
-        observed = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFF
+        observed = self._record_replay_layout(context, hkl)
         emit_pipeline(self, 'layout-result', target=decision.language,
                       observed=f'{observed:04X}', hkl=f'{hkl & 0xFFFFFFFF:08X}',
-                      result='confirmed' if observed == hkl & 0xFFFF else 'unconfirmed')
-        self.last_language = self._language_from_id(observed)
+                      result='confirmed' if observed == hkl & 0xFFFFFFFF else 'unconfirmed')
+        self.last_language = self._language_from_id(observed & 0xFFFF)
         if remember:
             self._remember(context, keys, decision.replacement, decision.language,
                            suffix, whole=decision.reason == "unique dictionary match")
         self.token_blocked = manual
         self.emit("diagnostic", "boundary-verified:layout-" +
-                  ("confirmed" if observed == hkl & 0xFFFF else "unconfirmed"))
+                  ("confirmed" if observed == hkl & 0xFFFFFFFF else "unconfirmed"))
         self._trace_word('boundary-result', context, source=decision.typed,
                          replacement=decision.replacement, state='verified',
                          observed=self._native_word_excerpt(bridge))

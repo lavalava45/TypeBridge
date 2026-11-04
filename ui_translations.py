@@ -1235,6 +1235,10 @@ CATALOG.update({
     'Нет доступного выделения: выдели текст в поддерживаемом поле': {'en': 'No accessible selection: select text in a supported field', 'he': 'אין טקסט מסומן נגיש: סמן טקסט בשדה נתמך'},
     'Поиск открыт в браузере': {'en': 'Search opened in the browser', 'he': 'החיפוש נפתח בדפדפן'},
     'Не удалось открыть браузер': {'en': 'Could not open the browser', 'he': 'לא ניתן לפתוח את הדפדפן'},
+    'Не удалось запустить поиск': {'en': 'Could not start the search', 'he': 'לא ניתן להפעיל את החיפוש'},
+    'Для возврата клавиш восстанови исходную раскладку и состояние Shift/Caps Lock': {
+        'en': 'To restore keys, restore the original layout and Shift/Caps Lock state',
+        'he': 'כדי לשחזר הקשות, שחזר את הפריסה המקורית ואת מצב Shift/Caps Lock'},
     'Выдели слово или фразу и нажми сочетание. Текст отправляется выбранному сервису только по этой команде. Буфер не меняется. Парольные и исключённые приложения пропускаются; нужна поддержка выделения Windows UI Automation.': {
         'en': 'Select a word or phrase and press the shortcut. Text is sent to the chosen service only on this command. The clipboard stays unchanged. Password fields and excluded apps are skipped; Windows UI Automation selection support is required.',
         'he': 'סמן מילה או ביטוי ולחץ על קיצור המקשים. הטקסט נשלח לשירות הנבחר רק לפי פקודה זו. הלוח אינו משתנה. שדות סיסמה ויישומים מוחרגים מדולגים; נדרשת תמיכה בסימון טקסט של Windows UI Automation.'},

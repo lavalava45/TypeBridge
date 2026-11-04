@@ -31,26 +31,38 @@ class BitmapBackup:
     size: int
 
 
-def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.monotonic, sleep=time.sleep):
-    """One Copy, no retries. Restore only our observed result, never a newer copy."""
+def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.monotonic,
+                     sleep=time.sleep, *, deadline=None):
+    """One Copy, no retries, bounded by one end-to-end request deadline.
+
+    A slow snapshot or lock acquisition must never authorize a late Copy.
+    Restoration after an already-issued Copy is still attempted on failure.
+    """
     with guard() as allowed:
         captured_valid = still_valid
         still_valid = lambda: captured_valid() and (not callable(allowed) or allowed())
-        deadline = clock() + 2
+        expires = min(clock() + 3, deadline) if deadline is not None else clock() + 3
+        if clock() >= expires:
+            raise SelectionUnavailable('Поиск отменён: истёк срок запроса')
+        keys_deadline = min(clock() + 2, expires)
         while not native.keys_released():
-            if clock() >= deadline or not still_valid():
+            if clock() >= keys_deadline or not still_valid():
                 raise SelectionUnavailable('Поиск отменён: отпусти клавиши и повтори команду')
             sleep(.02)
-        if not still_valid():
+        if clock() >= expires or not still_valid():
             raise SelectionUnavailable('Поиск отменён: активное поле изменилось')
         snapshot, original_sequence = native.snapshot()
+        if clock() >= expires:
+            raise SelectionUnavailable('Поиск отменён: истёк срок запроса')
         if not still_valid() or native.sequence() != original_sequence:
             raise SelectionUnavailable('Поиск отменён: окно или буфер изменились')
-        deadline = clock() + 1
+        copy_deadline = min(clock() + 1, expires)
         observed = None
         try:
+            if clock() >= expires or not still_valid():
+                raise SelectionUnavailable('Поиск отменён: истёк срок запроса')
             native.copy()
-            while clock() < deadline:
+            while clock() < copy_deadline:
                 sequence = native.sequence()
                 if sequence != original_sequence:
                     # A foreign clipboard owner must not be overwritten.
@@ -58,12 +70,12 @@ def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.
                         raise SelectionUnavailable('Поиск отменён: буфер изменён другим приложением')
                     observed = sequence
                     text = native.text(sequence)
-                    if not still_valid():
+                    if clock() >= expires or not still_valid():
                         raise SelectionUnavailable('Поиск отменён: активное поле изменилось')
                     if not isinstance(text, str) or not text.strip() or len(text) > 2000 or '\0' in text:
                         raise SelectionUnavailable('Выдели текст длиной от 1 до 2000 символов')
                     return SearchPreview(text.strip())
-                if not still_valid():
+                if clock() >= expires or not still_valid():
                     raise SelectionUnavailable('Поиск отменён: активное поле изменилось')
                 sleep(.02)
             raise SelectionUnavailable('Приложение не предоставило текст по команде копирования')
@@ -264,11 +276,12 @@ class NativeCopy:
                     kernel.GlobalFree(handle)
 
 
-def copy_selection(target, guard=nullcontext):
+def copy_selection(target, guard=nullcontext, *, deadline=None):
     from tray_layouts import WindowsLayouts
     layouts = WindowsLayouts()
     native = NativeCopy()
     try:
-        return copy_transaction(native, target, lambda: layouts.valid(target) and layouts.capture() == target, guard)
+        return copy_transaction(native, target, lambda: layouts.valid(target) and layouts.capture() == target,
+                                guard, deadline=deadline)
     finally:
         native.close()

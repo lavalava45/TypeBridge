@@ -30,6 +30,13 @@ class GenericCycleOffHookTests(unittest.TestCase):
             'ru': 'флгщ', 'en': 'akuo', 'he': 'שלום'}[lang]
         hook.engine.mapper.layouts = {'ru': 0x0419, 'en': 0x0409, 'he': 0x040D}
         ctx = hook.context()
+        hook.user32.GetKeyboardLayout.return_value = 0x0409
+        hook.context = lambda: replace(ctx, language=hook._language_from_id(
+            hook.user32.GetKeyboardLayout.return_value & 0xFFFF))
+        def change_layout(hwnd, message, flags, hkl, *args):
+            hook.user32.GetKeyboardLayout.return_value = hkl
+            return 1
+        hook.user32.SendMessageTimeoutW.side_effect = change_layout
         hook.last_word = RecentWord(
             ((65, False), (75, False), (85, False), (79, False)),
             'akuo', 'en', ' ', hook._word_scope(ctx))

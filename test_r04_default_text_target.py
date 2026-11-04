@@ -18,6 +18,47 @@ def metadata(guard, state='safe', element='uia:1,100'):
 
 
 class R04DefaultTargetTests(unittest.TestCase):
+    def test_postwrite_metadata_change_without_dom_event_blocks_hkl_and_remember(self):
+        from engine import Decision
+        for strict in (False, True):
+            for state in ('password', 'unknown', 'safe-new', 'provider-error', 'same'):
+                with self.subTest(strict=strict, state=state):
+                    hook = self.hooked_context(strict=strict)
+                    guard = hook.password_guard
+                    metadata(guard)
+                    source = hook.context()
+                    self.assertIsNotNone(source)
+                    guard.revalidate = Mock(side_effect=lambda top, focus, revision:
+                        guard.permit_revision(top, focus) == revision)
+                    hook.engine.mapper.layouts = {'ru': 0x0419}
+                    hook._browser_field_revision = 0
+                    hook._queue_browser_readback = Mock()
+                    hook._remember = Mock()
+                    def fail_context():
+                        raise RuntimeError('provider-error')
+                    def send(count, events, size):
+                        if state == 'provider-error':
+                            hook.context = fail_context
+                        elif state != 'same':
+                            metadata(guard, 'safe' if state == 'safe-new' else state, 'uia:1,101')
+                        return count
+                    hook.user32.SendInput.side_effect = send
+                    result = hook._correct_keyboard(
+                        source, Decision('ghbdtn', 'привет', 'ru', 'unique dictionary match'),
+                        [(ord(c.upper()), False) for c in 'ghbdtn'],
+                        VK_SPACE, ' ', True, ' ', False, False)
+                    self.assertTrue(result)  # Already submitted; never retry it.
+                    hook.user32.SendInput.assert_called_once()
+                    self.assertEqual(hook._browser_field_revision, 0)
+                    if state == 'same':
+                        hook.user32.SendMessageTimeoutW.assert_called_once()
+                        hook._remember.assert_called_once()
+                    else:
+                        hook.user32.SendMessageTimeoutW.assert_not_called()
+                        hook._remember.assert_not_called()
+                        self.assertTrue(hook.token_blocked)
+                        self.assertTrue(hook.keyboard_early_disabled)
+
     @staticmethod
     def hooked_context(process='chrome.exe', focus_class='Chrome_RenderWidgetHostHWND', strict=False):
         fixture = HostedFocusTests().fixture()

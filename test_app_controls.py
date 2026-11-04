@@ -81,6 +81,7 @@ def make_hook():
     hook.user32 = Mock()
     hook.user32.CallNextHookEx.return_value = 0
     hook.user32.GetKeyboardLayout.return_value = 0x040D
+    hook.user32.GetKeyState.return_value = 0
     hook.user32.SendInput.side_effect = lambda count, *args: count
     hook.user32.SendMessageTimeoutW.return_value = 0
     hook.keys = [(65, False), (75, False), (85, False), (79, False)]
