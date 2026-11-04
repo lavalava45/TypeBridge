@@ -35,6 +35,27 @@ reads no Value/GetText content and does not scan the whole document. Unknown or
 mixed attributes do not authorize a mutation. See
 [desktop editor compatibility](DESKTOP-EDITOR-COMPATIBILITY.md).
 
+## Caret recovery — 5 November 2026
+
+The password guard still reads metadata only. A separate R02 recovery helper
+may read a bounded TextPattern range from the currently verified editable
+element when tracking was lost: on Space for automatic correction, or on Pause
+when no last word was retained. It requires a matching UIA Runtime ID, fresh
+guard permission, a collapsed caret and unchanged field/layout checks.
+It never requests the whole document or ValuePattern text, changes selection,
+or uses the clipboard. Accepted samples are limited to 81 UTF-16 units before
+the caret and two after it; larger reads used to detect overflow are rejected.
+Unknown/password/stale fields and unsupported providers deny recovery. The helper
+does not log or persist sampled text; accepted words are held in the same
+ephemeral last-word state as tracked typing. UIA/SendInput remains non-atomic.
+
+**Русский:** при потерянном отслеживании отдельный helper может прочитать
+ограниченный фрагмент у каретки в подтверждённом безопасном поле: на пробеле
+для автокоррекции или по Pause для восстановления последнего слова. Это отдельный
+путь от проверки парольных метаданных. Текст всего документа и ValuePattern
+не читаются; буфер и выделение не используются. Ошибка/тайм-аут/смена поля
+запрещают восстановление. Основное ограничение R04 остаётся открытым.
+
 ## English
 
 **Current alpha limitation (31 October 2026):** the correction hook now uses

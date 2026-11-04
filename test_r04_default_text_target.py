@@ -187,7 +187,10 @@ class R04DefaultTargetTests(unittest.TestCase):
         key(hook, 66)
         self.assertEqual(hook.keys, [])
         metadata(hook.password_guard, 'safe', 'uia:1,102')
-        key(hook, VK_SPACE)  # establish a complete new-field token boundary
+        # An unsupported caret reader must still establish a clean boundary.
+        from unittest.mock import patch
+        with patch.object(hook, '_try_caret_recovery', return_value=False):
+            key(hook, VK_SPACE)
         key(hook, 67)
         self.assertEqual(hook.keys, [(67, False)])
 

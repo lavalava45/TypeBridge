@@ -66,6 +66,7 @@ TRACE_APPS = BROWSER_APPS | frozenset({'notepad.exe', 'notepad++.exe'})
 from early_native_edit import NativeEditBridge, supports_native_edit
 from r04_text_target import native_field_metadata
 from word_recovery import recover_prefix
+from caret_word_recovery import read_caret_word
 from input_transport import send_with_remainder, unmatched_keydowns
 from native_transaction_queue import (NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES,
                                       MODIFIER_VKS as TRANSACTION_MODIFIER_VKS)
@@ -2000,6 +2001,64 @@ class LiveHook:
         except (OSError, ValueError) as error:
             self.emit("error", f"Прямое переключение: {error}")
 
+    def _try_caret_recovery(self, context, *, boundary_vk=None):
+        """Recover from a currently verified element, never from skipped keys."""
+        if self._native_is_off_hook() or self._native_blocked(context):
+            return False
+        guard = getattr(self, 'password_guard', None)
+        sample = getattr(guard, 'snapshot', None)
+        element_id = getattr(sample, 'element_id', None)
+        trigger = getattr(self, '_last_physical_event', None)
+        if (guard is None or trigger is None or not isinstance(element_id, str)
+                or not element_id.startswith('uia:')
+                or guard.permit_revision(context.top, context.focus) != context.password_revision):
+            return False
+        scope = self._native_scope(context)
+        settings = self.settings
+        hkl = context.hkl or int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+
+        def valid():
+            current = self.context()
+            gate = getattr(self, 'native_queue', None)
+            return (not self.stopping and self.settings is settings
+                    and getattr(self, 'password_guard', None) is guard and current is not None
+                    and self._native_scope(current) == scope
+                    and current.language == context.language
+                    and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == hkl
+                    and not (gate is not None and gate.aborted_reason))
+
+        def recover():
+            def refused():
+                if boundary_vk is not None:
+                    # The held Space establishes a fresh boundary even when
+                    # this provider cannot recover the preceding word.
+                    self.clear_token(preserve_snippets=True)
+                    self._guard_skipped_token = False
+                return False
+            if not valid() or not guard.revalidate(context.top, context.focus, context.password_revision):
+                return refused()
+            word = read_caret_word(context, self.engine.mapper, element_id, valid)
+            if (word is None or not valid()
+                    or not guard.revalidate(context.top, context.focus, context.password_revision)
+                    or (boundary_vk is not None and word.suffix)):
+                emit_pipeline(self, 'word-recovery-refused', reason='unverified-caret-word')
+                if boundary_vk is None:
+                    self.emit('info', 'Не удалось безопасно определить слово у каретки')
+                return refused()
+            self.clear_token(preserve_snippets=True)
+            self._guard_skipped_token = False
+            self.last_focus, self.last_language = context.focus, context.language
+            if boundary_vk is not None:
+                self.keys = list(word.keys)
+                return self._correct(context, boundary_vk, '')
+            self._remember(context, list(word.keys), word.text, context.language,
+                           word.suffix, whole=True)
+            self._cycle_word(context)
+            return True
+
+        return self._schedule_keyboard(context, recover, trigger=trigger,
+                                       drop_always=boundary_vk is None)
+
     def _cycle_word(self, context: FocusContext) -> None:
         if context.language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
             self.clear_token()
@@ -2019,6 +2078,8 @@ class LiveHook:
                            whole=bool(match and match.reason == "unique dictionary match"))
         word = getattr(self, "last_word", None)
         if word is None or word.scope != self._word_scope(context):
+            if self._try_caret_recovery(context):
+                return
             self.clear_token()
             self.emit("info", "Нет последнего слова у курсора для переключения")
             return
@@ -2029,7 +2090,8 @@ class LiveHook:
             self.emit("info", str(error))
             return
         if native or scintilla:
-            if getattr(self, '_in_keyboard_callback', False):
+            if (getattr(self, '_in_keyboard_callback', False)
+                    and not self._native_is_off_hook()):
                 trigger = getattr(self, '_last_physical_event', None)
                 if self._schedule_native(context,
                         lambda: self._cycle_edit_word(context, word, language,
@@ -2201,6 +2263,10 @@ class LiveHook:
                       paused=bool(self.paused), early=bool(getattr(self, 'early_done', False)))
         remember = boundary_vk not in (VK_RETURN, VK_TAB)
         previous = getattr(self, "last_word", None)
+        if manual and not self.keys:
+            # An empty current token must not erase the last word retained
+            # for Pause after Space, even when manual correction finds none.
+            return False
         if not self.keys and previous is not None and not manual:
             self.clear_token(preserve_snippets=True)
             if (remember and suffix and len(previous.suffix + suffix) <= 40
@@ -2208,6 +2274,10 @@ class LiveHook:
                 previous.suffix += suffix
                 self.last_word = previous
             return False
+        if (boundary_vk == VK_SPACE and not manual and not self.paused
+                and (getattr(self, 'token_blocked', False) or not self.keys)
+                and self._try_caret_recovery(context, boundary_vk=VK_SPACE)):
+            return True
         if getattr(self, "token_blocked", False):
             emit_pipeline(self, 'decision-none', reason='token-blocked')
             self.clear_token(preserve_snippets=True)
@@ -2628,13 +2698,22 @@ class LiveHook:
                     != (context.top, context.focus)):
                 self._guard_skipped_token = False  # A skipped prefix belongs only to its field.
             if getattr(self, '_guard_skipped_token', False):
-                # Do not convert a tail as a complete word, or consume manual
-                # commands. The first delimiter establishes a new safe token.
+                # Never treat a skipped tail as a complete word. Only a
+                # verified caret read on Space/Pause can recover the whole.
+                cycle_recovery = (vk == CYCLE_KEYS[self.settings.cycle_key] and vk != 0
+                                  and not any(self.pressed(k) for k in
+                                              (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
+                if vk == VK_SPACE and not self.paused:
+                    self._guard_skipped_token = False
+                    self.clear_token()
+                    if self._try_caret_recovery(context, boundary_vk=VK_SPACE):
+                        return 1
                 if vk in (VK_SPACE, VK_RETURN, VK_TAB):
                     self._guard_skipped_token = False
-                self.clear_token()
-                return self.user32.CallNextHookEx(
-                    self.keyboard_hook, code, message, param)
+                if not cycle_recovery:
+                    self.clear_token()
+                    return self.user32.CallNextHookEx(
+                        self.keyboard_hook, code, message, param)
         if vk != VK_BACK:
             # Retyping, shortcuts or navigation interrupt a consecutive run
             # of deletes. Never reuse its count for a different document span.

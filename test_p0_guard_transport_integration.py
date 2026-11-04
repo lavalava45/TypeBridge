@@ -184,7 +184,9 @@ class P0GuardTransportIntegration(unittest.TestCase):
         self.assertEqual(key(hook, 0x48), 0)  # Safe suffix still passed intact.
         self.assertEqual(hook.keys, [])
         hook._correct.assert_not_called()
-        self.assertEqual(key(hook, VK_SPACE), 0)
+        # A provider without a verified caret word cannot recover the tail.
+        with patch.object(hook, '_try_caret_recovery', return_value=False):
+            self.assertEqual(key(hook, VK_SPACE), 0)
         self.assertFalse(hook._guard_skipped_token)
         with patch('typebridge_app.candidate_token_key', return_value=True):
             self.assertEqual(key(hook, 0x41), 0)

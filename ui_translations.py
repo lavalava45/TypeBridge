@@ -1236,6 +1236,9 @@ CATALOG.update({
     'Поиск открыт в браузере': {'en': 'Search opened in the browser', 'he': 'החיפוש נפתח בדפדפן'},
     'Не удалось открыть браузер': {'en': 'Could not open the browser', 'he': 'לא ניתן לפתוח את הדפדפן'},
     'Не удалось запустить поиск': {'en': 'Could not start the search', 'he': 'לא ניתן להפעיל את החיפוש'},
+    'Не удалось безопасно определить слово у каретки': {
+        'en': 'Could not safely identify the word at the caret',
+        'he': 'לא ניתן לזהות בבטחה את המילה ליד הסמן'},
     'Для возврата клавиш восстанови исходную раскладку и состояние Shift/Caps Lock': {
         'en': 'To restore keys, restore the original layout and Shift/Caps Lock state',
         'he': 'כדי לשחזר הקשות, שחזר את הפריסה המקורית ואת מצב Shift/Caps Lock'},
