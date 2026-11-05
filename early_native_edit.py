@@ -6,6 +6,7 @@ still open; the main app keeps this path disabled by default. EDIT is unsupporte
 """
 import ctypes
 from ctypes import wintypes as w
+from dataclasses import dataclass
 from time import perf_counter
 
 MAX_UNITS = 32768
@@ -26,6 +27,24 @@ NATIVE_MAX_INLINE_ESTIMATE_MS = 700
 NATIVE_MAX_WORKER_CHARS = 32
 NATIVE_MAX_WORKER_ESTIMATE_MS = 1500
 NATIVE_WORKER_PREFLIGHT_SECONDS = 0.15
+
+# R04 opt-in experiment: both reads and mutations are guarded. Existing
+# normal NativeEditBridge calls keep their exact original flags and behavior.
+_ADDRESSED_MUTATION_MESSAGES = frozenset((0x102, 0xB1, 0xC2, 0x458))
+_SMTO_ERRORONEXIT = 0x0020
+
+
+@dataclass(frozen=True)
+class NativeTargetLease:
+    """Immutable snapshot, NOT an OS-backed lifetime lock or focus epoch."""
+    hwnd: int
+    top: int
+    thread_id: int
+    layout_thread_id: int
+    process_id: int
+    class_name: str
+    password_revision: int
+    source_hkl: int
 
 
 def supports_native_edit(class_name):
@@ -49,9 +68,12 @@ def utf8_position(text, byte_offset):
 
 
 class NativeEditBridge:
-    def __init__(self, context, still_valid=lambda: False, *, pending_char='', off_hook=False):
+    def __init__(self, context, still_valid=lambda: False, *, pending_char='',
+                 off_hook=False, experimental_target_lease=False):
         self.context, self.still_valid = context, still_valid
         self.off_hook = bool(off_hook)
+        self.experimental_target_lease = bool(experimental_target_lease)
+        self.target_lease = None
         if pending_char and (len(pending_char) != 1 or not pending_char.isprintable() or ord(pending_char) > 0xFFFF):
             raise ValueError('held-character-required')
         self.pending_char = pending_char
@@ -76,7 +98,11 @@ class NativeEditBridge:
     def __enter__(self):
         if not self.still_valid():
             raise ValueError('context-changed')
-        self.check_identity()
+        observed = self.check_identity()
+        if self.experimental_target_lease:
+            # Never initialize a lease from a later, potentially replaced
+            # control; bind to the control validated at transaction entry.
+            self.target_lease = observed
         return self
 
     def __exit__(self, *args):
@@ -116,6 +142,30 @@ class NativeEditBridge:
         self.identity = identity
         if self.u.GetWindowLongPtrW(ctx.focus, -16) & (0x20 | 0x800):
             raise ValueError('password-or-readonly')
+        if getattr(self, 'experimental_target_lease', False):
+            return NativeTargetLease(
+                int(ctx.focus), int(ctx.top), identity[0],
+                int(getattr(ctx, 'thread_id', 0) or identity[0]), identity[1],
+                name.value.casefold(), int(getattr(ctx, 'password_revision', 0) or 0),
+                int(getattr(ctx, 'hkl', 0) or 0) & 0xFFFFFFFF)
+
+    def _experimental_verify_target(self):
+        """Best-effort pre-dispatch refusal; cannot prevent HWND reuse TOCTOU."""
+        lease = getattr(self, 'target_lease', None)
+        if lease is None:
+            raise ValueError('target-lease-not-initialized')
+        if not self.still_valid():
+            raise ValueError('target-scope-changed')
+        if self.check_identity() != lease:
+            raise ValueError('target-identity-changed')
+        # The ordinary callback's still_valid() validates password/UIA scope.
+        # The lease does not independently read UIA metadata or lock a target.
+        if lease.source_hkl:
+            observed_hkl = int(self.u.GetKeyboardLayout(lease.layout_thread_id) or 0) & 0xFFFFFFFF
+            if not observed_hkl or observed_hkl != lease.source_hkl:
+                raise ValueError('target-layout-changed')
+        if not self.still_valid():
+            raise ValueError('target-scope-changed')
 
     def msg(self, command, wp=0, lp=0):
         started = perf_counter()
@@ -123,14 +173,21 @@ class NativeEditBridge:
         ok, error, timeout_ms = False, 0, 0
         try:
             self.check_deadline()
+            strict = getattr(self, 'experimental_target_lease', False)
+            if strict:
+                self._experimental_verify_target()
+            destination = self.target_lease.hwnd if strict else self.context.focus
             ctypes.set_last_error(0)
-            if command in (0x102, 0xB1):  # WM_CHAR / EM_SETSEL.
+            if command in (0x102, 0xB1) or (strict and command == 0xC2):
+                # WM_CHAR / EM_SETSEL / opt-in EM_REPLACESEL.
                 # Set only after the deadline precheck, immediately before send.
                 # A timeout from this send can still mean delayed execution.
                 self.write_started = True
-            timeout_ms = (NATIVE_MUTATION_TIMEOUT_MS if command in (0x102, 0xB1)
+            timeout_ms = (NATIVE_MUTATION_TIMEOUT_MS if (
+                              command in (0x102, 0xB1) or (strict and command == 0xC2))
                           else NATIVE_READ_TIMEOUT_MS)
-            ok = bool(self.u.SendMessageTimeoutW(self.context.focus, command, wp, lp, 3,
+            flags = 3 | (_SMTO_ERRORONEXIT if strict else 0)
+            ok = bool(self.u.SendMessageTimeoutW(destination, command, wp, lp, flags,
                                                  timeout_ms, ctypes.byref(result)))
             if not ok:
                 error = ctypes.get_last_error()
