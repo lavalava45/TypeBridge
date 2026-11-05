@@ -197,6 +197,7 @@ class SearchTests(unittest.TestCase):
         fixture = ClipboardRoutingTests()
         router = fixture.fixture()
         router.settings = replace(Settings(), quick_search=True)
+        router.context_cache = replace(router.context_cache, settings=router.settings)
         router.bindings = clipboard_bindings(router.settings)
         router.api.GetAsyncKeyState.side_effect = lambda vk: 0x8000 if vk in (0x11, 0x12) else 0
         with patch('clipboard_hotkeys.target_allowed', return_value=True):
@@ -205,6 +206,7 @@ class SearchTests(unittest.TestCase):
             self.assertEqual(fixture.send(router, vk=ord('G'), message=0x101), 1)
         router.notify.assert_called_once_with(('quick-search', router.layouts.capture.return_value))
         router.notify.reset_mock()
+        router.context_cache = None  # Background exclusion denies the target.
         with patch('clipboard_hotkeys.target_allowed', return_value=False):
             self.assertEqual(fixture.send(router, vk=ord('G')), 0)
         router.notify.assert_not_called()

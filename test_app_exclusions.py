@@ -125,6 +125,12 @@ class ClipboardRoutingTests(unittest.TestCase):
         router.hook = 123
         router.kernel = Mock()
         router.callback = None
+        router.accepting = Mock()
+        router.accepting.is_set.return_value = True
+        from clipboard_hotkeys import PreparedContext, monotonic
+        router.context_generation = 0
+        router.context_cache = PreparedContext(router.layouts.capture.return_value,
+                                               router.settings, 0, monotonic())
         return router
 
     def send(self, router, vk=0x56, message=0x100, flags=0):
@@ -133,6 +139,7 @@ class ClipboardRoutingTests(unittest.TestCase):
 
     def test_excluded_application_keeps_original_chord_and_keyup(self):
         router = self.fixture()
+        router.context_cache = None  # Background metadata refused this target.
         with patch('clipboard_hotkeys.target_allowed', return_value=False):
             self.assertEqual(self.send(router), 0)
             self.assertEqual(self.send(router, message=0x101), 0)
@@ -155,7 +162,8 @@ class ClipboardRoutingTests(unittest.TestCase):
 
     def test_disable_removes_mock_hook_without_registering_global_hotkey(self):
         router = self.fixture()
-        router.configure(Settings())
+        router.bindings = {}
+        router._sync_hook()  # Owner-thread operation; lifecycle tested separately.
         router.api.UnhookWindowsHookEx.assert_called_once_with(123)
         router.api.SetWindowsHookExW.assert_not_called()
         self.assertIsNone(router.hook)

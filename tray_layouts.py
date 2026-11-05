@@ -155,6 +155,23 @@ class WindowsLayouts:
         return LayoutTarget(top, focus, int(focus_thread), focus_pid.value, pid.value,
                             owner, owner_thread)
 
+    def matches_foreground(self, target: LayoutTarget | None) -> bool:
+        """Cheap live identity check; no process lookup, class, HKL or messaging."""
+        if target is None or int(self.u.GetForegroundWindow() or 0) != target.top:
+            return False
+        host_pid = w.DWORD()
+        thread = self.u.GetWindowThreadProcessId(target.top, ctypes.byref(host_pid))
+        if not thread or host_pid.value != (target.host_pid or target.pid):
+            return False
+        info = GuiInfo(cbSize=ctypes.sizeof(GuiInfo))
+        if (not self.u.GetGUIThreadInfo(thread, ctypes.byref(info))
+                or info.flags & 0x1E or int(info.hwndFocus or target.top) != target.focus):
+            return False
+        pid = w.DWORD()
+        focus_thread = self.u.GetWindowThreadProcessId(target.focus, ctypes.byref(pid))
+        return (pid.value == target.pid and focus_thread == target.thread
+                and int(self.u.GetForegroundWindow() or 0) == target.top)
+
     def valid(self, target: LayoutTarget | None) -> bool:
         if target is None or not self.u.IsWindow(target.top) or not self.u.IsWindow(target.focus):
             return False

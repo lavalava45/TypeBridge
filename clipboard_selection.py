@@ -18,6 +18,36 @@ OLE_BOOKKEEPING = frozenset(('dataobject', 'ole private data'))
 OWNER_DEPENDENT_DATA = frozenset(('embed source', 'embedded object', 'link source', 'filecontents',
                                 'filegroupdescriptor', 'filegroupdescriptorw'))
 
+# Independent of optional user exclusions: Ctrl+C can interrupt a running command.
+CONSOLE_PROCESSES = frozenset((
+    'windowsterminal.exe', 'openconsole.exe', 'conhost.exe', 'cmd.exe',
+    'powershell.exe', 'pwsh.exe', 'mintty.exe', 'putty.exe', 'kitty.exe',
+    'alacritty.exe', 'wezterm-gui.exe', 'hyper.exe', 'tabby.exe',
+))
+CONSOLE_CLASSES = frozenset((
+    'consolewindowclass', 'cascadia_hosting_window_class', 'virtualconsoleclass',
+    'mintty', 'putty', 'kitty', 'alacritty', 'org.wezfurlong.wezterm',
+))
+
+
+def ensure_copy_target_safe(target, *, window_class=None, process_name=None):
+    """Metadata only; unknown identity forbids fallback, never UIA selection."""
+    if window_class is None:
+        import win32gui
+        window_class = win32gui.GetClassName
+    if process_name is None:
+        import psutil
+        process_name = lambda pid: psutil.Process(pid).name()
+    try:
+        classes = {window_class(hwnd).casefold() for hwnd in {target.top, target.focus}}
+        names = {process_name(pid).casefold() for pid in {target.pid, target.host_pid or target.pid}}
+        safe = (all(classes) and all(names) and not classes & CONSOLE_CLASSES
+                and not names & CONSOLE_PROCESSES)
+    except Exception:
+        safe = False
+    if not safe:
+        raise SelectionUnavailable('Резервное Ctrl+C недоступно для этого окна; используй выделение через UIA')
+
 
 @dataclass(frozen=True)
 class SearchPreview:
@@ -61,7 +91,7 @@ def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.
         try:
             if clock() >= expires or not still_valid():
                 raise SelectionUnavailable('Поиск отменён: истёк срок запроса')
-            native.copy()
+            native.copy(still_valid=still_valid, deadline=expires)
             while clock() < copy_deadline:
                 sequence = native.sequence()
                 if sequence != original_sequence:
@@ -88,7 +118,9 @@ def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.
 
 
 class NativeCopy:
-    def __init__(self):
+    def __init__(self, target):
+        ensure_copy_target_safe(target)
+        self.target = target
         import win32clipboard as cb
         import win32gui
         self.cb, self.gui = cb, win32gui
@@ -212,7 +244,9 @@ class NativeCopy:
         finally:
             cb.CloseClipboard()
 
-    def copy(self):
+    def copy(self, *, still_valid=lambda: False, deadline=None):
+        # Recheck immediately before injection, not just before clipboard backup.
+        ensure_copy_target_safe(self.target)
         import ctypes
         from typebridge_app import Input, KeyInput, OWN_INPUT_MARKER
         events = (Input * 4)()
@@ -222,6 +256,10 @@ class NativeCopy:
         api = ctypes.WinDLL('user32', use_last_error=True)
         api.SendInput.argtypes = [ctypes.c_uint, ctypes.POINTER(Input), ctypes.c_int]
         api.SendInput.restype = ctypes.c_uint
+        # Metadata APIs above can themselves be slow. Never turn a late safety
+        # answer into permission for a stale Ctrl+C.
+        if not still_valid() or deadline is None or time.monotonic() >= deadline:
+            raise SelectionUnavailable('Поиск отменён: окно изменилось или истёк срок запроса')
         if api.SendInput(4, events, ctypes.sizeof(Input)) != 4:
             # Release our modifiers, never replay Copy after a partial batch.
             release = (Input * 2)(events[2], events[3])
@@ -279,7 +317,7 @@ class NativeCopy:
 def copy_selection(target, guard=nullcontext, *, deadline=None):
     from tray_layouts import WindowsLayouts
     layouts = WindowsLayouts()
-    native = NativeCopy()
+    native = NativeCopy(target)
     try:
         return copy_transaction(native, target, lambda: layouts.valid(target) and layouts.capture() == target,
                                 guard, deadline=deadline)

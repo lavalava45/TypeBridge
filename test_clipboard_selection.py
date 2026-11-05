@@ -71,7 +71,7 @@ class TransactionTests(unittest.TestCase):
         n.snapshot.return_value = ([(13, 'old'), (49152, b'<b>old</b>')], 10)
         state = {'seq': 10, 'time': 0.0}
         n.sequence.side_effect = lambda: state['seq']
-        n.copy.side_effect = lambda: state.update(seq=11)
+        n.copy.side_effect = lambda **kwargs: state.update(seq=11)
         n.owned_by.return_value = True
         n.text.return_value = 'שלום да'
         n.restore.return_value = True
@@ -111,7 +111,7 @@ class TransactionTests(unittest.TestCase):
             elif mode == 'large': n.text.return_value = 'x' * 2001
             elif mode == 'restore': n.restore.return_value = False
             elif mode == 'partial':
-                def fail():
+                def fail(**kwargs):
                     state['seq'] = 11
                     raise SelectionUnavailable('partial')
                 n.copy.side_effect = fail

@@ -229,6 +229,14 @@ class TrayController:
         except OSError as error:
             self.notify(("tray-error", str(error)))
 
+    def _close_clipboard_hotkeys(self):
+        if self.clipboard_hotkeys:
+            try:
+                self.clipboard_hotkeys.close()
+            except OSError:
+                # A stuck hook worker must not prevent icon/window cleanup.
+                self.notify(('tray-error', 'Поток горячих клавиш буфера ещё завершается'))
+
     def start(self):
         if self.closing or (self.worker and self.worker.is_alive()):
             return
@@ -389,8 +397,7 @@ class TrayController:
         if message == win32con.WM_DESTROY:
             self.ready.clear()
             try:
-                if self.clipboard_hotkeys:
-                    self.clipboard_hotkeys.close()
+                self._close_clipboard_hotkeys()
             finally:
                 try:
                     win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._icon_data())
@@ -510,8 +517,7 @@ class TrayController:
                 self.last_fatal_error = error
                 self.notify(("tray-error", error))
         finally:
-            if self.clipboard_hotkeys:
-                self.clipboard_hotkeys.close()
+            self._close_clipboard_hotkeys()
             self.ready.clear()
             if self.hwnd and win32gui.IsWindow(self.hwnd):
                 win32gui.DestroyWindow(self.hwnd)
