@@ -205,12 +205,17 @@ class CaretFlagIndicator:
         self.language = ""
         self.size = (22, 16)
         self.error = ""
+        self.reader_error = ""
+        self.reader_diagnostic = ""
+        self.retry_reader = threading.Event()
 
     def start(self):
         threading.Thread(target=self._window_loop, daemon=True, name="caret-flag-window").start()
         threading.Thread(target=self._read_loop, daemon=True, name="caret-flag-reader").start()
 
     def set_enabled(self, enabled):
+        if enabled and not self.enabled.is_set():
+            self.retry_reader.set()
         (self.enabled.set if enabled else self.enabled.clear)()
         if not enabled:
             with self.lock:
@@ -237,12 +242,20 @@ class CaretFlagIndicator:
             while not self.closed.is_set():
                 sample = None
                 try:
+                    if self.retry_reader.is_set():
+                        self.retry_reader.clear()
+                        reader.reset_failures()
+                        self.reader_error = ""
+                        self.reader_diagnostic = ""
                     top = win32gui.GetForegroundWindow() if self.enabled.is_set() else 0
                     if top:
                         sample = reader.snapshot(scope=top, cancelled=lambda:
                             self.closed.is_set() or not self.enabled.is_set()
-                            or win32gui.GetForegroundWindow() != top)
-                        self.reader_error = reader.last_error
+                            or win32gui.GetForegroundWindow() != top,
+                            lifecycle_cancelled=lambda:
+                            self.closed.is_set() or not self.enabled.is_set())
+                        self.reader_error = reader.diagnostic if reader.disabled else ""
+                        self.reader_diagnostic = reader.diagnostic
                     else:
                         reader.cancel()
                         reader.scope = None

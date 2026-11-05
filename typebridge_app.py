@@ -3590,9 +3590,14 @@ class TypeBridgeGui:
                 self.root.deiconify()
                 self.emit('info', 'Значок трея недоступен; окно восстановлено')
         indicator = self.caret_indicator
-        if indicator and indicator.error and indicator.error != self.caret_indicator_error:
-            self.caret_indicator_error = indicator.error
-            self.emit("error", f"Индикатор каретки недоступен: {indicator.error}")
+        indicator_error = (indicator.error or getattr(indicator, 'reader_error', '')) if indicator else ''
+        if indicator_error and indicator_error != self.caret_indicator_error:
+            self.emit("error", f"Индикатор каретки недоступен: {indicator_error}")
+        self.caret_indicator_error = indicator_error
+        diagnostic = (getattr(indicator, 'reader_diagnostic', '') or indicator_error) if indicator else ''
+        if diagnostic and diagnostic != getattr(self, '_last_caret_reader_diagnostic', ''):
+            self._queue_diagnostic('runtime', 'caret-helper:' + diagnostic)
+        self._last_caret_reader_diagnostic = diagnostic
         self.root.after(500, self._update_tray)
 
     def hide(self) -> None:

@@ -15,6 +15,51 @@ from typebridge_app import Settings, load_settings, save_settings, TypeBridgeGui
 
 
 class PositionTests(unittest.TestCase):
+    def test_first_failed_attempt_is_logged_without_repeated_notifications(self):
+        app = TypeBridgeGui.__new__(TypeBridgeGui)
+        app.closing = False
+        app.tray = None
+        app.root = Mock()
+        app.caret_indicator = SimpleNamespace(error='', reader_error='',
+                                              reader_diagnostic='phase=startup; exit=1; attempts=1')
+        app.caret_indicator_error = ''
+        app._update_taskbar_language_icon = Mock()
+        app.emit = Mock()
+        app._queue_diagnostic = Mock()
+        with patch('typebridge_app.foreground_language', return_value='en'):
+            app._update_tray()
+            app._update_tray()
+        app.emit.assert_not_called()
+        app._queue_diagnostic.assert_called_once()
+
+    def test_reader_failure_is_reported_and_logged_once_without_window_error(self):
+        app = TypeBridgeGui.__new__(TypeBridgeGui)
+        app.closing = False
+        app.tray = None
+        app.root = Mock()
+        app.caret_indicator = SimpleNamespace(error='', reader_error='startup; retries-disabled=True')
+        app.caret_indicator_error = ''
+        app._update_taskbar_language_icon = Mock()
+        app.emit = Mock()
+        app._queue_diagnostic = Mock()
+        with patch('typebridge_app.foreground_language', return_value='en'):
+            app._update_tray()
+            app._update_tray()
+        app.emit.assert_called_once()
+        app._queue_diagnostic.assert_called_once_with(
+            'runtime', 'caret-helper:startup; retries-disabled=True')
+
+    def test_explicit_enable_requests_retry_but_repeated_enable_does_not(self):
+        indicator = CaretFlagIndicator()
+        indicator.set_enabled(True)
+        self.assertTrue(indicator.retry_reader.is_set())
+        indicator.retry_reader.clear()
+        indicator.set_enabled(True)
+        self.assertFalse(indicator.retry_reader.is_set())
+        indicator.set_enabled(False)
+        indicator.set_enabled(True)
+        self.assertTrue(indicator.retry_reader.is_set())
+
     def test_edges_and_negative_monitor_coordinates(self):
         for work in ((0, 0, 1920, 1040), (-1920, 0, 0, 1040)):
             for x, y in ((work[0], work[1]), (work[2]-1, work[3]-30)):
