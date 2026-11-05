@@ -2,12 +2,10 @@
 
 # TypeBridge — הוראות שימוש
 
-**מועמד להפצה alpha.7 — 1 בנובמבר 2026:** בדיקת
-[CI 41302267206](https://github.com/lavalava45/TypeBridge/actions/runs/41302267206)
-עברה 119 מודולי בדיקה ואימות של חבילת ההפצה. את הגרסה **שפורסמה** בפועל אפשר
-למצוא ב־[Releases](https://github.com/lavalava45/TypeBridge/releases).
-מעבר CI אינו מבטיח הגנה מלאה על סיסמאות או תאימות לכל עורך ומקלדת.
-[מצב נוכחי, גרסאות ומגבלות הבדיקות](docs/STATUS.md).
+**Alpha.8 — 5 בנובמבר 2026:** [הורדת גרסת האלפא](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.8).
+[בדיקת ההפצה](https://github.com/lavalava45/TypeBridge/actions/runs/42016503795) עברה 128 מודולי בדיקה, בדיקות EXE ואריזה.
+[רשימת השינויים](docs/releases/0.1.0-alpha.8.md) · [מצב ומגבלות](docs/STATUS.md).
+זו עדיין גרסת אלפא: בטיחות שדות סיסמה בדפדפן ובדיקות קלט פיזי מלאות עדיין לא הושלמו.
 
 המדריך מתאר את הפיתוח הנוכחי; גרסאות שפורסמו עשויות להיות שונות.
 

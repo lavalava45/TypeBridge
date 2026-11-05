@@ -2,14 +2,22 @@
 
 **Актуализировано 05.11.2026.** Это действующий статус проекта; прошлые сбои CI и промежуточные утверждения сохранены в [архивном снимке](history/STATUS-20261103-before-cleanup.md), а не считаются текущими дефектами.
 
+## Alpha.8: публикация и новые наблюдения
+
+[Релиз](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.8) опубликован tagged CI из `59bbc79`. ZIP SHA-256 `2e4e460f2f61a67d130f4311f012aa83137ac104dbfff36eb8147e4ddf87b40e`; проверены CRC, внешний/внутренний манифесты и все file hashes. Changelog и ограничения находятся в release notes.
+
+На локальной установке позже подтверждено исчезновение `base_library.zip` из живого `_MEI` runtime; причина удаления пока не установлена. После разрешённого пользователем перезапуска файл восстановился, оба помощника запустились. Затем зафиксирован отдельный `reader-stage=native` timeout при `runtime=present`, поэтому исчезновение ZIP не объясняет все задержки индикатора.
+
+Scroll Lock для `z,kj` не находит словарного кандидата; `z,kjrj` определяется как `яблоко`. Для отказа Pause в журнале есть повторные `password-metadata-unverified`: это неизвестные метаданные, **не** доказательство парольного поля. Контрольный metadata probe вернул `not-editable-element:class=Chrome_WidgetWin_1` в текущем foreground; это не идентификация конкретного проблемного поля Chrome. Глобальный native quarantine в tooltip не является доказательством блокировки generic Chrome SendInput. Причина первоначальной uncertain-write операции не восстановлена из доступного журнала.
+
 ## Выпуск и проверенная база
 
 | Объект | Текущее понимание |
 |---|---|
-| Публичный предварительный выпуск | [`v0.1.0-alpha.7`](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.7) — публикация подтверждена автором проекта; тег `v0.1.0-alpha.7` доступен в GitHub. Содержимое опубликованных release assets в этой документальной сверке повторно не проверялось. |
-| Проверенный GitHub CI | [Windows CI 41302267206](https://github.com/lavalava45/TypeBridge/actions/runs/41302267206) для `13acca0`: **SUCCESS**, 119/119 модулей, проверки исходников/frozen Public и Diagnostics, упаковки и загрузки артефакта `TypeBridge-windows-x64`. Это результат конкретного CI, а не универсальная проверка физического ввода. |
+| Публичный предварительный выпуск | [v0.1.0-alpha.8](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.8) опубликован 05.11.2026 как prerelease. ZIP, SHA256SUMS и BUILD-MANIFEST скачаны и независимо проверены. |
+| Проверенный GitHub CI | [Windows release CI 42016503795](https://github.com/lavalava45/TypeBridge/actions/runs/42016503795) для `59bbc79`: SUCCESS, все 128 unittest-модулей, frozen Public/Diagnostics и упаковка. Это не физическая приёмка. |
 | CI-ошибки 52/60/66/78 | **Закрыты** до успешного прогона 41302267206. Отсутствующий `jsonschema`, хеш тестового `LICENSE.txt` и короткие/полные Windows-пути не являются текущими блокерами. |
-| Рабочие исходники | Текущая рабочая ветка — [`main`](https://github.com/lavalava45/TypeBridge/tree/main). Новые изменения в ней следует отличать от исходников опубликованной `alpha.7` и её закрытых CI-проверок. Старая ветка `feature/r04-password-guard-staged-20261030` — исторический этап. |
+| Рабочие исходники | Текущая рабочая ветка — [`main`](https://github.com/lavalava45/TypeBridge/tree/main). Новые изменения в ней следует отличать от исходников опубликованной `alpha.8` и её закрытых CI-проверок. Старая ветка `feature/r04-password-guard-staged-20261030` — исторический этап. |
 | Локальные EXE | Рабочий Public устанавливается **только** в `dist/TypeBridge.exe`; локальный Diagnostics — в `dist/profiles/Diagnostics/TypeBridge.exe`. Фактически установленный коммит, дату сборки, SHA-256 и результат frozen-проверок определять по соответствующим `BUILD-PROFILE.json`, а не по статусу Git. Сборка не равнозначна новой публикации GitHub Release. |
 | Стабильная приёмка | **Не завершена**. Опубликованная alpha не означает закрытия R04, No01 или полной совместимости с приложениями. |
 

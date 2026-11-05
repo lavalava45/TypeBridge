@@ -2,13 +2,10 @@
 
 # TypeBridge
 
-**Alpha.7 release candidate — 1 November 2026:** Windows CI
-[41302267206](https://github.com/lavalava45/TypeBridge/actions/runs/41302267206)
-passed 119 test modules and the portable release checks. See
-[Releases](https://github.com/lavalava45/TypeBridge/releases) for the latest
-**published** version and [current status, build versions and acceptance
-limits](docs/STATUS.md). CI success does not certify password safety or every
-physical-keyboard/editor scenario.
+**Alpha.8 — 5 November 2026:** [Download the prerelease](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.8).
+[Release CI](https://github.com/lavalava45/TypeBridge/actions/runs/42016503795) passed all 128 unittest modules, frozen checks and packaging.
+See the [changelog](docs/releases/0.1.0-alpha.8.md) and [acceptance limits](docs/STATUS.md).
+This remains an alpha: browser password/focus safety and full physical-input acceptance are open.
 
 This guide describes current development; published builds may differ.
 
