@@ -96,8 +96,9 @@ class CaretReader:
             raise OSError("caret-message-timeout")
         return ctypes.c_ssize_t(result.value).value
 
-    def _accessible_caret(self, hwnd):
+    def _accessible_caret(self, hwnd, progress=lambda stage: None):
         pointer = ctypes.c_void_p()
+        progress('msaa-object')
         if self.oleacc.AccessibleObjectFromWindow(hwnd, 0xFFFFFFF8, self.iid,
                                                 ctypes.byref(pointer)) != 0 or not pointer:
             return None
@@ -107,6 +108,7 @@ class CaretReader:
         try:
             get_state = ctypes.WINFUNCTYPE(w.LONG, ctypes.c_void_p, Variant,
                                            ctypes.POINTER(Variant))(vtable[14])
+            progress('msaa-state')
             if get_state(pointer, child, ctypes.byref(state)) != 0:
                 return None
             if state.vt != 3 or state.value.number & (0x8000 | 0x10000):
@@ -114,15 +116,21 @@ class CaretReader:
             values = [w.LONG() for _ in range(4)]
             location = ctypes.WINFUNCTYPE(w.LONG, ctypes.c_void_p,
                 *([ctypes.POINTER(w.LONG)] * 4), Variant)(vtable[22])
+            progress('msaa-location')
             if location(pointer, *(ctypes.byref(value) for value in values), child) != 0:
                 return None
             x, y, width, height = (value.value for value in values)
             return x, y, x + width, y + height
         finally:
-            self.oleaut.VariantClear(ctypes.byref(state))
-            ctypes.WINFUNCTYPE(w.ULONG, ctypes.c_void_p)(vtable[2])(pointer)
+            try:
+                progress('msaa-cleanup')
+            finally:
+                try:
+                    self.oleaut.VariantClear(ctypes.byref(state))
+                finally:
+                    ctypes.WINFUNCTYPE(w.ULONG, ctypes.c_void_p)(vtable[2])(pointer)
 
-    def snapshot(self):
+    def snapshot(self, *, allow_accessibility=True, progress=lambda stage, top: None):
         started = monotonic()
         top = int(self.u.GetForegroundWindow() or 0)
         if not top or not win32gui.IsWindowVisible(top):
@@ -171,7 +179,12 @@ class CaretReader:
                 b = win32gui.ClientToScreen(caret, (r.right, r.bottom))
                 rect = (*a, *b)
             if rect is None or not usable_rect(rect, bounds):
-                rect = self._accessible_caret(focus)
+                # Do not enter an unbounded COM fallback after spending the
+                # native budget, or while this window's provider is paused.
+                if not allow_accessibility or monotonic() - started > .1:
+                    return None
+                rect = self._accessible_caret(focus, lambda stage: progress(stage, top))
+                progress('native', top)
         if rect is None or not usable_rect(rect, bounds) or monotonic() - started > 0.15:
             return None
         # Do not publish a slow provider's answer for a window no longer active.

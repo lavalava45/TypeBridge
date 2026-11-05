@@ -123,6 +123,57 @@ class CaretProcessTests(unittest.TestCase):
             reader.snapshot(scope=1)
         self.assertIn('exit=1', reader.diagnostic)
 
+    def test_stage_packets_are_consumed_without_becoming_samples(self):
+        reader = CaretProcess(clock=lambda: 100)
+        reader.connection = Mock()
+        reader.connection.poll.return_value = True
+        reader.connection.recv_bytes.side_effect = [b'{"stage": "msaa-location", "top": 10}', b'{"sample": null}']
+        self.assertEqual(reader._receive(.3, lambda: False), b'{"sample": null}')
+        self.assertEqual((reader.reader_stage, reader.provider_top), ('msaa-location', 10))
+
+    def test_provider_timeout_pauses_only_that_window_and_keeps_native_reader(self):
+        reader, process = self.fixture()
+        def timeout(*args):
+            reader.reader_stage, reader.provider_top = 'msaa-object', 10
+            raise TimeoutError
+        with patch.object(reader, '_receive', side_effect=timeout):
+            reader.snapshot(scope=10)
+        self.assertFalse(reader.disabled)
+        self.assertEqual(reader.failures, 0)
+        self.assertEqual(reader.accessibility_retry[10], 160)
+        self.assertIn('reader-stage=msaa-object', reader.diagnostic)
+        self.assertIn('accessibility-paused=True', reader.diagnostic)
+        reader.clock = lambda: 101
+        for scope, expected in [(10, b'native-snapshot'), (20, b'snapshot')]:
+            reader.connection = Mock()
+            reader.process = Mock()
+            with patch.object(reader, '_receive', return_value=b'{"sample": null}'):
+                reader.snapshot(scope=scope)
+            reader.connection.send_bytes.assert_called_once_with(expected)
+        reader.clock = lambda: 161
+        reader.connection = Mock()
+        with patch.object(reader, '_receive', return_value=b'{"sample": null}'):
+            reader.snapshot(scope=10)
+        reader.connection.send_bytes.assert_called_once_with(b'snapshot')
+        self.assertFalse(reader.accessibility_retry)
+
+    def test_progress_cannot_extend_timeout_budget(self):
+        ticks = iter([0, 0, 0, .4])
+        reader = CaretProcess(clock=lambda: next(ticks))
+        reader.connection = Mock()
+        reader.connection.poll.return_value = True
+        reader.connection.recv_bytes.return_value = b'{"stage": "msaa-state", "top": 10}'
+        with self.assertRaises(TimeoutError):
+            reader._receive(.3, lambda: False)
+
+    def test_stage_parser_rejects_unexpected_metadata(self):
+        reader = CaretProcess(clock=lambda: 100)
+        reader.connection = Mock()
+        reader.connection.poll.return_value = True
+        reader.connection.recv_bytes.return_value = b'{"stage": "msaa-object", "top": 10, "text": "forbidden"}'
+        with self.assertRaises(ValueError):
+            reader._receive(.3, lambda: False)
+
 
 if __name__ == '__main__':
     unittest.main()

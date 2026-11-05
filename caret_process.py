@@ -6,6 +6,9 @@ from pathlib import Path
 import sys
 import time
 
+READER_STAGES = frozenset(('native', 'msaa-object', 'msaa-state', 'msaa-location', 'msaa-cleanup'))
+ACCESSIBILITY_COOLDOWN = 60
+
 
 def run_caret_worker(connection, synthetic=False, languages=None):
     initialized = False
@@ -17,8 +20,14 @@ def run_caret_worker(connection, synthetic=False, languages=None):
             initialized = True
             reader = CaretReader(languages=languages)
         connection.send_bytes(b'ready')
-        while connection.recv_bytes(32) == b'snapshot':
+        def progress(stage, top=0):
+            connection.send_bytes(json.dumps({'stage': stage, 'top': top}).encode('utf-8'))
+        while True:
+            command = connection.recv_bytes(32)
+            if command not in (b'snapshot', b'native-snapshot'):
+                break
             try:
+                progress('native')
                 if synthetic:
                     # Synthetic IPC exercise for an external-only language
                     # set; the default legacy smoke test still reports EN.
@@ -28,7 +37,7 @@ def run_caret_worker(connection, synthetic=False, languages=None):
                               'language': synthetic_language,
                               'work': [0, 0, 100, 100], 'dpi': 96}
                 else:
-                    value = reader.snapshot()
+                    value = reader.snapshot(allow_accessibility=command == b'snapshot', progress=progress)
                     sample = asdict(value) if value is not None else None
                     if sample is not None:
                         sample.pop('sampled_at', None)
@@ -63,12 +72,16 @@ class CaretProcess:
         self.last_error = ''
         self.disabled = False
         self.diagnostic = ''
+        self.reader_stage = 'unknown'
+        self.provider_top = 0
+        self.accessibility_retry = {}
 
     def reset_failures(self):
         """Explicit user retry, called only by the reader thread."""
         self.retry_at = self.failures = 0
         self.disabled = False
         self.last_error = self.diagnostic = ''
+        self.accessibility_retry.clear()
 
     def _runtime_health(self):
         # A onefile child reuses its parent's extracted runtime. Detect missing
@@ -86,7 +99,15 @@ class CaretProcess:
             if cancelled():
                 raise InterruptedError('cancelled')
             if self.connection.poll(min(.05, max(0, deadline - self.clock()))):
-                return self.connection.recv_bytes(4096)
+                response = self.connection.recv_bytes(4096)
+                if response.startswith(b'{"stage":'):
+                    status = json.loads(response)
+                    if (set(status) != {'stage', 'top'} or status['stage'] not in READER_STAGES
+                            or type(status['top']) is not int or status['top'] < 0):
+                        raise ValueError('caret-helper-stage-format')
+                    self.reader_stage, self.provider_top = status['stage'], status['top']
+                    continue  # Progress never extends the request deadline.
+                return response
             if not self.process.is_alive():
                 raise EOFError('caret-helper-exited')
         raise TimeoutError('caret-helper-timeout')
@@ -112,6 +133,7 @@ class CaretProcess:
             return None
         lifecycle_cancelled = lifecycle_cancelled or cancelled
         phase, runtime = 'receive', 'unchecked'
+        self.reader_stage, self.provider_top = 'unknown', 0
         try:
             if self.process is not None and self.connection is None:
                 self.cancel()
@@ -126,7 +148,10 @@ class CaretProcess:
             if cancelled():
                 return None
             phase = 'receive'
-            self.connection.send_bytes(b'snapshot')
+            now = self.clock()
+            self.accessibility_retry = {top: until for top, until in self.accessibility_retry.items() if until > now}
+            command = b'native-snapshot' if self.accessibility_retry.get(scope, 0) > now else b'snapshot'
+            self.connection.send_bytes(command)
             response = self._receive(.3, lifecycle_cancelled)
             if cancelled():
                 return None
@@ -163,12 +188,22 @@ class CaretProcess:
             if type(exitcode) is not int:
                 exitcode = None
             self.cancel()
-            self.failures += 1
+            provider_timeout = (isinstance(error, TimeoutError) and phase == 'receive'
+                                and self.reader_stage.startswith('msaa-') and self.provider_top > 0)
+            if provider_timeout:
+                self.accessibility_retry[self.provider_top] = self.clock() + ACCESSIBILITY_COOLDOWN
+                while len(self.accessibility_retry) > 32:
+                    self.accessibility_retry.pop(next(iter(self.accessibility_retry)))
+                self.failures = 0  # A bad optional provider is not a bad interpreter.
+            else:
+                self.failures += 1
             self.disabled = self.failures >= 3 or runtime.startswith('missing=')
             self.diagnostic = (f'{self.last_error}; phase={phase}; exit={exitcode}; '
+                               f'reader-stage={self.reader_stage}; '
+                               f'accessibility-paused={provider_timeout}; '
                                f'runtime={runtime}; attempts={self.failures}; '
                                f'retries-disabled={self.disabled}')
-            self.retry_at = self.clock() + min(10, 2 ** min(self.failures, 4))
+            self.retry_at = self.clock() + (.25 if provider_timeout else min(10, 2 ** min(self.failures, 4)))
             return None
 
     def cancel(self):
@@ -204,6 +239,7 @@ def smoke_test():
         if sample is None or sample.top != 1 or sample.language != 'en':
             return False
         pid = reader.process.pid
+        reader.accessibility_retry['another-synthetic-window'] = reader.clock() + ACCESSIBILITY_COOLDOWN
         second = reader.snapshot(scope='another-synthetic-window')
         return second is not None and reader.process.pid == pid
     finally:
