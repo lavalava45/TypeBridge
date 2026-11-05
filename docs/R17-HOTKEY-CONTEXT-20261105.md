@@ -40,7 +40,11 @@ Callback выполняет только разбор события/модиф�
 py -3.12 -B -m unittest test_hotkey_context test_clipboard_hotkeys test_clipboard_tools.TrayHotkeyTests test_app_exclusions.ClipboardRoutingTests test_r18_console_fallback test_clipboard_selection test_quick_search.SearchTests test_tray_recovery test_tray_layouts test_r04_native_target_lease test_r04_addressed_prototype test_r04_default_text_target test_early_native_edit test_caret_process test_caret_indicator test_p0_five_findings -q
 ```
 
-208 успешных исполнений, 3.406 секунды. Новые модели проверяют блокирующий
+208 успешных исполнений, 3.406 секунды. Дополнительно проверена настоящая
+Win32-очередь сообщений (PeekMessage/GetMessage/PostThreadMessage) с
+подменённой установкой hook: запуск, применение настроек и shutdown PASS;
+все lifecycle-вызовы выполнялись одним фоновым владельцем. Глобальный hook
+не устанавливался, metadata capture возвращал None. Новые модели проверяют блокирующий
 capture, отсутствие process lookup внутри callback, устаревшие данные,
 смену settings/generation/focus/PID, запрет поздней публикации и дубля worker,
 парольный менеджер и пользовательское исключение. Настоящие hooks, физический
@@ -55,8 +59,22 @@ capture, отсутствие process lookup внутри callback, устаре
 - Outreach CSV не включаются в коммиты программы. Определение opt-in R04
   остаётся в исходниках, но runtime не передаёт `experimental_target_lease=True`.
 
-Сборка и проверка её манифестов фиксируются в [STATUS](STATUS.md) после
-завершения штатного `build-typebridge.ps1`. Новый GitHub Release или тег
+Штатный `build-typebridge.ps1` завершён успешно: Public/Diagnostics из `7ffc214`,
+оба frozen self-test 6/6. Хеши EXE, 215 исходников и словарей совпали с
+манифестами. Public запущен с `--autostart`. Точные built UTC и SHA-256 —
+в [STATUS](STATUS.md). Dirty-флаг на начало сборки — только outreach CSV;
+runtime-исходники зафиксированы. Новый GitHub Release или тег
 этой задачей автоматически не создаётся: R04/No01 остаются существенными
 незакрытыми критериями стабильной приёмки. Alpha-кандидат должен явно сохранять
 эти ограничения; старый release CI не проверяет новые коммиты.
+
+## Наблюдение после запуска
+
+Основной процесс и caret helper запустились. В runtime-журнале
+`2026-11-05T09:34:21.271219+00:00` записан отдельный
+`caret-helper:TimeoutError; phase=receive; exit=None; runtime=present; attempts=1`.
+Это ограниченный тайм-аут ответа уже запущенного reader, а не доказательство
+повторения ошибки старта Python. На прежней сборке в 09:11 UTC также были
+три receive timeout с последующим `retries-disabled=True`.
+Физическая приёмка индикатора остаётся открытой; первопричина прежнего
+сообщения bootloader всё ещё не установлена. Приложение не закрывалось.
