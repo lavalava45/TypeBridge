@@ -821,21 +821,29 @@ class LiveHook:
                 or process in excluded or host_process in excluded):
             emit_pipeline(self, 'context-rejected', reason='process-unavailable-or-excluded', interval=4)
             return None
-        title_buffer = ctypes.create_unicode_buffer(512)
-        self.user32.GetWindowTextW(top, title_buffer, len(title_buffer))
-        title = title_buffer.value
         only_title = self.settings.only_window_title.casefold()
-        if only_title and only_title not in title.casefold():
-            emit_pipeline(self, 'context-rejected', reason='title-filter', interval=4)
-            return None
+        title = ''
+        if only_title:
+            # FocusContext.title is not consumed by any correction path.
+            # Avoid fetching the window title on every keystroke unless the
+            # user explicitly enables the title filter.
+            title_buffer = ctypes.create_unicode_buffer(512)
+            self.user32.GetWindowTextW(top, title_buffer, len(title_buffer))
+            title = title_buffer.value
+            if only_title not in title.casefold():
+                emit_pipeline(self, 'context-rejected', reason='title-filter', interval=4)
+                return None
         class_buffer = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(focus, class_buffer, len(class_buffer))
-        focus_class = class_buffer.value.casefold()
+        focus_name = class_buffer.value
+        focus_class = focus_name.casefold()
         top_class = ''
+        top_name = focus_name if focus == top else ''
         if focus != top:
             top_buffer = ctypes.create_unicode_buffer(128)
             self.user32.GetClassNameW(top, top_buffer, len(top_buffer))
-            top_class = top_buffer.value.casefold()
+            top_name = top_buffer.value
+            top_class = top_name.casefold()
         password_guard = getattr(self, 'password_guard', None)
         native_metadata = native_field_metadata(process, host_process, focus_class, top_class)
         check_metadata = (not self.simple_mode and not for_layout and password_guard is not None and (
@@ -897,7 +905,9 @@ class LiveHook:
                     and not password_guard.snapshot.element_id.startswith('uia:')):
                 emit_pipeline(self, 'context-rejected', reason='missing-uia-element-id', interval=4)
                 return None
-        owner, owner_thread = layout_owner(self.user32, top, focus, top_thread, focus_thread)
+        owner, owner_thread = layout_owner(
+            self.user32, top, focus, top_thread, focus_thread,
+            top_class=top_name, focus_class=focus_name)
         raw_hkl = int(self.user32.GetKeyboardLayout(owner_thread) or 0) & 0xFFFFFFFF
         language_id = raw_hkl & 0xFFFF
         language = self._language_from_id(language_id)

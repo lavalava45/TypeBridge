@@ -36,18 +36,29 @@ class LayoutTarget:
 
 
 def layout_owner(api, top: int, focus: int, top_thread: int,
-                 focus_thread: int) -> tuple[int, int]:
+                 focus_thread: int, *, top_class: str | None = None,
+                 focus_class: str | None = None) -> tuple[int, int]:
     """ApplicationFrameHost translates keys using its own thread's HKL.
 
     Its CoreWindow can report a different, stale layout. Ordinary editors
     continue to use the focused child thread.
     """
-    top_class = ctypes.create_unicode_buffer(128)
-    focus_class = ctypes.create_unicode_buffer(128)
-    api.GetClassNameW(top, top_class, len(top_class))
-    api.GetClassNameW(focus, focus_class, len(focus_class))
-    if (top_class.value == "ApplicationFrameWindow"
-            and focus_class.value == "Windows.UI.Core.CoreWindow"):
+    # The low-level hook already acquired both classes for target admission.
+    # Reuse that same snapshot instead of issuing two more Win32 calls on
+    # every physical key. Other callers still take the original read path.
+    # An empty first read is not verified class metadata. Retain the old
+    # second-chance query for transient Win32 failures, but never reread a
+    # successfully obtained class in the common case.
+    if not top_class:
+        buffer = ctypes.create_unicode_buffer(128)
+        api.GetClassNameW(top, buffer, len(buffer))
+        top_class = buffer.value
+    if not focus_class:
+        buffer = ctypes.create_unicode_buffer(128)
+        api.GetClassNameW(focus, buffer, len(buffer))
+        focus_class = buffer.value
+    if (top_class == "ApplicationFrameWindow"
+            and focus_class == "Windows.UI.Core.CoreWindow"):
         return top, top_thread
     return focus, focus_thread
 
