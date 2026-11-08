@@ -104,7 +104,12 @@ class LanguagePrototypeTests(unittest.TestCase):
             # local-disk performance deadline (measured 36.7 s on this host).
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90,
         )
-        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", "replace"))
+        # The self-test returns a JSON explanation on stdout when an optional
+        # native helper fails. CI previously printed only empty stderr, hiding
+        # the actual failed condition on clean Windows runners.
+        self.assertEqual(result.returncode, 0,
+                         'self-test stdout:\n' + result.stdout.decode('utf-8', 'replace')
+                         + '\nself-test stderr:\n' + result.stderr.decode('utf-8', 'replace'))
 
 
 if __name__ == "__main__":

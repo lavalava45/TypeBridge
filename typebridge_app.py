@@ -5385,6 +5385,15 @@ def self_test() -> dict:
     # present inside the delivered one-file EXE.
     uia_helper_ok = False
     try:
+        if not getattr(sys, 'frozen', False):
+            # A clean Windows CI checkout has no pre-generated
+            # comtypes.gen.UIAutomationClient module. The local development
+            # machine may have it cached, masking this release-only failure.
+            # Generate the wrapper from Windows' registered UIAutomation
+            # typelib BEFORE importing it. A frozen EXE must already contain
+            # the audited module and must never generate modules at runtime.
+            from comtypes.client import GetModule
+            GetModule(('{944DE083-8FB8-45CF-BCB7-C477ACB2F897}', 1, 0))
         from comtypes.gen import UIAutomationClient as uia_typelib
         from uia_native_worker import UiaService
         if (getattr(uia_typelib, 'CUIAutomation', None) is not None
