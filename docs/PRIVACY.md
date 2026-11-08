@@ -1,5 +1,35 @@
 # TypeBridge: privacy and input access
 
+**7 November 2026, source-only clipboard recovery:** explicit Copy fallback and
+temporary plain paste now require a verified Windows DPAPI checkpoint under
+`TypeBridge-data/clipboard-recovery`. All supported original format payloads
+are encrypted before disk write. Clipboard privacy flags prevent capturing
+explicitly private originals. After successful restore (or the intentional
+plain-paste conversion) the checkpoint is removed; unresolved copies survive
+exit and are not automatically expired. Recovery is an explicit tray action
+that replaces the current clipboard after confirmation, independent of the
+input journal. Limits: 32 files / 64 MB ciphertext; a full folder refuses new
+temporary clipboard operations. DPAPI does not protect against programs
+running as the same Windows user. [Details](P0-CLIPBOARD-RECOVERY-20261107.md).
+
+**6 November 2026, user-selected correction policy:** automatic/manual word
+correction now permits unknown, missing and stale UIA metadata. Only positive
+password evidence blocks correction. An unrecognized password field may also be
+corrected or read by bounded word recovery. Previous strict-denial descriptions
+below are historical for word correction; this does not change clipboard/journal
+policies. [Current policy](USER-FIELD-POLICY-20261106.md).
+
+**06.11.2026, решение пользователя:** неизвестные поля разрешены для автоматики
+и ручной команды; запрещены только явные признаки пароля. Нераспознанное
+парольное поле также может исправляться или читаться при восстановлении слова.
+Прежние описания запрета неизвестных полей ниже относятся к прошлому поведению
+коррекции слов; политика буфера обмена и дневника этим патчем не изменена.
+
+**6.11.2026, לפי בחירת המשתמש:** תיקון מילים אוטומטי וידני מותר גם כשמידע
+UIA חסר, לא ידוע או ישן. רק סימן מפורש לשדה סיסמה חוסם תיקון. גם שדה סיסמה
+שלא זוהה עלול להיקרא בשחזור מילה או לעבור תיקון. התיאורים המחמירים בהמשך
+הם היסטוריים לגבי תיקון מילים; מדיניות הלוח והיומן לא השתנתה בתיקון זה.
+
 **Current source, 31 October 2026 — correction of the browser regression:**
 TypeBridge no longer disables whole browsers, WebViews or custom editors.
 Native EDIT/RichEdit reject ES_PASSWORD synchronously. Shared/custom fields
