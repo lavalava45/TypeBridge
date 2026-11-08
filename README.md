@@ -2,10 +2,14 @@
 
 # TypeBridge
 
-**Alpha.8 — 5 November 2026:** [Download the prerelease](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.8).
-[Release CI](https://github.com/lavalava45/TypeBridge/actions/runs/42016503795) passed all 128 unittest modules, frozen checks and packaging.
-See the [changelog](docs/releases/0.1.0-alpha.8.md) and [acceptance limits](docs/STATUS.md).
-This remains an alpha: browser password/focus safety and full physical-input acceptance are open.
+**Alpha.9 — 8 November 2026:** [Windows prerelease](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.9).
+See [changes since alpha.8](docs/releases/0.1.0-alpha.9.md),
+[tagged build verification](https://github.com/lavalava45/TypeBridge/actions/workflows/release.yml)
+and [remaining acceptance limits](docs/STATUS.md).
+**Security warning:** this alpha's active simple-switcher mode disables password-field
+guards. TypeBridge can modify a password field. Exit TypeBridge completely
+when entering confidential information. Full browser-focus/physical-input
+acceptance is still open (R04/No01).
 
 This guide describes current development; published builds may differ.
 

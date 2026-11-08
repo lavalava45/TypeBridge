@@ -1,5 +1,23 @@
 # Portable Windows releases
 
+## Release candidate 0.1.0-alpha.9 — 8 November 2026
+
+Use the existing tagged Windows workflow to build and verify the release
+**from a clean commit**, never from the working `dist/TypeBridge.exe` or
+personal `TypeBridge-data/`. The user explicitly requested publication of
+this alpha. Its notes must disclose the active `SIMPLE_SWITCHER_MODE=True`
+password-field guard removal, remaining R04/No01 risks and partial physical
+acceptance. Preexisting alpha.8 CI cannot validate the alpha.9 code.
+
+Before marking the release complete, check that the tag run succeeds,
+GitHub publishes exactly one Public ZIP plus `SHA256SUMS.txt` and
+`BUILD-MANIFEST.json`, SHA-256 matches, manifest source commit matches the
+tag and private files/logs are absent. Failure leaves the candidate
+unpublished; never call a failed CI run a successful release.
+
+The older gate history below is retained as dated evidence, not current
+alpha.9 status.
+
 The `Windows portable release` GitHub Actions workflow builds on Windows x64
 with Python 3.12. Push a new version tag (for example `v0.1.0-alpha.3`) to build
 and publish a release. Tags containing a hyphen are marked as prereleases.
