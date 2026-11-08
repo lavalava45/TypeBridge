@@ -20,6 +20,25 @@ MIN_EARLY_LENGTH = 5
 MAX_UNFINISHED_LETTERS = 2
 
 
+def punctuation_edges_are_literal(mapper, keys, current, target, left, end):
+    """Do not detach a possible letter, except an explicitly paired wrapper."""
+    source = mapper.word(keys, current)
+    destination = mapper.word(keys, target)
+    if len(source) != len(keys) or len(destination) != len(keys):
+        return False
+    pairs = {'(': ')', '[': ']', '{': '}', "'": "'", '"': '"'}
+    paired = set()
+    # Nested surrounding brackets/quotes are a literal envelope, including
+    # ["word"]. A trailing comma after that envelope is still ambiguous.
+    for offset in range(min(left, len(keys) - end)):
+        first, last = left - 1 - offset, end + offset
+        if pairs.get(source[first]) != source[last]:
+            break
+        paired.update((first, last))
+    return not any(destination[index].isalpha() and index not in paired
+                   for index in (*range(left), *range(end, len(keys))))
+
+
 @dataclass(frozen=True)
 class V2Decision:
     typed: str
@@ -199,6 +218,7 @@ class PolicyDecisionEngine:
                and typed[-right_bound - 1] in WORD_AFFIXES):
             right_bound += 1
         matches = {}
+        ambiguous_letter_edge = False
         for left in range(left_bound + 1):
             for right in range(right_bound + 1):
                 end = len(keys) - right
@@ -215,6 +235,13 @@ class PolicyDecisionEngine:
                     return None
                 decision = self.decide(center, current, allow_rare=allow_rare)
                 if decision is not None:
+                    # A source comma/quote can be a letter in the destination.
+                    # A known center does not authorize rewriting only part of
+                    # an unknown whole word (EN hukh, -> HE יולי, instead of יולית).
+                    if not punctuation_edges_are_literal(
+                            self.mapper, keys, current, decision.language, left, end):
+                        ambiguous_letter_edge = True
+                        continue
                     replaced = typed[:left] + decision.replacement + typed[end:]
                     matches[(decision.language, replaced)] = V2Decision(
                         typed, replaced, decision.language, 'word with literal punctuation')
@@ -222,7 +249,8 @@ class PolicyDecisionEngine:
             return next(iter(matches.values()))
         if _trace is not None:
             _trace.append('ambiguous-punctuation-candidates' if matches else
-                          ('no-matching-punctuation-destination' if
+                          ('ambiguous-letter-punctuation-edge' if ambiguous_letter_edge else
+                           'no-matching-punctuation-destination' if
                            left_bound or right_bound else
                            (direct_trace[-1] if direct_trace else 'no-matching-destination')))
         return None

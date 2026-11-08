@@ -55,14 +55,19 @@ class StartupDiagnosticsTests(unittest.TestCase):
             hooked = []
 
             def fake_hook(engine, current, notify, *, snippets,
-                          password_guard=None):
+                          password_guard=None, simple_mode=False):
                 # A genuine LanguageEngine and verified lexical data made it
                 # through startup; this is the ONLY hook boundary we mock.
                 from password_fields import PasswordFieldGuard
-                self.assertIsInstance(password_guard, PasswordFieldGuard)
-                self.assertTrue(password_guard.require_element_id)
-                self.assertTrue(password_guard.native_fast_path)
-                self.assertIsNone(password_guard.worker)  # Hook owns its start.
+                from typebridge_app import SIMPLE_SWITCHER_MODE
+                self.assertEqual(simple_mode, SIMPLE_SWITCHER_MODE)
+                if simple_mode:
+                    self.assertIsNone(password_guard)
+                else:
+                    self.assertIsInstance(password_guard, PasswordFieldGuard)
+                    self.assertTrue(password_guard.require_element_id)
+                    self.assertTrue(password_guard.native_fast_path)
+                    self.assertIsNone(password_guard.worker)  # Hook owns its start.
                 hooked.append((engine, current))
                 self.assertEqual(current.active_languages, ('en', 'ar'))
                 self.assertEqual(set(engine.words), {'en', 'ar'})

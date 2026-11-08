@@ -92,6 +92,11 @@ class PlainPastePartialAuditTests(unittest.TestCase):
         gui.closed = False
         gui.generation = 9
         gui.pending = True
+        # __new__ skips ClipboardTools.__init__: mirror the current ownership
+        # fields used by the normal worker and error-finalization path.
+        gui._pending_paste_token = None
+        gui._pending_started = None
+        gui._paste_timeout_queued = None
         gui.settings = SimpleNamespace(plain_paste=True)
         gui.root = Mock()
         gui.root.winfo_id.return_value = 101

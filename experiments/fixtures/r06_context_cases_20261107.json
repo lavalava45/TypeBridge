@@ -1,0 +1,42 @@
+{
+  "kind": "CURATED_CONDITIONAL_CONTEXT_DIAGNOSTIC",
+  "provenance": "Manually authored intended continuations, frozen before evaluating either context variant. No real user text or statistical sampling. Previous visible words are supplied conditionally; hook acquisition is not implemented.",
+  "rules_predeclared": {
+    "window_words": 2,
+    "max_gap_seconds": 10,
+    "hint": "Two consecutive uniquely dictionary-recognized alphabetic words of length >=2 in the same language; unknown, mixed and ambiguous words clear the hint.",
+    "variants": ["keep_known_source", "allow_known_source_override"],
+    "acceptance": "Any newly wrong protected continuation rejects automatic integration; gains never cancel those failures. Design/challenge are reported separately; neither is independent population validation."
+  },
+  "cases": [
+    {"id":"design-ru-tot", "split":"design", "kind":"wrong_layout", "context":["нужно","сделать"], "physical":"tot", "source":"en", "expected":"еще", "target":"ru"},
+    {"id":"design-en-tot", "split":"design", "kind":"keep_source", "context":["the","little"], "physical":"tot", "source":"en", "expected":"tot", "target":"en"},
+    {"id":"design-he-njr", "split":"design", "kind":"wrong_layout", "context":["אולי","ניפגש"], "physical":"njr", "source":"en", "expected":"מחר", "target":"he"},
+    {"id":"design-ru-njr", "split":"design", "kind":"wrong_layout", "context":["это","электрический"], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"design-ru-ye", "split":"design", "kind":"wrong_layout", "context":["ладно","тогда"], "physical":"ye", "source":"en", "expected":"ну", "target":"ru"},
+    {"id":"design-he-rfc", "split":"design", "kind":"wrong_layout", "context":["אני","קונה"], "physical":"rfc", "source":"en", "expected":"רכב", "target":"he"},
+    {"id":"challenge-ru-more", "split":"challenge", "kind":"wrong_layout", "context":["давай","попробуем"], "physical":"tot", "source":"en", "expected":"еще", "target":"ru"},
+    {"id":"challenge-en-toddler", "split":"challenge", "kind":"keep_source", "context":["that","tiny"], "physical":"tot", "source":"en", "expected":"tot", "target":"en"},
+    {"id":"challenge-en-ye", "split":"challenge", "kind":"keep_source", "context":["hear","all"], "physical":"ye", "source":"en", "expected":"ye", "target":"en"},
+    {"id":"challenge-he-tomorrow", "split":"challenge", "kind":"wrong_layout", "context":["אנחנו","נוסעים"], "physical":"njr", "source":"en", "expected":"מחר", "target":"he"},
+    {"id":"challenge-he-buy", "split":"challenge", "kind":"wrong_layout", "context":["רוצה","לקנות"], "physical":"rfc", "source":"en", "expected":"רכב", "target":"he"},
+    {"id":"challenge-ru-current", "split":"challenge", "kind":"wrong_layout", "context":["через","провод"], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"challenge-quoted-en-word", "split":"challenge", "kind":"protected_code_switch", "context":["английское","слово"], "physical":"tot", "source":"en", "expected":"tot", "target":"en"},
+    {"id":"challenge-en-identifier", "split":"challenge", "kind":"protected_identifier", "context":["переменная","называется"], "physical":"tot", "source":"en", "expected":"tot", "target":"en"},
+    {"id":"challenge-en-foreign-word", "split":"challenge", "kind":"protected_code_switch", "context":["пишется","как"], "physical":"ye", "source":"en", "expected":"ye", "target":"en"},
+    {"id":"challenge-ru-word-in-hebrew", "split":"challenge", "kind":"protected_code_switch", "context":["המילה","ברוסית"], "physical":"njr", "source":"ru", "expected":"ток", "target":"ru"},
+    {"id":"challenge-ru-switch-after-he", "split":"challenge", "kind":"protected_code_switch", "context":["אני","קונה"], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"challenge-he-switch-after-ru", "split":"challenge", "kind":"protected_code_switch", "context":["это","электрический"], "physical":"njr", "source":"en", "expected":"מחר", "target":"he"},
+    {"id":"challenge-technical", "split":"challenge", "kind":"keep_source", "context":["сохрани","файл"], "physical":"json", "source":"en", "expected":"json", "target":"en"},
+    {"id":"challenge-brand", "split":"challenge", "kind":"keep_source", "context":["открой","программу"], "physical":"spotify", "source":"en", "expected":"spotify", "target":"en"},
+    {"id":"challenge-empty", "split":"challenge", "kind":"no_context", "context":[], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"challenge-one-word", "split":"challenge", "kind":"no_context", "context":["שלום"], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"challenge-mixed", "split":"challenge", "kind":"mixed_context", "context":["hello","שלום"], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"challenge-unknown-break", "split":"challenge", "kind":"mixed_context", "context":["אני","קונה","xqzvbn"], "physical":"njr", "source":"en", "expected":"ток", "target":"ru"},
+    {"id":"challenge-one-letter-break", "split":"challenge", "kind":"mixed_context", "context":["нужно","сделать","a"], "physical":"tot", "source":"en", "expected":"tot", "target":"en"},
+    {"id":"challenge-unambiguous-ru", "split":"challenge", "kind":"unique_target", "context":["the","little"], "physical":"ghbdtn", "source":"en", "expected":"привет", "target":"ru"},
+    {"id":"challenge-unambiguous-he", "split":"challenge", "kind":"unique_target", "context":["нужно","сделать"], "physical":"akuo", "source":"en", "expected":"שלום", "target":"he"},
+    {"id":"challenge-known-en", "split":"challenge", "kind":"keep_source", "context":["אני","קונה"], "physical":"hello", "source":"en", "expected":"hello", "target":"en"}
+  ],
+  "reset_events": ["click", "navigation", "window", "field", "layout", "selection", "backspace", "undo", "paste", "composition", "stop", "idle"]
+}

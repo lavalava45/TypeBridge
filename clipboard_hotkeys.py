@@ -134,11 +134,12 @@ class ClipboardHotkeys:
             self.hook = None
 
     def _refresh_context(self, stop):
-        # Invalidate BEFORE any potentially blocking metadata call. A stuck
-        # reader never extends the lifetime of its last successful answer.
-        self.context_cache = None
+        # Keep the last verified target during a refresh. The callback checks
+        # its original timestamp and live foreground identity, so a stalled
+        # reader cannot extend authority beyond CONTEXT_TTL.
         settings, generation, started = self.settings, self.context_generation, monotonic()
         if settings is None or not self.accepting.is_set() or stop.is_set():
+            self.context_cache = None
             return
         try:
             target = self.layouts.capture()
@@ -149,8 +150,13 @@ class ClipboardHotkeys:
                     and generation == self.context_generation
                     and monotonic() - started <= CONTEXT_TTL):
                 self.context_cache = PreparedContext(target, settings, generation, started)
+                return
         except Exception:
-            pass  # Missing/uncertain metadata must leave the chord to its app.
+            pass
+        # A denied, failed or late read must revoke the old permission. Do not
+        # erase a newer generation published during a settings change.
+        if settings is self.settings and generation == self.context_generation:
+            self.context_cache = None
 
     def _context_loop(self, stop):
         while not stop.is_set():

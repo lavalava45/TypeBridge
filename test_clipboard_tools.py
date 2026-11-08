@@ -144,6 +144,26 @@ class NativeClipboardTests(unittest.TestCase):
         native.cb.EmptyClipboard.assert_not_called()
         native.cb.CloseClipboard.assert_called_once()
 
+    def test_delayed_clipboard_open_cannot_mutate_after_cancellation(self):
+        native = self.fixture()
+        allowed = Mock(return_value=False)  # e.g. GUI closed while OpenClipboard blocked
+        with self.assertRaisesRegex(OSError, 'до изменения'):
+            native.write_plain('hello', 123, 7, allow_write=allowed)
+        allowed.assert_called_once_with()
+        native.cb.EmptyClipboard.assert_not_called()
+        native.cb.SetClipboardData.assert_not_called()
+        native.cb.CloseClipboard.assert_called_once()
+
+    def test_write_after_empty_failure_exposes_exact_sequence_for_safe_rollback(self):
+        from clipboard_tools import ClipboardWriteUncertain
+        native = self.fixture()
+        native.cb.SetClipboardData.side_effect = OSError('synthetic failure')
+        with self.assertRaises(ClipboardWriteUncertain) as caught:
+            native.write_plain('test', 123, 7)
+        self.assertEqual(caught.exception.sequence, 7)
+        native.cb.EmptyClipboard.assert_called_once_with()
+        native.cb.CloseClipboard.assert_called_once_with()
+
     def test_plain_private_read_and_write_never_discard_protection(self):
         for fmt, value in ((100, None), (101, None), (102, 0),
                            (103, b'\0\0\0\0'), (103, b'invalid')):

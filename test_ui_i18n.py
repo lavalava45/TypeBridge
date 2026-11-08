@@ -104,6 +104,30 @@ class HiddenWindowTests(unittest.TestCase):
                   patch('typebridge_app.save_settings') as save):
                 app = TypeBridgeGui(self.root)
                 self.assertEqual(len(app.settings_pages), 6)
+                def widget_labels(root):
+                    labels = []
+                    for widget in [root]:
+                        value = getattr(widget, '_i18n_text', '')
+                        if not value:
+                            try:
+                                value = widget.cget('text')
+                            except tk.TclError:
+                                value = ''
+                        if isinstance(value, str) and value:
+                            labels.append(value)
+                        for child in widget.winfo_children():
+                            labels.extend(widget_labels(child))
+                    return labels
+                main_labels = widget_labels(app.settings_pages[0].body)
+                all_labels = [label for page in app.settings_pages
+                              for label in widget_labels(page.body)]
+                self.assertEqual(all_labels.count('Переключить раскладку слова:'), 1)
+                self.assertIn('Переключить раскладку слова:', main_labels)
+                self.assertNotIn('Ручное исправление слова до пробела', all_labels)
+                self.assertNotIn('Перебрать раскладки последнего слова:', all_labels)
+                self.assertNotIn('Исправлять редкие слова автоматически', all_labels)
+                self.assertNotIn('Дополнительная проверка стандартных полей ввода', all_labels)
+                self.assertEqual(app.word_key.get(), 'Pause')
                 self.assertIs(app.save_button.master.master, self.root)
                 self.assertTrue(all(page.body.master is page.canvas for page in app.settings_pages))
                 app.open_snippets(); app.snippets_editor.window.withdraw()

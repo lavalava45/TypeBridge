@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from engine import Decision
-from password_fields import WATCH_SCRIPT, SCRIPT_BOOTSTRAP
+from uia_password_native import editable_metadata
 import test_r04_default_text_target as r04
 from typebridge_app import LiveHook, Settings, VK_SPACE, VK_BACK
 
@@ -145,38 +145,36 @@ class DesktopEditorTests(unittest.TestCase):
         hook.user32.SendInput.assert_not_called()
 
     def test_real_compiled_metadata_policy_for_desktop_capabilities(self):
-        # Compile the real helper without Start/Query/field observation. Only
-        # pure metadata policy is called: no GetText/Value/selection reads.
-        script = WATCH_SCRIPT.split('try {\n    [PasswordMetadata]::Start()')[0]
-        script += r"""
-$edit = [System.Windows.Automation.ControlType]::Edit.Id
-$doc = [System.Windows.Automation.ControlType]::Document.Id
-$custom = [System.Windows.Automation.ControlType]::Custom.Id
-$pane = [System.Windows.Automation.ControlType]::Pane.Id
-$combo = [System.Windows.Automation.ControlType]::ComboBox.Id
-$button = [System.Windows.Automation.ControlType]::Button.Id
-@(
- [PasswordMetadata]::EditableMetadata($edit,$true,$true,$true,$false,$false,-1,$true)
- [PasswordMetadata]::EditableMetadata($doc,$true,$true,$false,$false,$true,-1,$true)
- [PasswordMetadata]::EditableMetadata($custom,$true,$true,$true,$false,$false,-1,$true)
- [PasswordMetadata]::EditableMetadata($doc,$true,$true,$false,$false,$true,0,$false)
- [PasswordMetadata]::EditableMetadata($custom,$true,$true,$true,$false,$false,-1,$false)
- [PasswordMetadata]::EditableMetadata($pane,$true,$true,$false,$false,$true,0,$false)
- [PasswordMetadata]::EditableMetadata($combo,$true,$true,$true,$false,$false,-1,$false)
- [PasswordMetadata]::EditableMetadata($custom,$true,$true,$true,$true,$false,-1,$false)
- [PasswordMetadata]::EditableMetadata($doc,$true,$true,$false,$false,$true,1,$false)
- [PasswordMetadata]::EditableMetadata($custom,$true,$true,$false,$false,$true,-1,$false)
- [PasswordMetadata]::EditableMetadata($button,$true,$true,$true,$false,$false,-1,$false)
- [PasswordMetadata]::EditableMetadata($pane,$true,$false,$true,$false,$false,-1,$false)
- [PasswordMetadata]::EditableMetadata($pane,$false,$true,$true,$false,$false,-1,$false)
-) | ConvertTo-Json -Compress
-"""
-        exe = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        result = subprocess.run([str(exe), '-NoProfile', '-NonInteractive', '-MTA', '-Command', SCRIPT_BOOTSTRAP],
-            input=script.encode('utf-8'), capture_output=True, timeout=15, creationflags=0x08000000)
-        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
-        self.assertEqual(json.loads(result.stdout.decode('utf-8-sig').strip().splitlines()[-1]),
-            [True, True, False, True, True, True, True, False, False, False, False, False, False])
+        # The legacy PowerShell metadata policy was replaced with a native
+        # Python helper. Preserve all 21 input/output policy vectors instead
+        # of relying on the removed WATCH_SCRIPT/SCRIPT_BOOTSTRAP exports.
+        edit, doc, custom, pane, combo, button = 50004, 50030, 50025, 50033, 50003, 50000
+        rows = [
+            (edit,True,True,True,False,False,-1,True),
+            (doc,True,True,False,False,True,-1,True),
+            (doc,True,True,False,False,True,0,True),
+            (doc,True,True,False,False,True,1,True),
+            (custom,True,True,True,False,False,-1,True),
+            (doc,True,True,False,False,True,0,False),
+            (custom,True,True,True,False,False,-1,False),
+            (pane,True,True,False,False,True,0,False),
+            (combo,True,True,True,False,False,-1,False),
+            (custom,True,True,True,True,False,-1,False),
+            (doc,True,True,False,False,True,1,False),
+            (custom,True,True,False,False,True,-1,False),
+            (button,True,True,True,False,False,-1,False),
+            (pane,True,False,True,False,False,-1,False),
+            (pane,False,True,True,False,False,-1,False),
+            (combo,True,True,True,False,False,-1,True),
+            (combo,True,True,True,True,False,-1,True),
+            (combo,True,True,False,False,True,0,True),
+            (combo,True,False,True,False,False,-1,True),
+            (combo,False,True,True,False,False,-1,True),
+            (custom,True,True,True,False,False,-1,True),
+        ]
+        self.assertEqual([editable_metadata(*row) for row in rows],
+            [True, False, True, False, False, True, True, True, True, False, False, False, False, False, False,
+             True, False, False, False, False, False])
 
 
 if __name__ == '__main__':

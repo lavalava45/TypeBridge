@@ -5,13 +5,8 @@ explicit guards, unknown/password/stale refusal and native exclusions.
 """
 import unittest
 from unittest.mock import Mock, patch
-import os
-import queue
-import json
-from pathlib import Path
-import subprocess
-
-from password_fields import PasswordFieldGuard, WATCH_SCRIPT, SCRIPT_BOOTSTRAP
+from password_fields import PasswordFieldGuard
+from uia_password_native import native_style_state, editable_metadata
 from test_app_controls import make_hook, key
 import test_short_words_settings as settings_tests
 import test_word_cycle as cycle_tests
@@ -19,41 +14,21 @@ import test_word_cycle as cycle_tests
 
 class MetadataTests(unittest.TestCase):
     def test_native_edit_metadata_does_not_authorize_browser_or_password_styles(self):
-        script = WATCH_SCRIPT.split('try {\n    [PasswordMetadata]::Start()')[0]
-        script += '''
-@(
- [PasswordMetadata]::NativeStyleState("Edit",0)
- [PasswordMetadata]::NativeStyleState("Edit",32)
- [PasswordMetadata]::NativeStyleState("RichEditD2DPT",0)
- [PasswordMetadata]::NativeStyleState("RichEditD2DPT",32)
- [PasswordMetadata]::NativeStyleState("Chrome_RenderWidgetHostHWND",0)
-) | ConvertTo-Json -Compress
-'''
-        exe = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        result = subprocess.run([str(exe), '-NoProfile', '-NonInteractive', '-MTA', '-Command', SCRIPT_BOOTSTRAP],
-                                input=script.encode('utf-8'), capture_output=True, timeout=15, creationflags=0x08000000)
-        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
-        self.assertEqual(json.loads(result.stdout.decode('utf-8-sig').strip().splitlines()[-1]), [0,1,0,1,-1])
+        self.assertEqual([native_style_state(name, style) for name, style in (
+            ('Edit', 0), ('Edit', 32), ('RichEditD2DPT', 0),
+            ('RichEditD2DPT', 32), ('Chrome_RenderWidgetHostHWND', 0))],
+            [0, 1, 0, 1, -1])
 
-    def test_compiled_helper_keeps_only_verified_duplicate_focus(self):
-        # Compile the actual C# helper; do not register UIA events or read any field.
-        script = WATCH_SCRIPT.split('try {\n    [PasswordMetadata]::Start()')[0]
-        script += '''
-@(
- [PasswordMetadata]::FocusNeedsRecheck($true,$true,$true,$true,$false)
- [PasswordMetadata]::FocusNeedsRecheck($false,$true,$true,$true,$false)
- [PasswordMetadata]::FocusNeedsRecheck($true,$false,$true,$true,$false)
- [PasswordMetadata]::FocusNeedsRecheck($true,$true,$false,$true,$false)
- [PasswordMetadata]::FocusNeedsRecheck($true,$true,$true,$false,$false)
- [PasswordMetadata]::FocusNeedsRecheck($true,$true,$true,$true,$true)
-) | ConvertTo-Json -Compress
-'''
-        executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        result = subprocess.run([str(executable), '-NoProfile', '-NonInteractive', '-Command', SCRIPT_BOOTSTRAP],
-                                input=script.encode('utf-8'), capture_output=True, timeout=15, creationflags=0x08000000)
-        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
-        output = result.stdout.decode('utf-8-sig').strip().splitlines()[-1]
-        self.assertEqual(json.loads(output), [False, True, True, True, True, True])
+    def test_native_editability_requires_focused_writable_metadata(self):
+        # Exact metadata policy tested without invoking a live UIA provider.
+        self.assertTrue(editable_metadata(50003, True, True, True, False,
+                                          False, -1, True))
+        self.assertFalse(editable_metadata(50003, True, True, True, True,
+                                           False, -1, True))
+        self.assertFalse(editable_metadata(50030, True, True, False, True,
+                                           True, 1, True))
+        self.assertFalse(editable_metadata(50030, True, False, False, True,
+                                           True, 0, True))
 
     def setUp(self):
         self.now = 10.0
@@ -122,20 +97,17 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(once.call_count, 2)
 
     def test_hung_helper_is_terminated_without_authorizing_input(self):
-        replies = Mock()
-        def timeout(**_kwargs):
-            self.now += 11
-            raise queue.Empty
-        replies.get.side_effect = timeout
-        process = Mock()
-        process.poll.return_value = None
-        with patch('password_fields.subprocess.Popen', return_value=process), \
-                patch('password_fields.threading.Thread'), \
-                patch('password_fields.queue.Queue', return_value=replies):
+        service = Mock()
+        def timeout(*_args, **_kwargs):
+            self.guard.stopped.set()
+            return None
+        service.request.side_effect = timeout
+        self.guard.ingest('10|20|safe')
+        with patch('uia_native_worker.get_uia_service', return_value=service):
             self.guard._watch_once()
-        self.assertEqual(self.guard.snapshot.reason, 'helper-timeout')
+        self.assertEqual(self.guard.snapshot.reason, 'helper-unavailable')
         self.assertIsNone(self.guard.permit_revision(10, 20))
-        process.terminate.assert_called_once()
+        service.request.assert_called_once()
 
 
 class HookGateTests(unittest.TestCase):

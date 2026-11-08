@@ -1,0 +1,151 @@
+{
+  "desktop": "private-inactive",
+  "hooks": false,
+  "SendInput": false,
+  "clipboard": false,
+  "focus_or_layout_changed": false,
+  "dll": "C:\\Users\\dslava\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pythonwin\\scintilla.dll",
+  "dll_sha256": "e13bf37755ada7ce4272556969fedb9f8d408891c41a31763348d53779223fb5",
+  "cases": [
+    {
+      "kind": "six-directions",
+      "source": "ru",
+      "target": "en",
+      "backward": false,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "ru",
+      "target": "en",
+      "backward": true,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "ru",
+      "target": "he",
+      "backward": false,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "ru",
+      "target": "he",
+      "backward": true,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "en",
+      "target": "ru",
+      "backward": false,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "en",
+      "target": "ru",
+      "backward": true,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "en",
+      "target": "he",
+      "backward": false,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "en",
+      "target": "he",
+      "backward": true,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "he",
+      "target": "ru",
+      "backward": false,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "he",
+      "target": "ru",
+      "backward": true,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "he",
+      "target": "en",
+      "backward": false,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "six-directions",
+      "source": "he",
+      "target": "en",
+      "backward": true,
+      "selected_range_read": true,
+      "undo": true,
+      "redo": true,
+      "peer_unchanged": true
+    },
+    {
+      "kind": "three-cycles-three-undo-redo",
+      "passed": true
+    },
+    {
+      "kind": "2000-characters-100k-prefix",
+      "passed": true,
+      "selected_only": true
+    },
+    {
+      "kind": "selection-change-before-commit",
+      "passed": true
+    }
+  ],
+  "passed": 15,
+  "sha256": {
+    "experiments\\fixtures\\quality_keymap_20261106.json": "d056330f32e3c0ce078967136f5c4323b2b94ef7e2df0e8c3fbfb9a1d99301be",
+    "experiments\\r10_private_scintilla_20261107.py": "b38c73c14a090dbc743d8e7998f268573af3c95137e3269c5d1c72da4c61a1b0",
+    "scintilla_selection.py": "2efe443baa9f7c38040e5c304cdf7f1e0ba3069581f117f185457c0006040316",
+    "selection_cycle.py": "5f85f69c53ffff1106024802e73d728fb9d11cc7f6a7b190a92e6f91cd9c5cf9"
+  }
+}

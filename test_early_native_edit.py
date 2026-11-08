@@ -132,14 +132,17 @@ class TrialDeliveryTests(unittest.TestCase):
         editor.replace = uncertain
         with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory:
             hook._cycle_word(hook.context())
-            self.assertTrue(hook.native_edit_disabled)
+            # Direct native HWND writes now quarantine their verified field,
+            # not the entire app. The uncertain source is never retried.
+            self.assertTrue(hook._native_blocked(hook.context()))
+            self.assertFalse(getattr(hook, 'native_edit_disabled', False))
             hook._cycle_word(hook.context())
         self.assertEqual(editor.writes, 1)
         self.assertEqual(factory.call_count, 1)
         self.assertEqual(language[0], 'en')
         hook.user32.SendInput.assert_not_called()
 
-    def test_native_pause_key_repeat_only_applies_one_verified_cycle_per_press(self):
+    def test_native_pause_independent_keydowns_each_verify_one_cycle_without_keyup(self):
         from test_app_controls import key
         from typebridge_app import VK_PAUSE, WM_KEYUP
         hook, editor, language = self.native_cycle_fixture()
@@ -147,25 +150,58 @@ class TrialDeliveryTests(unittest.TestCase):
         hook.last_language = language[0]
         with patch('typebridge_app.NativeEditBridge', return_value=editor):
             self.assertEqual(key(hook, VK_PAUSE), 1)
-            self.assertEqual(key(hook, VK_PAUSE), 1)
             self.assertEqual(editor.writes, 1)
             self.assertEqual(editor.data.decode(), 'ארקק ')
-            self.assertEqual(key(hook, VK_PAUSE, WM_KEYUP), 1)
+            # Pause may not produce KEYUP. The second independent KEYDOWN is
+            # still a command, but each edit re-verifies its current source.
             self.assertEqual(key(hook, VK_PAUSE), 1)
             self.assertEqual(editor.writes, 2)
             self.assertEqual(editor.data.decode(), 'екуу ')
+            self.assertEqual(key(hook, VK_PAUSE, WM_KEYUP), 1)
+            self.assertEqual(key(hook, VK_PAUSE), 1)
+            self.assertEqual(editor.writes, 3)
+            self.assertEqual(editor.data.decode(), 'tree ')
         hook.user32.SendInput.assert_not_called()
 
-    def test_notepad_plus_plus_manual_cycle_uses_scintilla_not_unverified_input(self):
-        hook, editor, language = self.native_cycle_fixture()
-        hook.context = lambda: FocusContext(90, 100, 1, language[0],
-                                            'notepad++.exe', 'test', 100)
-        hook.last_word.scope = hook._word_scope(hook.context())
-        hook.user32.GetClassNameW.side_effect = lambda hwnd, buf, cap: setattr(buf, 'value', 'Scintilla')
-        with patch('typebridge_app.ScintillaEarlyBridge', return_value=editor) as adapter:
+    def test_notepad_plus_plus_manual_cycle_prioritizes_verified_selected_range(self):
+        from contextlib import nullcontext
+        from test_r10_pause_scintilla_20261107 import PauseSelectionTests
+        driver = PauseSelectionTests()
+        hook, transport = driver.fixture()
+        self.addCleanup(driver.doCleanups)
+        hook._in_keyboard_callback = False  # Already released; model the off-hook action.
+        original = transport.data
+        prefix, suffix = original[:transport.anchor], original[transport.caret:]
+        with (patch('typebridge_app.ScintillaRangeTransport',
+                    side_effect=lambda ctx: nullcontext(transport)) as adapter,
+              patch('typebridge_app.ScintillaEarlyBridge') as legacy):
             hook._cycle_word(hook.context())
         adapter.assert_called_once()
-        self.assertEqual(editor.data.decode(), 'ארקק ')
+        legacy.assert_not_called()
+        self.assertEqual(transport.writes, 1)
+        self.assertNotEqual(transport.data, original)
+        # A selection cycle edits exactly its selected span; non-selected
+        # document neighbors cannot be deleted by Backspace.
+        self.assertTrue(transport.data.startswith(prefix))
+        self.assertTrue(transport.data.endswith(suffix))
+        hook.user32.SendInput.assert_not_called()
+
+    def test_notepad_plus_plus_uncertain_selection_never_falls_back_to_word_or_sendinput(self):
+        from contextlib import nullcontext
+        from test_r10_pause_scintilla_20261107 import PauseSelectionTests
+        driver = PauseSelectionTests()
+        hook, transport = driver.fixture()
+        self.addCleanup(driver.doCleanups)
+        hook._in_keyboard_callback = False
+        original = transport.data
+        transport.read_range = Mock(side_effect=TimeoutError('selection-read'))
+        with (patch('typebridge_app.ScintillaRangeTransport',
+                    side_effect=lambda ctx: nullcontext(transport)),
+              patch('typebridge_app.ScintillaEarlyBridge') as legacy):
+            hook._cycle_word(hook.context())
+        self.assertEqual(transport.data, original)
+        self.assertEqual(transport.writes, 0)
+        legacy.assert_not_called()
         hook.user32.SendInput.assert_not_called()
 
     def test_boundary_uses_native_word_replacement_and_forwards_space(self):
@@ -390,7 +426,8 @@ class TrialDeliveryTests(unittest.TestCase):
         with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory, \
                 patch('typebridge_app.suggest_live_early', return_value=decision):
             self.assertTrue(hook._try_early(hook.context()))
-            self.assertTrue(hook.native_edit_disabled)
+            self.assertTrue(hook._native_blocked(hook.context()))
+            self.assertFalse(getattr(hook, 'native_edit_disabled', False))
             hook.clear_token()
             hook.keys = [(0x41, False)] * len(decision.typed)
             self.assertFalse(hook._correct(hook.context(), 0x20, ''))

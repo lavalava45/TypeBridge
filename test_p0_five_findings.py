@@ -29,7 +29,7 @@ class FiveFindingsRegressionTests(unittest.TestCase):
         hook._native_word_excerpt = Mock(return_value='')
         return hook, source
 
-    def test_r04_manual_sendinput_rechecks_field_before_hkl_and_memory(self):
+    def test_r04_manual_without_caret_proof_refuses_before_send_hkl_and_memory(self):
         hook, source = self.browser_fixture()
         word = Mock(scope=hook._word_scope(source), text='ghbdtn',
                     suffix='', language='en')
@@ -41,10 +41,12 @@ class FiveFindingsRegressionTests(unittest.TestCase):
             return count
         hook.user32.SendInput.side_effect = send
         LiveHook._cycle_word(hook, source)
-        hook.user32.SendInput.assert_called_once()
+        # A browser UIA identity alone no longer proves the selected caret
+        # word. The stricter transport must refuse before any injection.
+        hook.user32.SendInput.assert_not_called()
         hook.user32.SendMessageTimeoutW.assert_not_called()
         self.assertEqual(word.text, 'ghbdtn')
-        self.assertTrue(hook.token_blocked)
+        self.assertFalse(word.next_variant.called)
 
     def test_r04_native_manual_cycle_rechecks_after_verified_write(self):
         hook, source = self.browser_fixture()
@@ -114,16 +116,19 @@ class FiveFindingsRegressionTests(unittest.TestCase):
         self.assertIsNotNone(pending)
         hook.pressed = lambda vk: vk == VK_SHIFT
         gate = hook.native_queue
-        capture = gate.capture
-        count = [0]
-        def interrupt(item):
-            count[0] += 1
-            if count[0] == 2:
-                capture(PhysicalKey(0xA1, 54, 0, WM_KEYUP))
-            return capture(item)
-        with patch.object(gate, 'capture', side_effect=interrupt):
-            self.assertFalse(hook.restore_native_pending())
-        self.assertIs(hook.native_pending_recovery, pending)
+        take = gate.take
+        rejected = []
+        def interrupt(*, owner=None):
+            if not rejected:
+                rejected.append(gate.capture(PhysicalKey(0xA1, 54, 0, WM_KEYUP)))
+            return take(owner=owner)
+        with patch.object(gate, 'take', side_effect=interrupt):
+            self.assertTrue(hook.restore_native_pending())  # Atomic admission.
+            hook.native_worker.join(2)
+        self.assertFalse(hook.native_worker.is_alive())
+        self.assertEqual(rejected, [False])
+        self.assertIsNotNone(hook.native_pending_recovery)
+        self.assertEqual(tuple(hook.native_pending_recovery[1]), tuple(pending[1]))
         hook.user32.SendInput.assert_not_called()
 
     def test_r03_callback_release_timeout_retains_following_a_not_trigger(self):

@@ -9,7 +9,7 @@ from engine import LanguageEngine, LANGS, candidate_token_key
 from incremental_recognition import prepare_early, suggest_live_early
 from language_registry import DEFAULT_ACTIVE_LANGUAGES, validate_active_languages
 from test_incremental_recognition import fixture
-from test_word_cycle import WordCycleTests
+import test_word_cycle as word_cycle_fixtures
 from word_cycle import ORDER, RecentWord
 
 
@@ -107,7 +107,7 @@ class ActiveLanguagesTests(TestCase):
             word.next_variant(Mapper(), ('en',))
 
     def test_manual_cycle_hook_model_uses_engine_active_languages(self):
-        model = WordCycleTests('test_cycle_before_space_and_no_dictionary_match_required')
+        model = word_cycle_fixtures.WordCycleTests('test_cycle_before_space_and_no_dictionary_match_required')
         model.setUpClass()
         model.setUp()
         with patch.object(model.engine, 'active_languages', ('ru', 'en'), create=True):

@@ -125,6 +125,20 @@ class HookControlTests(unittest.TestCase):
         self.assertTrue(hook._native_blocked(context))
         self.assertFalse(getattr(hook, 'native_edit_disabled', False))
 
+    def test_uncertain_native_hwnd_write_is_scoped_but_generic_remains_global(self):
+        from dataclasses import replace
+        source = make_hook()
+        context = source.context()
+        source._quarantine_native('uncertain-native-write', context)
+        self.assertFalse(getattr(source, 'native_edit_disabled', False))
+        self.assertTrue(source._native_blocked(context))
+        self.assertFalse(source._native_blocked(replace(context, focus=context.focus + 1)))
+        self.assertIn('другие поля доступны', source.emit.call_args.args[1])
+        generic = make_hook()
+        generic._quarantine_native('uncertain-write', context)
+        self.assertTrue(generic.native_edit_disabled)
+        self.assertTrue(generic._native_blocked(replace(context, focus=context.focus + 1)))
+
     def test_boundary_rechecks_focus_before_sendinput(self):
         hook = make_hook()
         context = hook.context()
@@ -236,43 +250,40 @@ class HookControlTests(unittest.TestCase):
                 self.assertFalse(rows[0][1])
         self.assertIn("SwitchER", menu_items("error", "Ошибка запуска: SwitchER")[0][1])
 
-    def test_manual_f8_replaces_unfinished_word_without_space_and_swallows_keyup(self):
+    def test_single_manual_f8_works_without_automatic_mode_and_swallows_keyup(self):
         hook = make_hook()
-        hook.settings = Settings(manual_key="F8")
-        observed = []
-        decision = hook.engine.decide.return_value
-        hook.engine.decide.side_effect = lambda keys, language, **options: (
-            observed.append((tuple(keys), language, options)) or decision)
+        hook.settings = Settings(word_key="F8", corrections_enabled=False,
+                                 manual_f8=False)
+        hook._cycle_word = Mock()
         self.assertEqual(key(hook, VK_F8), 1)
-        self.assertEqual(observed, [(((65, False), (75, False), (85, False),
-                                     (79, False)), "en", {"allow_rare": True})])
-        # 4 backspaces + 4 unicode letters, down/up pairs; no extra separator.
-        self.assertEqual(hook.user32.SendInput.call_args.args[0], 16)
-        self.assertEqual(hook.last_language, "he")
+        hook._cycle_word.assert_called_once()
+        hook.engine.decide.assert_not_called()
         self.assertEqual(key(hook, VK_F8, WM_KEYUP), 1)
         self.assertFalse(hook.suppressed_keyups)
 
-    def test_default_scroll_lock_corrects_and_swallows_repeat_and_keyup(self):
+    def test_scroll_lock_custom_selection_swallows_repeat_and_keyup(self):
         hook = make_hook()
+        hook.settings = Settings(word_key="Scroll Lock")
+        hook._cycle_word = Mock()
         self.assertEqual(key(hook, 0x91), 1)
-        count = hook.user32.SendInput.call_count
         self.assertEqual(key(hook, 0x91), 1)
-        self.assertEqual(hook.user32.SendInput.call_count, count)
+        hook._cycle_word.assert_called_once()
         self.assertEqual(key(hook, 0x91, WM_KEYUP), 1)
         self.assertFalse(hook.suppressed_keyups)
 
     def test_custom_manual_key_and_disabled_key(self):
         for name, vk in (("F9", 0x78), ("Отключено", 0x91)):
             hook = make_hook()
-            hook.settings = Settings(manual_key=name)
+            hook.settings = Settings(word_key=name)
+            hook._cycle_word = Mock()
             if name == "Отключено":
                 hook.paused = True
                 hook.engine.mapper.char = lambda *args: ""
                 key(hook, vk)
-                hook.user32.SendInput.assert_not_called()
+                hook._cycle_word.assert_not_called()
             else:
                 self.assertEqual(key(hook, vk), 1)
-                hook.user32.SendInput.assert_called_once()
+                hook._cycle_word.assert_called_once()
 
     def test_manual_f8_can_be_disabled(self):
         hook = make_hook()
@@ -295,11 +306,12 @@ class HookControlTests(unittest.TestCase):
 
     def test_paused_hook_does_not_correct(self):
         hook = make_hook()
-        hook.settings = Settings(manual_key="F8")
+        hook.settings = Settings(word_key="F8")
         hook.paused = True
-        self.assertEqual(key(hook, VK_F8), 0)
+        hook._cycle_word = Mock()
+        self.assertEqual(key(hook, VK_F8), 1)
+        hook._cycle_word.assert_called_once()
         hook.engine.decide.assert_not_called()
-        self.assertFalse(hook.keys)
 
     def test_shift_does_not_destroy_unfinished_word(self):
         hook = make_hook()

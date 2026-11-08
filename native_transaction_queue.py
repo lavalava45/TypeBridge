@@ -54,15 +54,20 @@ class NativeTransactionQueue:
 
     def begin(self, initial=None, *, target_scope=None, command_trigger=False,
               expected_hkl=None, expected_language=None, replay_modifiers=None,
-              replay_thread_id=0):
+              replay_thread_id=0, recovery_events=()):
         with self._lock:
-            if self.busy:
+            if (self.busy or len(recovery_events) > 2 * self.limit
+                    or (initial is not None and recovery_events)):
                 return False
             self.owner += 1
             self.finishing = False
             self.active, self.busy, self.overflow = True, True, False
             self.aborted_reason = ''
-            self._events = [initial] if initial is not None else []
+            # Explicit recovery may add one compensating KEYUP per saved
+            # KEYDOWN. Admit that bounded batch atomically, without routing
+            # it through capture's ordinary live-input capacity.
+            self._events = list(recovery_events) if recovery_events else (
+                [initial] if initial is not None else [])
             self.trigger_vk = initial.vk if initial is not None else None
             self.trigger_up_pending = initial is not None
             self.command_trigger = bool(command_trigger)
@@ -111,11 +116,40 @@ class NativeTransactionQueue:
                 self.active = False
                 self.aborted_reason = 'buffer-overflow'
                 # Fail open for this and all subsequent physical events.
-                # The accepted prefix is retained only for diagnostics; the
-                # worker MUST NOT replay it into a possibly changed document.
+                # The accepted prefix is retained for explicit recovery; the
+                # worker MUST NOT automatically replay it after overflow.
                 return False
             else:
                 self._events.append(event)
+            return True
+
+    def capture_trigger_keyup(self, event):
+        """Capture only a held command/delimiter's matching physical KEYUP.
+
+        The source HKL and UIA revision may change after a successful edit,
+        even before Windows delivers the KEYUP for its already-held trigger.
+        This exact release is NOT a new text mutation or new recipient; it
+        belongs to the original suppressed KEYDOWN. A hook may call this
+        before a post-commit context comparison, while every OTHER physical
+        event still goes through the strict scope-sensitive capture path.
+
+        Never intercept a keyup when no matching trigger KEYDOWN was buffered,
+        when the barrier is aborting/finishing, or after a repeat release.
+        """
+        with self._lock:
+            if (not self.busy or not self.active or self.finishing
+                    or self.aborted_reason or not self.trigger_up_pending
+                    or self.trigger_vk is None or event.vk != self.trigger_vk
+                    or event.message not in KEYUP_MESSAGES):
+                return False
+            if len(self._events) >= self.limit:
+                self.overflow = True
+                self.active = False
+                self.aborted_reason = 'buffer-overflow'
+                return False
+            self._events.append(replace(
+                event, trigger=(self.command_trigger or not self.trigger_repeated)))
+            self.trigger_up_pending = False
             return True
 
     def mark_trigger_irreversible(self, *, owner=None):

@@ -1,17 +1,16 @@
 """No real hooks, focus changes, clipboard access or browser launches."""
-import base64
 import ctypes
 from dataclasses import replace
+from types import SimpleNamespace
 import json
 from pathlib import Path
 import queue
-import subprocess
 import tempfile
 import tkinter as tk
 import unittest
 from unittest.mock import Mock, patch
 
-from quick_search import DEFAULT_ENGINES, QuickSearch, SELECTION_SCRIPT, read_selection, search_url, validate_engines
+from quick_search import DEFAULT_ENGINES, QuickSearch, read_selection, search_url, validate_engines
 from typebridge_app import Settings, TypeBridgeGui, load_settings, save_settings
 from direct_hotkeys import compile_bindings
 from tray_layouts import LayoutTarget
@@ -124,34 +123,58 @@ class SearchTests(unittest.TestCase):
                                      quick_search_key='Ctrl+Alt+H'))
         compile_bindings(replace(Settings(), quick_search=True))
 
-    def test_native_reader_only_runs_hidden_bounded_script(self):
+    def test_native_selection_reader_uses_verified_persistent_uia_service(self):
         target = LayoutTarget(101, 102, 1, 555)
-        with patch('quick_search.subprocess.run', return_value=Mock(returncode=0, stdout='"שלום"')) as run:
+        service = Mock()
+        service.request.return_value = {'state': 'ok', 'text': 'שלום'}
+        with patch('uia_native_worker.get_uia_service', return_value=service):
             self.assertEqual(read_selection(target), 'שלום')
-        args, kwargs = run.call_args
-        script = base64.b64decode(args[0][-1]).decode('utf-16-le')
-        self.assertIn('ProcessId -ne 555', script)
-        self.assertIn('NativeWindowHandle -eq 101', script)
-        self.assertIn('.IsPassword', script)
-        self.assertIn('GetText(2001)', script)
-        self.assertNotIn('SetFocus', script)
-        self.assertEqual(kwargs['timeout'], 6)
-        self.assertEqual(kwargs['creationflags'], subprocess.CREATE_NO_WINDOW)
+        command = service.request.call_args.args[0]
+        self.assertEqual(command, {'command': 'selection', 'top': 101, 'focus': 102,
+                                   'pid': 555})
+        self.assertTrue(callable(service.request.call_args.kwargs['valid']))
+        for reply in ({'state': 'refused'}, None, {'state': 'ok', 'text': ''},
+                      {'state': 'ok', 'text': 'x' * 2001}):
+            with self.subTest(reply=repr(reply)[:60]):
+                service.request.return_value = reply
+                with patch('uia_native_worker.get_uia_service', return_value=service), \
+                     self.assertRaises(ValueError):
+                    read_selection(target)
 
-    def test_powershell_parser_and_uia_api_without_reading_foreground(self):
-        # Parse only; do not execute SELECTION_SCRIPT or read any user selection.
-        source = SELECTION_SCRIPT.replace('TARGET_PID', '123').replace('TARGET_HWND', '456')
-        encoded = base64.b64encode(source.encode('utf-16-le')).decode('ascii')
-        script = ("Add-Type -AssemblyName UIAutomationClient; Add-Type -AssemblyName UIAutomationTypes; "
-                  "$tokens=$null; $errors=$null; "
-                  "$source=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + encoded + "')); "
-                  "[void][Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors); "
-                  "if ($errors.Count) {exit 2}; "
-                  "if ($null -eq [System.Windows.Automation.TextPattern].GetMethod('GetSelection')) {exit 3}")
-        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand',
-                                 base64.b64encode(script.encode('utf-16-le')).decode('ascii')],
-                                capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
-        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+    def test_native_selection_validates_process_focus_and_selected_range_without_input(self):
+        from uia_selection_native import read_native_selection
+        api = SimpleNamespace(UIA_ProcessIdPropertyId=1, UIA_TextPatternId=2,
+                              IUIAutomationTextPattern=object,
+                              TextPatternRangeEndpoint_Start=0,
+                              TextPatternRangeEndpoint_End=1)
+        element = Mock()
+        element.GetCurrentPropertyValue.return_value = 555
+        native_range = Mock()
+        native_range.Clone.return_value = native_range
+        native_range.CompareEndpoints.side_effect = (
+            lambda endpoint, _other, other_endpoint: 1 if endpoint != other_endpoint else 0)
+        native_range.GetText.return_value = 'selected'
+        ranges = Mock(Length=1)
+        ranges.GetElement.return_value = native_range
+        pattern = Mock()
+        pattern.GetSelection.return_value = ranges
+        element.GetCurrentPattern.return_value.QueryInterface.return_value = pattern
+        client = Mock()
+        client.GetFocusedElement.return_value = element
+        with patch('uia_native_worker._safe_target', return_value=True), \
+             patch('uia_native_worker._runtime_id', return_value='uia:1,2'):
+            result = read_native_selection(client, {'top': 101, 'focus': 102, 'pid': 555}, api)
+            self.assertEqual(result, {'state': 'ok', 'text': 'selected'})
+            self.assertEqual(native_range.GetText.call_args.args, (2001,))
+            element.GetCurrentPropertyValue.return_value = 556
+            self.assertEqual(read_native_selection(client, {'top': 101, 'focus': 102, 'pid': 555}, api),
+                             {'state': 'refused'})
+        element.GetCurrentPattern.return_value = None
+        element.GetCurrentPropertyValue.return_value = 555
+        with patch('uia_native_worker._safe_target', return_value=True), \
+             patch('uia_native_worker._runtime_id', return_value='uia:1,2'):
+            self.assertEqual(read_native_selection(client, {'top': 101, 'focus': 102, 'pid': 555}, api),
+                             {'state': 'unsupported'})
 
     def test_service_success_rejection_and_cancellation(self):
         target = LayoutTarget(10, 11, 12, 13)

@@ -7,6 +7,7 @@ forwarded to the Tk owner's queue rather than invoking Tk from this thread.
 from __future__ import annotations
 
 import os
+import locale
 from pathlib import Path
 import tempfile
 import re
@@ -35,6 +36,7 @@ MENU_HISTORY = 4007
 MENU_CARET_FLAG = 4008
 MENU_JOURNAL = 4009
 MENU_RESTORE_INPUT = 4010
+MENU_RESTORE_CLIPBOARD = 4011
 MENU_LAYOUT_BASE = 5000
 ICON_LABELS = {"ru": "RU", "en": "EN", "he": "HE", "idle": "--"}
 _LANGUAGE_CODE = re.compile(r'[a-z]{2,3}(?:-[a-z]{2,4})?', re.ASCII)
@@ -43,6 +45,67 @@ _LANGUAGE_CODE = re.compile(r'[a-z]{2,3}(?:-[a-z]{2,4})?', re.ASCII)
 def display_icon_code(language, active_codes):
     """Never show a flag for an inactive or unknown layout."""
     return language if language in active_codes else 'idle'
+
+
+def menu_layout_icon_code(hkl: int) -> str:
+    """HKL's low LANGID, never an inferred flag from its display label."""
+    langid = int(hkl) & 0xFFFF
+    primary = langid & 0x3FF
+    if primary == 0x19:
+        return 'ru'
+    if primary == 0x09:
+        return 'en'
+    if primary == 0x0D:
+        return 'he'
+    locale_name = locale.windows_locale.get(langid, '')
+    code = locale_name.split('_', 1)[0].lower()
+    return code if _LANGUAGE_CODE.fullmatch(code) else 'idle'
+
+
+def _menu_flag_bitmap(path: Path):
+    """A caller-owned 16px GDI DIB from our existing ICO artwork."""
+    from PIL import Image
+
+    class BitmapInfoHeader(ctypes.Structure):
+        _fields_ = [('biSize', wintypes.DWORD), ('biWidth', wintypes.LONG),
+                    ('biHeight', wintypes.LONG), ('biPlanes', wintypes.WORD),
+                    ('biBitCount', wintypes.WORD), ('biCompression', wintypes.DWORD),
+                    ('biSizeImage', wintypes.DWORD), ('biXPelsPerMeter', wintypes.LONG),
+                    ('biYPelsPerMeter', wintypes.LONG), ('biClrUsed', wintypes.DWORD),
+                    ('biClrImportant', wintypes.DWORD)]
+
+    class BitmapInfo(ctypes.Structure):
+        _fields_ = [('bmiHeader', BitmapInfoHeader), ('bmiColors', wintypes.DWORD * 3)]
+
+    with Image.open(path) as source:
+        image = source.convert('RGBA').resize((16, 16), Image.Resampling.LANCZOS)
+    # Top-down 32bpp DIB: the menu owns only the temporary reference, and
+    # DeleteObject after DestroyMenu releases the actual bitmap allocation.
+    info = BitmapInfo()
+    info.bmiHeader.biSize = ctypes.sizeof(BitmapInfoHeader)
+    info.bmiHeader.biWidth = 16
+    info.bmiHeader.biHeight = -16
+    info.bmiHeader.biPlanes = 1
+    info.bmiHeader.biBitCount = 32
+    bits = ctypes.c_void_p()
+    gdi = ctypes.WinDLL('gdi32', use_last_error=True)
+    gdi.CreateDIBSection.argtypes = [wintypes.HDC, ctypes.POINTER(BitmapInfo),
+                                     wintypes.UINT, ctypes.POINTER(ctypes.c_void_p),
+                                     wintypes.HANDLE, wintypes.DWORD]
+    gdi.CreateDIBSection.restype = wintypes.HBITMAP
+    bitmap = gdi.CreateDIBSection(None, ctypes.byref(info), 0, ctypes.byref(bits), None, 0)
+    if not bitmap or not bits.value:
+        raise OSError('Не удалось создать значок раскладки для меню')
+    try:
+        pixels = bytearray()
+        for red, green, blue, alpha in image.get_flattened_data():
+            pixels.extend((blue * alpha // 255, green * alpha // 255,
+                           red * alpha // 255, alpha))
+        ctypes.memmove(bits.value, bytes(pixels), len(pixels))
+    except Exception:
+        win32gui.DeleteObject(bitmap)
+        raise
+    return bitmap
 STATE_LABELS = {"stopped": "Автоисправление выключено", "starting": "Загрузка словарей…",
                 "running": "Автоисправление включено", "paused": "Автоисправление выключено",
                 "stopping": "Останавливается…", "error": "Ошибка запуска",
@@ -95,6 +158,7 @@ def menu_items(state: str, detail: str = "", caret_flag: bool = False,
         (MENU_OPEN, "Открыть настройки", True, False),
         (MENU_SNIPPETS, "Автозамена и шаблоны…", True, False),
         (MENU_HISTORY, "История буфера обмена…", True, False),
+        (MENU_RESTORE_CLIPBOARD, "Восстановить резервную копию буфера…", True, False),
         (MENU_JOURNAL, "Дневник ввода…", True, False),
         (MENU_EXIT, "Выход", True, False),
     )
@@ -417,21 +481,43 @@ class TrayController:
         target = self.last_target
         choices = {}
         menu = win32gui.CreatePopupMenu()
+        menu_bitmaps = []
         try:
             layout_menu = win32gui.CreatePopupMenu()
             # Attach immediately: destroying the parent then owns its cleanup.
-            win32gui.AppendMenu(menu, win32con.MF_POPUP, layout_menu, tr("Раскладка"))
+            win32gui.AppendMenu(menu, win32con.MF_POPUP, layout_menu,
+                                tr("Переключить раскладку вручную"))
             try:
                 current_hkl = self.layouts.current(target)
-                for index, choice in enumerate(self.layouts.installed()):
+                installed = self.layouts.installed()
+                codes = [menu_layout_icon_code(choice.hkl) for choice in installed]
+                # Reuse our ordinary tray artwork. Unknown locales get a
+                # language-code badge, never a guessed national flag.
+                try:
+                    artwork = _icon_files(codes)
+                except (OSError, ValueError):
+                    # Artwork is optional; a read-only profile or corrupt ICO
+                    # must not prevent switching an installed layout.
+                    artwork = {}
+                for index, (choice, icon_code) in enumerate(zip(installed, codes)):
                     code = MENU_LAYOUT_BASE + index
                     choices[code] = choice
                     flags = win32con.MF_STRING
                     if not self.layouts.valid(target):
                         flags |= win32con.MF_GRAYED
-                    if choice.hkl & 0xFFFFFFFF == current_hkl & 0xFFFFFFFF:
+                    selected = choice.hkl & 0xFFFFFFFF == current_hkl & 0xFFFFFFFF
+                    if selected:
                         flags |= win32con.MF_CHECKED
-                    win32gui.AppendMenu(layout_menu, flags, code, choice.label)
+                    win32gui.AppendMenu(layout_menu, flags, code,
+                                        ('✓ ' if selected else '') + choice.label)
+                    try:
+                        bitmap = _menu_flag_bitmap(artwork[icon_code])
+                        menu_bitmaps.append(bitmap)
+                        win32gui.SetMenuItemBitmaps(layout_menu, code,
+                                                    win32con.MF_BYCOMMAND, bitmap, bitmap)
+                    except (OSError, ValueError, Win32Error, KeyError):
+                        # The menu remains usable even without optional art.
+                        pass
                 if not self.layouts.valid(target):
                     win32gui.AppendMenu(layout_menu, win32con.MF_GRAYED, 0,
                                         tr("Сначала выбери окно приложения"))
@@ -458,8 +544,16 @@ class TrayController:
                 menu, win32con.TPM_LEFTALIGN | win32con.TPM_RETURNCMD |
                 win32con.TPM_NONOTIFY, x, y, 0, self.hwnd, None)
         finally:
-            win32gui.DestroyMenu(menu)
+            try:
+                win32gui.DestroyMenu(menu)
+            finally:
+                for bitmap in menu_bitmaps:
+                    try:
+                        win32gui.DeleteObject(bitmap)
+                    except (OSError, Win32Error):
+                        pass  # Cleanup must not mask the selected menu action.
         commands = {MENU_OPEN: "open", MENU_SNIPPETS: "snippets", MENU_ENABLE: "toggle",
+                    MENU_RESTORE_CLIPBOARD: "restore-clipboard-backup",
                     MENU_CARET_FLAG: "toggle-caret-flag", MENU_JOURNAL: "journal", MENU_EXIT: "exit"}
         if chosen == MENU_HISTORY:
             self.notify(("history", target))

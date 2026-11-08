@@ -86,6 +86,7 @@ def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.
             raise SelectionUnavailable('Поиск отменён: истёк срок запроса')
         if not still_valid() or native.sequence() != original_sequence:
             raise SelectionUnavailable('Поиск отменён: окно или буфер изменились')
+        native.protect_snapshot(snapshot)
         copy_deadline = min(clock() + 1, expires)
         observed = None
         try:
@@ -118,22 +119,54 @@ def copy_transaction(native, target, still_valid, guard=nullcontext, clock=time.
 
 
 class NativeCopy:
-    def __init__(self, target):
-        ensure_copy_target_safe(target)
+    def __init__(self, target, *, verify_copy_target=True):
+        # A plain-paste rollback only snapshots/restores the clipboard and
+        # does not issue Ctrl+C. Its target policy is checked by the caller.
+        if verify_copy_target:
+            ensure_copy_target_safe(target)
         self.target = target
         import win32clipboard as cb
         import win32gui
         self.cb, self.gui = cb, win32gui
+        from clipboard_tools import NativeClipboard
+        self._privacy_check = NativeClipboard()._require_public_content
         self.bitmaps = []
+        self._checkpoint = None
+        self._mutation_possible = False
         self.hwnd = win32gui.CreateWindowEx(0, 'STATIC', 'TypeBridgeClipboardSearch', 0,
                                            0, 0, 0, 0, -3, 0, 0, None)
 
     def close(self):
-        for bitmap in self.bitmaps:
-            if bitmap.handle:
-                self.gui.DeleteObject(bitmap.handle)
-                bitmap.handle = 0
-        self.gui.DestroyWindow(self.hwnd)
+        try:
+            if not getattr(self, '_mutation_possible', False):
+                self.discard_checkpoint()
+        finally:
+            try:
+                for bitmap in self.bitmaps:
+                    if bitmap.handle:
+                        self.gui.DeleteObject(bitmap.handle)
+                        bitmap.handle = 0
+            finally:
+                self.gui.DestroyWindow(self.hwnd)
+
+    def protect_snapshot(self, snapshot):
+        """Durable, verified copy must precede Copy, paste or restoration."""
+        from clipboard_recovery import Checkpoint
+        try:
+            checkpoint = getattr(self, '_checkpoint', None)
+            if checkpoint is None:
+                self._checkpoint = Checkpoint.create(snapshot, self.cb.GetClipboardFormatName)
+            elif not checkpoint.matches(snapshot, self.cb.GetClipboardFormatName):
+                raise ValueError('clipboard-backup-snapshot-changed')
+        except Exception as error:
+            raise SelectionUnavailable(
+                'Операция отменена: не удалось создать и проверить зашифрованную копию буфера') from error
+
+    def discard_checkpoint(self):
+        checkpoint = getattr(self, '_checkpoint', None)
+        if checkpoint is not None:
+            checkpoint.discard()
+            self._checkpoint = None
 
     def sequence(self):
         return self.cb.GetClipboardSequenceNumber()
@@ -167,15 +200,23 @@ class NativeCopy:
         finally:
             kernel.GlobalUnlock(handle)
 
-    def snapshot(self):
+    def snapshot(self, *, strict=False, preflight=None):
         cb = self.cb
         cb.OpenClipboard(self.hwnd)
         try:
+            preflight = preflight or getattr(self, '_privacy_check', None)
+            if preflight is not None:
+                # Enforce privacy flags while the same clipboard lock is held,
+                # *before* enumerating or reading any clipboard payload.
+                preflight()
             rows, size, fmt, skipped_ole = [], 0, 0, False
             while True:
                 fmt = cb.EnumClipboardFormats(fmt)
                 if not fmt:
-                    if skipped_ole and not rows:
+                    if skipped_ole and (strict or not rows):
+                        # A temporary plain-paste conversion promises to
+                        # restore the *entire* original clipboard on refusal.
+                        # It cannot silently discard OLE bookkeeping formats.
                         raise SelectionUnavailable('Поиск отменён: этот формат буфера нельзя безопасно восстановить')
                     return rows, self.sequence()
                 if fmt >= 0xC000:
@@ -260,16 +301,33 @@ class NativeCopy:
         # answer into permission for a stale Ctrl+C.
         if not still_valid() or deadline is None or time.monotonic() >= deadline:
             raise SelectionUnavailable('Поиск отменён: окно изменилось или истёк срок запроса')
-        if api.SendInput(4, events, ctypes.sizeof(Input)) != 4:
-            # Release our modifiers, never replay Copy after a partial batch.
-            release = (Input * 2)(events[2], events[3])
-            api.SendInput(2, release, ctypes.sizeof(Input))
+        if getattr(self, '_checkpoint', None) is None:
+            raise SelectionUnavailable('Копирование отменено: резервная копия буфера не подготовлена')
+        self._mutation_possible = True
+        sent = int(api.SendInput(4, events, ctypes.sizeof(Input)))
+        if sent != 4:
+            # Release *only* unmatched accepted keydowns. A fixed C-up /
+            # Ctrl-up packet was incorrect for 0, 1 or 3 accepted events.
+            # Never resend Ctrl+C: the recipient may have copied already.
+            if 0 <= sent <= 4:
+                from input_transport import unmatched_keydowns
+                dangling = unmatched_keydowns(events, sent)
+                release = (Input * len(dangling))()
+                for dest, (vk, scan, flags) in zip(release, reversed(dangling)):
+                    dest.type = 1
+                    dest.u.ki = KeyInput(vk, scan, flags | 2, 0, OWN_INPUT_MARKER)
+                if len(release) and api.SendInput(
+                        len(release), release, ctypes.sizeof(Input)) != len(release):
+                    raise SelectionUnavailable(
+                        'Копирование отменено: отпускание удержанных клавиш не подтверждено')
             raise SelectionUnavailable('Копирование не подтверждено; автоматический повтор отменён')
 
-    def restore(self, snapshot, expected, target):
+    def restore(self, snapshot, expected, target, *, owner_hwnd=None, explicit_recovery=False,
+                still_valid=lambda: True):
         """Allocate every HGLOBAL before emptying clipboard; transfer ownership once."""
         import ctypes
         from ctypes import wintypes as w
+        self.protect_snapshot(snapshot)
         api = ctypes.WinDLL('user32', use_last_error=True)
         kernel = ctypes.WinDLL('kernel32', use_last_error=True)
         kernel.GlobalAlloc.argtypes, kernel.GlobalAlloc.restype = [w.UINT, ctypes.c_size_t], w.HGLOBAL
@@ -296,8 +354,14 @@ class NativeCopy:
                     kernel.GlobalUnlock(handle)
             self.cb.OpenClipboard(self.hwnd)
             try:
-                if self.sequence() != expected or not self.owned_by(target):
+                # Rollback after OUR temporary plain-paste write: require the
+                # exact owner HWND, not merely any window in the target PID.
+                # Never overwrite a clipboard modified by another process.
+                owner_ok = (self.cb.GetClipboardOwner() == owner_hwnd
+                            if owner_hwnd is not None or explicit_recovery else self.owned_by(target))
+                if self.sequence() != expected or not owner_ok or not still_valid():
                     return False
+                self._mutation_possible = True
                 self.cb.EmptyClipboard()
                 for row in prepared:
                     if not api.SetClipboardData(row[0], row[1]):
@@ -305,9 +369,17 @@ class NativeCopy:
                     if row[2] is not None:
                         row[2].handle = 0
                     row[1] = None  # Owned by Windows from now on.
-                return True
             finally:
                 self.cb.CloseClipboard()
+            self.discard_checkpoint()
+            self._mutation_possible = False
+            return True
+        except Exception as error:
+            if getattr(self, '_mutation_possible', False):
+                raise SelectionUnavailable(
+                    'Восстановление буфера не завершено. Зашифрованная копия сохранена; '
+                    'выбери в трее «Восстановить резервную копию буфера…»') from error
+            raise
         finally:
             for _, handle, bitmap in prepared:
                 if handle and bitmap is None:

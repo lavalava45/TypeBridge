@@ -11,6 +11,33 @@ from typebridge_app import Settings
 
 
 class TransactionTests(unittest.TestCase):
+    def test_copy_partial_send_cleans_only_accepted_keydowns(self):
+        # Real input structure, completely mocked SendInput; no clipboard or
+        # actual OS keyboard is touched. Prefixes 0..3 exercise every case.
+        for accepted, expected in (
+                (0, []), (1, [0x11]), (2, [0x43, 0x11]), (3, [0x11])):
+            with self.subTest(accepted=accepted):
+                native = NativeCopy.__new__(NativeCopy)
+                native._checkpoint = Mock()  # Synthetic verified-backup boundary.
+                native.target = SimpleNamespace(pid=1, top=10, focus=20, host_pid=1)
+                api = unittest.mock.Mock()
+                calls = []
+                def send(count, events, size):
+                    calls.append(tuple((events[i].u.ki.wVk, events[i].u.ki.dwFlags)
+                                       for i in range(count)))
+                    return accepted if len(calls) == 1 else count
+                api.SendInput.side_effect = send
+                with (patch('clipboard_selection.ensure_copy_target_safe'),
+                      patch('ctypes.WinDLL', return_value=api)):
+                    with self.assertRaises(SelectionUnavailable):
+                        native.copy(still_valid=lambda: True, deadline=__import__('time').monotonic() + 1)
+                self.assertEqual(len(calls), 1 + int(bool(expected)))
+                if expected:
+                    self.assertEqual([vk for vk, flags in calls[-1]], expected)
+                    self.assertTrue(all(flags & 2 for vk, flags in calls[-1]))
+                self.assertEqual(calls[0], ((0x11, 0), (0x43, 0),
+                                            (0x43, 2), (0x11, 2)))
+
     def test_ole_bookkeeping_does_not_block_materialized_image_formats(self):
         from clipboard_selection import BitmapBackup
         native = NativeCopy.__new__(NativeCopy)
@@ -135,14 +162,21 @@ class TransactionTests(unittest.TestCase):
                 self.fail('Cancelled request entered Copy')
 
     def test_only_explicit_unsupported_uia_pattern_uses_copy(self):
-        target = SimpleNamespace(pid=123, top=456)
-        for code in (0, 2, 11, 1):
-            with (self.subTest(code=code), patch('quick_search.subprocess.run', return_value=Mock(returncode=code, stdout='"selected"')),
+        target = SimpleNamespace(pid=123, top=456, focus=789)
+        samples = ({'state': 'ok', 'text': 'selected'},
+                   {'state': 'refused'}, {'state': 'unsupported'}, None)
+        for sample in samples:
+            with (self.subTest(sample=sample),
+                  patch('uia_native_worker.get_uia_service') as service,
                   patch('quick_search.copy_selection', return_value=SearchPreview('selected')) as fallback):
-                if code in (0, 11): read_selection(target)
+                service.return_value.request.return_value = sample
+                if sample is not None and sample['state'] in ('ok', 'unsupported'):
+                    read_selection(target)
                 else:
-                    with self.assertRaises(ValueError): read_selection(target)
-                self.assertEqual(fallback.call_count, int(code == 11))
+                    with self.assertRaises(ValueError):
+                        read_selection(target)
+                service.return_value.request.assert_called_once()
+                self.assertEqual(fallback.call_count, int(sample is not None and sample['state'] == 'unsupported'))
 
     def test_service_never_opens_browser_for_preview(self):
         service = QuickSearch(Mock(), opener=Mock())

@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from browser_readback import BrowserReadback, CARET_SCRIPT, ReadbackFailure
+from browser_readback import BrowserReadback, CaretReader, ReadbackFailure
 from test_app_controls import make_hook
 from typebridge_app import TypeBridgeGui
 from word_trace import safe_word_event
@@ -122,13 +122,24 @@ class BrowserReadbackTests(unittest.TestCase):
         gui._browser_readback.request.assert_called_once_with(*job)
         service.reader.read.assert_not_called()
 
-    def test_helper_script_only_reads_caret_range(self):
-        self.assertIn('GetText(60)', CARET_SCRIPT)
-        self.assertIn('GetSelection()', CARET_SCRIPT)
-        self.assertIn('IsPassword', CARET_SCRIPT)
-        self.assertIn('Check-Window', CARET_SCRIPT)
-        for forbidden in ('.Select(', 'ValuePattern', 'Clipboard', 'SetFocus', 'SendInput', 'DocumentRange'):
-            self.assertNotIn(forbidden, CARET_SCRIPT)
+    def test_browser_diagnostic_uses_shared_native_com_reader_without_powershell(self):
+        reader = CaretReader()
+        service = Mock()
+        service.request.return_value = {'before': 'x' * 82 + 'last', 'after': '',
+                                        'at_start': True, 'at_end': True,
+                                        'element_id': 'uia:1,2'}
+        target = SimpleNamespace(top=100, focus=200)
+        with patch('uia_native_worker.get_uia_service', return_value=service):
+            self.assertEqual(reader.read(target),
+                             {'state': 'sampled', 'observed': 'x' * 56 + 'last'})
+            service.request.assert_called_once_with(
+                {'command': 'caret', 'top': 100, 'focus': 200, 'element_id': ''},
+                timeout=.9)
+            reader.cancel()
+            reader.close()
+            service.close.assert_not_called()
+            service.request.return_value = None
+            self.assertEqual(reader.read(target)['state'], 'skipped')
 
     def test_worker_reads_and_cancels_helper_on_shutdown(self):
         _, service, _, job = self.fixture()

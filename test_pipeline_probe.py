@@ -33,6 +33,33 @@ class PipelineProbeTests(unittest.TestCase):
         emit_pipeline(hook, 'decision-none', reason='private information here')
         self.assertEqual(got[1], ('probe', 'pipeline:decision-none:reason=other'))
 
+    def test_manual_pause_probe_records_stages_and_elapsed_time_without_text(self):
+        got = []
+        hook = SimpleNamespace(emit=lambda *args: got.append(args), pipeline_debug=True)
+        emit_pipeline(hook, 'manual-cycle', method='uia-preflight',
+                      reason='text-changed', elapsed_ms=735,
+                      text='private chat message', word='private')
+        self.assertEqual(got, [('probe',
+            'pipeline:manual-cycle:method=uia-preflight:reason=text-changed:elapsed_ms=735')])
+        with tempfile.TemporaryDirectory() as folder:
+            record_debug_event(folder, *got[0])
+            body = (Path(folder) / 'debug.log').read_text(encoding='utf-8')
+            self.assertIn('reason=text-changed:elapsed_ms=735', body)
+            self.assertNotIn('private', body)
+
+    def test_quarantine_reason_is_logged_without_field_contents(self):
+        got = []
+        hook = SimpleNamespace(emit=lambda *args: got.append(args), pipeline_debug=True)
+        emit_pipeline(hook, 'transport-quarantine', reason='input-barrier-lost',
+                      scoped=True, text='untrusted private selection')
+        self.assertEqual(got, [('probe',
+            'pipeline:transport-quarantine:reason=input-barrier-lost:scoped=yes')])
+        emit_pipeline(hook, 'input-barrier-aborted', reason='focus-changed',
+                      events=1, pending=True, uncertain=False,
+                      text='password hidden')
+        self.assertEqual(got[1], ('probe',
+            'pipeline:input-barrier-aborted:reason=focus-changed:events=1:pending=yes:uncertain=no'))
+
     def test_probe_rate_limit_only_suppresses_matching_reason(self):
         got = []
         hook = SimpleNamespace(emit=lambda *args: got.append(args), pipeline_debug=True)

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TypeBridge — проверка отклика Chrome</title>
+<style>
+  body { max-width: 820px; margin: 32px auto; padding: 0 20px; background: #f7f8fa; color: #15212e; font: 16px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 25px; margin-bottom: 8px; }
+  .note { color: #4b5868; }
+  .field { background: white; padding: 16px; border: 1px solid #d0d8e1; border-radius: 10px; margin: 18px 0; }
+  label { display: block; margin-bottom: 8px; font-weight: 650; }
+  input, textarea, [contenteditable] { font: inherit; border: 1px solid #889aad; border-radius: 6px; width: 100%; box-sizing: border-box; padding: 10px; background: #fff; }
+  textarea { min-height: 88px; }
+  [contenteditable] { min-height: 70px; }
+  button { padding: 9px 14px; margin-right: 8px; cursor: pointer; border-radius: 6px; border: 1px solid #8f9faf; background: white; font: inherit; }
+  code { background: #e8ebf0; border-radius: 4px; padding: 2px 4px; }
+  pre { white-space: pre-wrap; font-size: 13px; padding: 12px; background: #e8ebf0; }
+</style>
+</head>
+<body>
+  <h1>TypeBridge — проверка задержки в Chrome</h1>
+  <p class="note">Локальная страница. Нет сетевых запросов, сохранения вводимого текста или внешних скриптов. Работает только после ручного открытия в Chrome.</p>
+  <p>Включи TypeBridge и обычную английскую раскладку. <strong>Набирай с физической клавиатуры</strong> (не вставляй и не используй автоматический ввод): <code>ghbdtn</code> и пробел, затем <code>ghjdthrf</code> и пробел. Повтори по три раза в разных полях и проверь глазами правильность букв, сохранность пробелов и момент исправления. Для Pause используй отдельное слово в этом же поле.</p>
+  <div class="field"><label for="single">Однострочное поле (input)</label><input id="single" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Печатай здесь"></div>
+  <div class="field"><label for="multi">Многострочное поле (textarea)</label><textarea id="multi" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Печатай здесь"></textarea></div>
+  <div class="field"><label for="rich">Редактируемый блок (contenteditable)</label><div id="rich" contenteditable="true" spellcheck="false" aria-label="Редактируемый блок"></div></div>
+  <button type="button" id="reset">Очистить поля и счётчики</button>
+  <button type="button" id="save">Сохранить обезличенный журнал JSON</button>
+  <p id="summary"></p>
+  <pre id="events"></pre>
+  <p class="note">Задержка между браузерными <code>keydown</code> и <code>input</code> не включает время, пока TypeBridge держит физическую клавишу до передачи её Chrome. Поэтому это диагностический показатель событий DOM, а <strong>не измерение полного времени от нажатия клавиши до исправления</strong>. Нажатие, подавленное обработчиком, может вообще не иметь события <code>keydown</code>. Не делай вывод об ускорении TypeBridge только по этой цифре.</p>
+<script>
+(() => {
+  'use strict';
+  const fields = ['single', 'multi', 'rich'].map(id => document.getElementById(id));
+  const rows = [];
+  const lastKeydown = new WeakMap();
+  const maxRows = 2500;
+  const number = v => Math.round(v * 100) / 100;
+  const lengthOf = el => ('value' in el ? el.value : el.textContent).length;
+  function observe(event) {
+    const el = event.currentTarget;
+    const now = performance.now();
+    if (event.type === 'keydown') lastKeydown.set(el, now);
+    const keydown = lastKeydown.get(el);
+    const lag = event.type === 'input' && keydown !== undefined ? number(now - keydown) : null;
+    rows.push({
+      field: el.id,
+      event: event.type,
+      ms: number(now),
+      length: lengthOf(el),
+      inputType: event.type === 'input' || event.type === 'beforeinput' ? String(event.inputType || 'unknown') : null,
+      observedKeydownToInputMs: lag
+    });
+    if (rows.length > maxRows) rows.shift();
+    render();
+  }
+  function percentile(data, pct) {
+    if (!data.length) return 'нет';
+    const sorted = data.slice().sort((a,b) => a-b);
+    return number(sorted[Math.min(sorted.length-1, Math.ceil(pct * sorted.length)-1)]) + ' мс';
+  }
+  function render() {
+    const delays = rows.map(r=>r.observedKeydownToInputMs).filter(v=>v!==null && v>=0 && v<5000);
+    document.getElementById('summary').textContent =
+      'Событий: ' + rows.length + '; input: ' + rows.filter(r=>r.event==='input').length +
+      '; DOM keydown→input p50: ' + percentile(delays, .5) +
+      '; p95: ' + percentile(delays, .95);
+    document.getElementById('events').textContent =
+      rows.slice(-12).map(r=>[r.field, r.event, 't='+r.ms+' ms', 'length='+r.length,
+        r.inputType || '', r.observedKeydownToInputMs===null?'':'lag='+r.observedKeydownToInputMs+' ms'].filter(Boolean).join(' · ')).join('\n');
+  }
+  for (const el of fields) {
+    for (const event of ['keydown', 'beforeinput', 'input']) el.addEventListener(event, observe);
+  }
+  document.getElementById('reset').onclick = () => {
+    for (const el of fields) if ('value' in el) el.value = ''; else el.textContent = '';
+    rows.length = 0;
+    render();
+  };
+  document.getElementById('save').onclick = () => {
+    const blob = new Blob([JSON.stringify({title:'TypeBridge Chrome DOM input event timing (not physical hook latency)', rows}, null, 2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download='typebridge-chrome-dom-timing.json'; link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  render();
+})();
+</script>
+</body>
+</html>

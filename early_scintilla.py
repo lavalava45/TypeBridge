@@ -103,7 +103,12 @@ class ScintillaEarlyBridge:
         self.k.CloseHandle.argtypes = [w.HANDLE]
 
     def check_deadline(self):
-        if perf_counter() - self.started > 0.045:
+        # The manual Pause transaction runs on the released-callback worker.
+        # Its verified readback needs many synchronous SCI queries; the 45 ms
+        # low-level-hook budget is inappropriate there. Keep early typing on
+        # the original fast budget, while still bounding the worker operation.
+        limit = 0.25 if getattr(self, 'off_hook', False) else 0.045
+        if perf_counter() - self.started > limit:
             raise TimeoutError("early-read-budget")
 
     def msg(self, command, wp=0, lp=0):
@@ -111,8 +116,10 @@ class ScintillaEarlyBridge:
         # SCI_BEGINUNDOACTION even when a late but successful write exhausted
         # the transaction budget. This is cleanup, NOT a repeated text edit;
         # it retains the individual bounded SendMessageTimeoutW limit below.
-        if (command != 2079 and
-                perf_counter() - self.started > (0.09 if self.write_started else 0.045)):
+        limit = ((0.45 if self.write_started else 0.25)
+                 if getattr(self, 'off_hook', False)
+                 else (0.09 if self.write_started else 0.045))
+        if command != 2079 and perf_counter() - self.started > limit:
             self.budget_exceeded = True
             raise TimeoutError("editor-total-budget")
         result = ctypes.c_size_t()

@@ -2,6 +2,10 @@
 from dataclasses import dataclass
 
 DISABLED = "Отключено"
+PAUSE_TOGGLE_DEFAULT = "Ctrl+Alt+Pause"
+PAUSE_TOGGLE_SUGGESTIONS = (DISABLED, PAUSE_TOGGLE_DEFAULT,
+                            "Ctrl+Alt+F8", "Ctrl+Alt+F9", "Ctrl+Alt+F10",
+                            "Ctrl+Shift+F8", "Ctrl+Shift+F9", "Ctrl+Shift+F10")
 DEFAULTS = {"ru": "Ctrl+Shift+F1", "en": "Ctrl+Shift+F2", "he": "Ctrl+Shift+F3"}
 MANUAL_KEYS = {"Scroll Lock": 0x91, **{f"F{n}": 0x6F + n for n in range(1, 13)},
                "Pause": 0x13, "Отключено": 0}
@@ -36,8 +40,31 @@ def parse_chord(value: str) -> Chord | None:
     return Chord(vk, frozenset(mods))
 
 
+def pause_toggle_binding(settings) -> Chord | None:
+    """Optional autocorrection-toggle shortcut, distinct from word correction."""
+    value = getattr(settings, "pause_toggle_key", PAUSE_TOGGLE_DEFAULT)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Выбери сочетание для автоисправления или «Отключено»")
+    chord = parse_chord(value)
+    if chord is not None and not ({0x11, 0x12} & chord.modifiers):
+        raise ValueError("Для включения/выключения автоисправления используй Ctrl или Alt")
+    return chord
+
+
+def conflicts_with_pause_toggle(chord: Chord, toggle: Chord | None) -> bool:
+    if toggle is None:
+        return False
+    if chord == toggle:
+        return True
+    # Historical Ctrl+Alt+Pause also claimed Ctrl+Alt+Shift+Pause.
+    # Do not silently make that previously-invalid binding available when
+    # old settings are loaded. Disabling/reassigning the toggle releases it.
+    return (toggle.vk == 0x13 and toggle.modifiers == frozenset((0x11, 0x12))
+            and chord.vk == 0x13 and toggle.modifiers <= chord.modifiers)
+
+
 def compile_bindings(settings, catalog=None) -> dict[Chord, str]:
-    from word_cycle import CYCLE_KEYS
+    from word_cycle import CYCLE_KEYS, effective_word_key
     from language_registry import DEFAULT_ACTIVE_LANGUAGES, validate_active_languages
     active = validate_active_languages(getattr(settings, 'active_languages',
                                              DEFAULT_ACTIVE_LANGUAGES), catalog)
@@ -63,12 +90,17 @@ def compile_bindings(settings, catalog=None) -> dict[Chord, str]:
                                         and lang not in catalog)
                    for lang in values)):
         raise ValueError('Unsupported or repeated external language hotkey')
-    manual_key = settings.manual_key
-    if not isinstance(manual_key, str) or manual_key not in MANUAL_KEYS:
+    # Validate legacy fields even when the canonical selection overrides them.
+    # They remain in settings.json for older TypeBridge releases.
+    if not isinstance(settings.manual_key, str) or settings.manual_key not in MANUAL_KEYS:
         raise ValueError("Выбери поддерживаемую клавишу исправления слова")
-    manual_vk = MANUAL_KEYS[manual_key] if settings.manual_f8 else 0
-    if manual_vk and manual_vk == CYCLE_KEYS[settings.cycle_key]:
-        raise ValueError("Клавиша уже занята перебором раскладок последнего слова")
+    if not isinstance(settings.cycle_key, str) or settings.cycle_key not in CYCLE_KEYS:
+        raise ValueError("Выбери поддерживаемую клавишу переключения слова")
+    manual_key = effective_word_key(settings)
+    if not isinstance(manual_key, str) or manual_key not in CYCLE_KEYS:
+        raise ValueError("Выбери поддерживаемую клавишу переключения слова")
+    manual_vk = CYCLE_KEYS[manual_key]
+    toggle = pause_toggle_binding(settings)
     bindings = {}
     # A legacy engine may load saved shortcuts for inactive package languages;
     # never intercept them until the matching catalog and active set are live.
@@ -86,18 +118,16 @@ def compile_bindings(settings, catalog=None) -> dict[Chord, str]:
             continue
         if chord in bindings:
             raise ValueError("Одно сочетание назначено двум языкам")
-        if chord.vk == 0x13 and {0x11, 0x12} <= chord.modifiers:
-            raise ValueError("Ctrl+Alt+Pause занят включением/выключением паузы")
+        if conflicts_with_pause_toggle(chord, toggle):
+            raise ValueError("Сочетание уже назначено включению/выключению автоисправления")
         if not chord.modifiers:
-            if chord.vk == CYCLE_KEYS[settings.cycle_key]:
-                raise ValueError("Клавиша занята ручным переключением слова")
             if manual_vk and chord.vk == manual_vk:
-                raise ValueError("Клавиша занята словарным исправлением")
+                raise ValueError("Клавиша занята ручным переключением слова")
         bindings[chord] = lang
     from clipboard_tools import clipboard_bindings
     for chord in clipboard_bindings(settings):
         if chord in bindings:
             raise ValueError("Сочетание поиска или буфера уже назначено переключению языка")
-        if chord.vk == 0x13 and {0x11, 0x12} <= chord.modifiers:
-            raise ValueError("Ctrl+Alt+Pause уже занят")
+        if conflicts_with_pause_toggle(chord, toggle):
+            raise ValueError("Сочетание уже назначено включению/выключению автоисправления")
     return bindings

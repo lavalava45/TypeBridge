@@ -597,6 +597,10 @@ class LanguageEngine:
                     return None
                 decision = self.decide(core, current, allow_rare=allow_rare)
                 if decision:
+                    from language_decision_v2 import punctuation_edges_are_literal
+                    if not punctuation_edges_are_literal(
+                            self.mapper, keys, current, decision.language, left, end):
+                        continue
                     replacement = typed[:left] + decision.replacement + typed[end:]
                     matches[(decision.language, replacement)] = Decision(
                         typed, replacement, decision.language, "word with literal punctuation")

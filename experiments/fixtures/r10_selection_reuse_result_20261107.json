@@ -1,0 +1,39 @@
+{
+  "scope": "Mocked existing paths only; no live fields, clipboard or input",
+  "copy_preview": {
+    "input": " \tghbdtn\r\n ",
+    "output": "ghbdtn",
+    "exact_whitespace": false,
+    "restore_called": true
+  },
+  "uia_search_reader": {
+    "exact_whitespace": true,
+    "has_range_coordinates": false
+  },
+  "native_word_bridge": {
+    "small": "accepted",
+    "multiline": "unsupported-replacement-character",
+    "tab": "unsupported-replacement-character",
+    "emoji": "unsupported-replacement-character",
+    "long33": "callback-admission-too-large"
+  },
+  "scintilla_word_bridge": "selection-or-document-limit",
+  "stale_word_memory_with_selection": {
+    "before": "PREFIX ghbdtn SUFFIX",
+    "after": "PRעינגאמ SUFFIX",
+    "prefix_preserved": false,
+    "suffix_preserved": true
+  },
+  "sha256": {
+    "clipboard_selection.py": "d845ac91d902bd8569a68e5cfff3c822b49ab0f3a0db768f2bcb5a4b9ce9a2f3",
+    "early_native_edit.py": "0194dec587187c700f61d448864dde8474ed35023832a7686e511153bfc31ab6",
+    "early_scintilla.py": "328c61445004c5f5345e23613a9e4097f84b3b117588d7c77ed11fa165ce93ee",
+    "experiments\\fixtures\\quality_keymap_20261106.json": "d056330f32e3c0ce078967136f5c4323b2b94ef7e2df0e8c3fbfb9a1d99301be",
+    "experiments\\r10_selection_reuse_audit_20261107.py": "d478db84cb0e7b4f7b4052ef9e9e3739848ae3baf6fd722281dad7404486ee80",
+    "quick_search.py": "b66318ed6972417528067f43f9279f88569643b2a783e4eb850ca807b168dabb",
+    "selection_cycle.py": "5f85f69c53ffff1106024802e73d728fb9d11cc7f6a7b190a92e6f91cd9c5cf9",
+    "test_app_controls.py": "5d3aa8788bad540f2cb83d2a0dda87d7a8fe8d267944ec9a39bbc4a59617382c",
+    "test_clipboard_selection.py": "e7a57c3052ec2a34e994930aa524f6dbbcacf92c182728419274f311ac19f1d3",
+    "typebridge_app.py": "80dce606186fcfc0deda62572d0c5f8e078483249ea97dcaad67631f8872e623"
+  }
+}

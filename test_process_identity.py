@@ -7,6 +7,26 @@ from typebridge_app import LiveHook
 
 
 class ProcessIdentityTests(unittest.TestCase):
+    def test_one_verified_identity_for_same_host_and_focus_pid(self):
+        # Synthetic HWND/PID fixture, no real window or keyboard activity.
+        from test_short_words_settings import HostedFocusTests
+        hook = HostedFocusTests().fixture()
+        def same_owner(hwnd, pid):
+            pid._obj.value = 100
+            return 11
+        hook.user32.GetWindowThreadProcessId.side_effect = same_owner
+        hook.process_name = Mock(return_value='notepad.exe')
+        self.assertIsNotNone(hook.context())
+        hook.process_name.assert_called_once_with(100)
+
+    def test_separate_hosted_processes_keep_both_identity_checks(self):
+        from test_short_words_settings import HostedFocusTests
+        hook = HostedFocusTests().fixture()
+        hook.process_name = Mock(side_effect=lambda pid:
+            'applicationframehost.exe' if pid == 100 else 'systemsettings.exe')
+        self.assertIsNotNone(hook.context())
+        self.assertEqual(hook.process_name.call_count, 2)
+
     def fixture(self):
         hook = LiveHook.__new__(LiveHook)
         hook.process_cache = {}

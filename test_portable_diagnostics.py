@@ -9,7 +9,7 @@ from dictionary_diagnostics import dictionary_report, record_debug_event
 from early_scintilla import failure_reason, replace_prefix
 from test_early_runtime import ByteEditor
 import test_early_native_edit as fixtures
-from typebridge_app import LiveHook
+from typebridge_app import FocusContext, LiveHook
 
 
 class PortableDiagnosticsTests(unittest.TestCase):
@@ -105,6 +105,11 @@ class PortableDiagnosticsTests(unittest.TestCase):
 
     def test_uncertain_boundary_disables_later_automatic_early_and_manual_edits(self):
         hook, editor, decision, language = fixtures.TrialDeliveryTests().fixture()
+        # TrialHook bypasses boundary correction in its own _correct override.
+        # Use LiveHook's production boundary method with a verified native
+        # process identity, retaining the actual uncertain-write quarantine.
+        hook.context = lambda: FocusContext(90, 100, 1, language[0],
+                                            'notepad.exe', 'RichEdit50W', 100)
         editor.data = decision.typed.encode()
         editor.caret = len(editor.data)
         hook.engine.decide_token = lambda *args, **kwargs: decision
@@ -115,7 +120,10 @@ class PortableDiagnosticsTests(unittest.TestCase):
         editor.replace = partial
         with patch('typebridge_app.NativeEditBridge', return_value=editor) as factory:
             self.assertFalse(LiveHook._correct(hook, hook.context(), 0x20, ''))
-            self.assertTrue(hook.native_edit_disabled)
+            # Modern quarantine is scoped to the uncertain editor field. A
+            # global flag is neither necessary nor desirable for this case.
+            self.assertTrue(hook._native_blocked(hook.context()))
+            self.assertFalse(getattr(hook, 'native_edit_disabled', False))
             hook.token_blocked = False  # A later delimiter no longer permits retries.
             hook.keys = [(65, False)] * len(decision.typed)
             self.assertFalse(LiveHook._correct(hook, hook.context(), 0x20, ''))
@@ -124,6 +132,15 @@ class PortableDiagnosticsTests(unittest.TestCase):
             factory.assert_called_once()
         hook.user32.SendInput.assert_not_called()
         self.assertEqual(language[0], 'en')
+
+    def test_uncertain_write_quarantine_does_not_block_unrelated_field(self):
+        hook, editor, decision, language = fixtures.TrialDeliveryTests().fixture()
+        hook.context = lambda: FocusContext(90, 100, 1, language[0],
+                                            'notepad.exe', 'RichEdit50W', 100)
+        hook._quarantine_native('uncertain-native-write', hook.context())
+        self.assertTrue(hook._native_blocked(hook.context()))
+        other = FocusContext(90, 101, 1, language[0], 'notepad.exe', 'RichEdit50W', 101)
+        self.assertFalse(hook._native_blocked(other))
 
 
 if __name__ == '__main__':

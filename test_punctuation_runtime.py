@@ -1,17 +1,27 @@
 """Deterministic editor model; no hooks or input are sent to Windows."""
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from engine import LanguageEngine, source_data_dir, LANGS, candidate_token_key, _valid_typed
 from typebridge_app import FocusContext, TypeBridgeGui, VK_SHIFT, WM_KEYUP
 from test_app_controls import make_hook, key
+from experiments.layout_quality_20261106 import FrozenMapper, KEYMAP
 
 
 class PunctuationRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.engine = LanguageEngine(source_data_dir())
+        # Fixed key tables, including Space: no live HKL reads/binding in this
+        # document model. The real dictionaries and decision wrapper still run.
+        payload = json.loads(KEYMAP.read_text(encoding='utf-8'))
+        for table in payload['tables'].values():
+            table.update({'32:0': ' ', '32:1': ' '})
+        mapper = FrozenMapper(payload)
+        mapper.layouts = {lang: int(hkl, 16) for lang, hkl in mapper.layouts.items()}
+        with patch('engine.LayoutMapper', return_value=mapper):
+            cls.engine = LanguageEngine(source_data_dir())
         # Test OEM-key transport, not the frequency rank of this corpus word.
         cls.engine.words['ru'].add('вьюга')
         cls.engine.confident['ru'].add('вьюга')
@@ -22,8 +32,12 @@ class PunctuationRuntimeTests(unittest.TestCase):
             for shift in (False, True):
                 cls.physical.setdefault(cls.engine.mapper.char(vk, "en", shift), (vk, shift))
 
-    def type_text(self, physical, source="en", before_vk=None):
+    def type_text(self, physical, source="en", before_vk=None, after_vk=None,
+                  *, simple_mode=False):
         hook = make_hook()
+        # __new__ fixtures default to the historical strict routing, whereas
+        # the currently launched application explicitly enables simple mode.
+        hook.simple_mode = simple_mode
         hook.engine = self.engine
         hook.keys = []
         hook.token_blocked = False
@@ -34,7 +48,7 @@ class PunctuationRuntimeTests(unittest.TestCase):
         hook.context = lambda: FocusContext(90, 100, 1, current[0], "editor.exe", "test")
         hook.pressed = lambda vk: vk == VK_SHIFT and shift[0]
         hook.user32.GetKeyState.return_value = 0
-        hook.user32.GetKeyboardLayout.side_effect = lambda _: LANGS[current[0]]
+        hook.user32.GetKeyboardLayout.side_effect = lambda _: self.engine.mapper.layouts[current[0]]
 
         def request_layout(hwnd, message, wparam, hkl, *args):
             current[0] = next(lang for lang, code in LANGS.items() if code == (hkl & 0xFFFF))
@@ -62,6 +76,9 @@ class PunctuationRuntimeTests(unittest.TestCase):
             if key(hook, vk) == 0:
                 document.append(self.engine.mapper.char(vk, current[0], shift[0]))
             key(hook, vk, WM_KEYUP)
+        if after_vk is not None:
+            key(hook, after_vk)
+            key(hook, after_vk, WM_KEYUP)
         return "".join(document)
 
     def test_all_nonletter_keys_mapping_to_letters_are_collectible_with_and_without_shift(self):
@@ -100,10 +117,28 @@ class PunctuationRuntimeTests(unittest.TestCase):
             with self.subTest(physical=physical):
                 self.assertEqual(self.type_text(physical), expected)
 
-    def test_questions_exclamations_commas_periods_and_colons(self):
-        for suffix in ("?", "!", ".", ",", ";", ":", "?!", "...", ",,", "!!"):
+    def test_unambiguous_questions_and_exclamations_keep_literal_marks(self):
+        for suffix in ("?", "!", "?!", "!!"):
             with self.subTest(suffix=suffix):
                 self.assertEqual(self.type_text("ghbdtn" + suffix + " "), "привет" + suffix + " ")
+
+    def test_letter_or_punctuation_suffix_is_not_silently_detached(self):
+        # These physical marks are RU letters: ю/б/ж/Ж. The full target is
+        # unknown; do not guess that the suffix was intended as punctuation.
+        for suffix in (".", ",", ";", ":", "...", ",,"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(self.type_text("ghbdtn" + suffix + " "),
+                                 "ghbdtn" + suffix + " ")
+
+    def test_pause_after_refused_partial_word_converts_the_whole_word(self):
+        self.assertEqual(self.type_text('hukh, ', after_vk=0x13, simple_mode=True),
+                         'יולית ')
+
+    def test_strict_pause_requires_caret_preflight_and_keeps_original_text(self):
+        # A mock editor without UIA cannot authorize strict-mode SendInput;
+        # no backspaces should be emitted in that historical mode.
+        self.assertEqual(self.type_text('hukh, ', after_vk=0x13, simple_mode=False),
+                         'hukh, ')
 
     def test_brackets_and_quotes_survive_correction(self):
         for left, right in (("(", ")"), ("[", "]"), ("{", "}"), ('"', '"'),

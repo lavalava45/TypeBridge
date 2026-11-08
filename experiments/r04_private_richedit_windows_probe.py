@@ -16,6 +16,8 @@ import queue
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -147,6 +149,52 @@ def probe():
                                         'source': source, 'target': replacement,
                                         'A_readback': True, 'B_unchanged': True,
                                         'undo': True, 'redo': True})
+
+        # Exercise the ACTUAL TypeBridge manual-cycle native mutation method
+        # on our disposable RichEdit field. The surrounding hook context/HKL
+        # are synthetic by design; real HWND text, caret and Undo are read back.
+        from typebridge_app import FocusContext, LiveHook
+        from word_cycle import remember_word
+        ctx = FocusContext(int(ready['top']), a, int(ready['thread']), 'en',
+                           'private-fixture.exe', 'TypeBridge private fixture',
+                           layout_window=a, hkl=lease_context.hkl, native_target=True)
+        hook = LiveHook.__new__(LiveHook)
+        hook.user32 = Mock()
+        hook.user32.GetKeyboardLayout.return_value = ctx.hkl
+        hook.context = lambda: ctx
+        hook._native_is_off_hook = lambda: True
+        hook._postwrite_permitted = lambda *_args, **_kwargs: True
+        hook._record_replay_layout = lambda _ctx, requested: requested
+        hook._language_from_id = lambda langid: 'ru' if langid == 0x0419 else 'en'
+        hook.engine = SimpleNamespace(mapper=SimpleNamespace(layouts={
+            'ru': 0x04190419, 'en': 0x04090409}))
+        hook.keys = []
+        hook.pressed = lambda _vk: False
+        hook.emit = Mock()
+        hook.debug_words = hook.pipeline_debug = hook.stopping = False
+        seed(u, a, 'ghbdtn   ')
+        seed(u, b, 'B_UNCHANGED')
+        original_keys = [(ord(c.upper()), False) for c in 'ghbdtn']
+        recent = remember_word(original_keys, 'ghbdtn', 'en', '   ',
+                               hook._word_scope(ctx), whole=True)
+        if recent is None:
+            raise AssertionError('failed-to-construct-manual-fixture')
+        hook.last_word = recent
+        hook._cycle_edit_word(ctx, recent, 'ru', 'привет', native=True)
+        if read(u, a) != 'привет   ' or read(u, b) != 'B_UNCHANGED':
+            raise AssertionError('manual-native-first-cycle-failed')
+        if recent.text != 'привет' or recent.language != 'ru' or recent.suffix != '   ':
+            raise AssertionError('manual-native-memory-not-updated')
+        hook._cycle_edit_word(ctx, recent, 'en', 'ghbdtn', native=True)
+        if read(u, a) != 'ghbdtn   ' or read(u, b) != 'B_UNCHANGED':
+            raise AssertionError('manual-native-repeat-cycle-failed')
+        if recent.text != 'ghbdtn' or recent.language != 'en':
+            raise AssertionError('manual-native-repeat-memory-not-updated')
+        report['cases'].append({'kind': 'real-manual-cycle-method',
+                                'field': 'private-RichEdit50W',
+                                'first_and_repeat': True, 'spaces_preserved': True,
+                                'neighbor_unchanged': True,
+                                'hook_key_delivery': 'not tested'})
 
         # Deterministic timeout: suspend ONLY our own disposable child GUI
         # thread. Exercise the ACTUAL NativeEditBridge.msg error path. A

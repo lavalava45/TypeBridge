@@ -5,8 +5,9 @@ SetWindowsHookEx, foreground change, or physical input is involved.
 """
 import unittest
 from dataclasses import replace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from caret_word_recovery import CaretWord
 from native_transaction_queue import NativeTransactionQueue, PhysicalKey
 from test_app_controls import make_hook, key
 from typebridge_app import VK_PAUSE, WM_KEYDOWN, WM_KEYUP
@@ -40,6 +41,17 @@ class GenericCycleOffHookTests(unittest.TestCase):
         hook.last_word = RecentWord(
             ((65, False), (75, False), (85, False), (79, False)),
             'akuo', 'en', ' ', hook._word_scope(ctx))
+        # The queue/worker tests intentionally model a stable, empty selection.
+        # UIA preflight is independent and tested against a document model by
+        # test_p0d_generic_pause_20261107.py. Never query the real foreground.
+        def stable_read(_context, _mapper, _element_id, valid, **_kwargs):
+            word = hook.last_word
+            return (CaretWord(word.text, tuple(word.keys), word.suffix,
+                              word.caret_offset, 'uia:fixture')
+                    if word is not None and valid() else None)
+        reader = patch('typebridge_app.read_caret_word', side_effect=stable_read)
+        reader.start()
+        self.addCleanup(reader.stop)
         return hook, ctx
 
     def release(self, hook):
@@ -65,6 +77,18 @@ class GenericCycleOffHookTests(unittest.TestCase):
         # be swallowed once, not injected into the editor.
         self.assertEqual(key(hook, VK_PAUSE, WM_KEYUP), 1)
         self.assertNotIn(VK_PAUSE, hook.suppressed_keyups)
+
+    def test_manual_only_paused_hook_still_commits_offhook_cycle(self):
+        hook, ctx = self.fixture()
+        hook.settings = replace(hook.settings, corrections_enabled=False)
+        hook.paused = True  # Startup mode with auto-correction disabled.
+        self.assertEqual(key(hook, VK_PAUSE), 1)
+        hook.user32.SendInput.assert_not_called()
+        self.assertTrue(hook.native_queue.busy)
+        self.release(hook)
+        hook.user32.SendInput.assert_called_once()
+        self.assertEqual((hook.last_word.text, hook.last_word.language),
+                         ('שלום', 'he'))
 
     def test_other_keys_wait_behind_generic_cycle_and_replay_after_commit(self):
         hook, ctx = self.fixture()

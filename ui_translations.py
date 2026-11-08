@@ -725,6 +725,8 @@ CATALOG = {'30 последних фрагментов, только до вых
                                                     'he': 'ההחלפה לפני רווח לא אושרה; ניסיונות חוזרים '
                                                           'כבויים'},
  'Раскладка': {'en': 'Keyboard layout', 'he': 'פריסת מקלדת'},
+ 'Переключить раскладку вручную': {'en': 'Switch keyboard layout manually',
+                                  'he': 'החלפת פריסת מקלדת באופן ידני'},
  'Раскладка → {v0}': {'en': 'Layout → {v0}', 'he': 'פריסה → {v0}'},
  'Раскладка: {v0}': {'en': 'Layout: {v0}', 'he': 'פריסה: {v0}'},
  'Регистр': {'en': 'Case', 'he': 'רישיות'},
@@ -1320,6 +1322,26 @@ CATALOG.update({
 
 # Clear correction option labels and explanations.
 CATALOG.update({
+  "Переключить раскладку слова": {
+    "en": "Switch word keyboard layout",
+    "he": "החלפת פריסת המקלדת של המילה"
+  },
+  "Переключить раскладку слова:": {
+    "en": "Switch word keyboard layout:",
+    "he": "החלפת פריסת המקלדת של המילה:"
+  },
+  "Команда → {v0}: клавиши переданы, содержимое поля не подтверждено": {
+    "en": "Command → {v0}: keys sent; field contents not verified",
+    "he": "פקודה ← {v0}: המקשים נשלחו; תוכן השדה לא אומת"
+  },
+  "Клавиши замены отправлены, но смена раскладки не подтверждена; проверь текст": {
+    "en": "Replacement keys sent but the layout change was not confirmed; check the text",
+    "he": "מקשי ההחלפה נשלחו אך שינוי פריסת המקלדת לא אומת; יש לבדוק את הטקסט"
+  },
+  "Переключает набираемое слово или предыдущее слово после пробелов. Внутри слова сохраняет положение курсора; повторные нажатия перебирают включённые языки. Работает без словаря и при выключенном автоисправлении.": {
+    "en": "Switches the word being typed, or the previous word after spaces. Within a word, keeps the caret position; repeated presses cycle through enabled languages. Works without a dictionary match and with autocorrection off.",
+    "he": "החלפת המילה המוקלדת או המילה הקודמת לאחר רווחים. בתוך מילה, מיקום הסמן נשמר; לחיצות חוזרות עוברות בין השפות הפעילות. פועל ללא התאמה במילון וגם כאשר התיקון האוטומטי כבוי."
+  },
   "Автоматически переключать раскладку": {
     "en": "Automatically switch keyboard layout",
     "he": "להחליף פריסת מקלדת אוטומטית"
@@ -1635,9 +1657,9 @@ from settings_copy import (
 )
 CATALOG.update({
     LANGUAGE_SELECTION_HELP: {'en': 'Enable one to three installed languages. Install the matching keyboard layouts in Windows. After changing the language set, save settings, fully exit TypeBridge and start it again.', 'he': 'אפשר להפעיל אחת עד שלוש שפות מותקנות. יש להתקין את פריסות המקלדת המתאימות ב-Windows. לאחר שינוי השפות יש לשמור את ההגדרות, לצאת לחלוטין מ-TypeBridge ולהפעיל אותו מחדש.'},
-    PASSWORD_CHECK_NOTE: {'en': 'Password fields are checked automatically.', 'he': 'שדות סיסמה נבדקים אוטומטית.'},
-    PASSWORD_CHECK_LABEL: {'en': 'Additional checks for standard text fields', 'he': 'בדיקה נוספת של שדות קלט רגילים'},
-    PASSWORD_CHECK_HELP: {'en': 'Also check standard Windows fields through UI Automation. If the system cannot confirm a normal field, correction is skipped; this can reduce compatibility with some editors. With this option off, the built-in password-field checks remain active. Browser and custom fields are always checked. After changing this option, save settings, fully exit TypeBridge and start it again.', 'he': 'בדיקה נוספת של שדות Windows רגילים באמצעות UI Automation. אם המערכת אינה מאשרת שהשדה רגיל, התיקון מדולג; הדבר עלול לפגוע בתאימות לעורכים מסוימים. כשהאפשרות כבויה, בדיקת הסיסמאות המובנית נשארת פעילה. שדות דפדפן ושדות מותאמים נבדקים תמיד. לאחר שינוי יש לשמור, לצאת לחלוטין מ-TypeBridge ולהפעיל אותו מחדש.'},
+    PASSWORD_CHECK_NOTE: {'en': 'Password-field checks are disabled in the current simple switcher mode. Corrections may occur even when entering a password.', 'he': 'בדיקות שדות סיסמה מושבתות במצב החלפת הפריסה הפשוט הנוכחי. ייתכן תיקון גם בזמן הזנת סיסמה.'},
+    PASSWORD_CHECK_LABEL: {'en': 'Additional field checks (strict mode only)', 'he': 'בדיקות שדה נוספות (במצב המחמיר בלבד)'},
+    PASSWORD_CHECK_HELP: {'en': 'This option is not used in the current simple switcher mode. In experimental strict mode it additionally checks standard fields via UI Automation, potentially limiting correction in some editors.', 'he': 'אפשרות זו אינה בשימוש במצב החלפת הפריסה הפשוט הנוכחי. במצב המחמיר הניסיוני היא בודקת בנוסף שדות רגילים באמצעות UI Automation ועשויה להגביל תיקון בחלק מהעורכים.'},
     INDICATOR_HELP: {'en': 'The indicator shows the current layout among enabled languages. Russian, English and Hebrew use flags; additional languages use code badges such as AR or ES. The indicator works independently of autocorrection, does not take focus and lets clicks pass through. It hides when the text caret position is unavailable.', 'he': 'המחוון מציג את הפריסה הנוכחית מבין השפות הפעילות. לרוסית, אנגלית ועברית יש דגלים; לשפות נוספות יש סמלים עם קוד שפה, כגון AR או ES. המחוון פועל ללא תלות בתיקון האוטומטי, אינו לוקח מיקוד ואינו חוסם לחיצות. כשהמיקום של סמן הטקסט אינו זמין, המחוון מוסתר.'},
     EVENT_LOG_LABEL: {'en': 'Show program log', 'he': 'הצגת יומן פעילות התוכנה'},
     EVENT_LOG_HELP: {'en': 'Shows program states, operation results and reasons for skipped corrections. Log visibility does not affect autocorrection or enable the typed-text journal.', 'he': 'מציג מצבי תוכנה, תוצאות פעולות וסיבות לדילוג על תיקונים. הצגת היומן אינה משפיעה על התיקון האוטומטי ואינה מפעילה את יומן הטקסט שהוקלד.'},
@@ -1670,4 +1692,61 @@ CATALOG.update({
                'שומר תמונות מצב של שדות HTML בדפדפן. ההגבלה חלה רק על היומן; '
                'תיקון פריסת המקלדת האוטומטי בדפדפן פועל בנפרד.'),
     },
+})
+
+CATALOG.update({
+    'Восстановить резервную копию буфера…': {
+        'en': 'Restore clipboard backup…', 'he': 'שחזור גיבוי הלוח…'},
+    'Заменить текущее содержимое буфера выбранной резервной копией?': {
+        'en': 'Replace the current clipboard contents with the selected backup?',
+        'he': 'להחליף את תוכן הלוח הנוכחי בגיבוי שנבחר?'},
+    'Нет резервных копий буфера для восстановления': {
+        'en': 'No clipboard backups are available to restore',
+        'he': 'אין גיבויי לוח זמינים לשחזור'},
+    'Не удалось прочитать папку резервных копий буфера': {
+        'en': 'Could not read the clipboard backup folder',
+        'he': 'לא ניתן לקרוא את תיקיית גיבויי הלוח'},
+    'Буфер восстановлен из резервной копии': {
+        'en': 'Clipboard restored from backup', 'he': 'הלוח שוחזר מהגיבוי'},
+    'Не удалось восстановить буфер; резервная копия сохранена': {
+        'en': 'Could not restore the clipboard; the backup has been kept',
+        'he': 'לא ניתן לשחזר את הלוח; הגיבוי נשמר'},
+    'Не удалось запустить восстановление буфера; резервная копия сохранена': {
+        'en': 'Could not start clipboard recovery; the backup has been kept',
+        'he': 'לא ניתן להתחיל בשחזור הלוח; הגיבוי נשמר'},
+    'Операция отменена: не удалось создать и проверить зашифрованную копию буфера': {
+        'en': 'Operation cancelled: could not create and verify an encrypted clipboard backup',
+        'he': 'הפעולה בוטלה: לא ניתן ליצור ולאמת גיבוי מוצפן של הלוח'},
+    'Копирование отменено: резервная копия буфера не подготовлена': {
+        'en': 'Copy cancelled: the clipboard backup is not ready',
+        'he': 'ההעתקה בוטלה: גיבוי הלוח אינו מוכן'},
+    'Восстановление буфера не завершено. Зашифрованная копия сохранена; выбери в трее «Восстановить резервную копию буфера…»': {
+        'en': 'Clipboard recovery did not finish. An encrypted backup has been kept; choose “Restore clipboard backup…” in the tray menu',
+        'he': 'שחזור הלוח לא הושלם. הגיבוי המוצפן נשמר; בחר בתפריט המגש ״שחזור גיבוי הלוח…״'},
+    'Вставка отменена; исходный буфер не удалось восстановить (содержимое могло измениться). Зашифрованная копия сохранена; выбери в трее «Восстановить резервную копию буфера…»': {
+        'en': 'Paste cancelled; the original clipboard could not be restored. An encrypted backup has been kept; choose “Restore clipboard backup…” in the tray menu',
+        'he': 'ההדבקה בוטלה; לא ניתן לשחזר את הלוח המקורי. הגיבוי המוצפן נשמר; בחר בתפריט המגש ״שחזור גיבוי הלוח…״'},
+})
+
+# Configurable shortcut for turning autocorrection on/off; separate from the
+# unmodified manual Pause word-cycle key.
+CATALOG.update({
+    'Включить/выключить автоисправление:': {
+        'en': 'Toggle autocorrection:',
+        'he': 'הפעלה/כיבוי של התיקון האוטומטי:'},
+    'Эта команда включает или выключает автоматику, не меняя раскладку слова.': {
+        'en': 'This shortcut turns autocorrection on or off without changing the word layout.',
+        'he': 'קיצור זה מפעיל או מכבה תיקון אוטומטי בלי לשנות את פריסת המילה.'},
+    'Выбери сочетание, введи своё с Ctrl или Alt либо выбери «Отключено». Работает, когда TypeBridge запущен. Обычный Pause переключает слово отдельно.': {
+        'en': 'Choose a shortcut, enter one with Ctrl or Alt, or select Disabled. Works while TypeBridge is running. Unmodified Pause cycles the word separately.',
+        'he': 'בחר קיצור, הזן צירוף עם Ctrl או Alt, או בחר ״מושבת״. פועל כאשר TypeBridge פעיל. Pause ללא מקשי שינוי מחליף את פריסת המילה בנפרד.'},
+    'Для включения/выключения автоисправления используй Ctrl или Alt': {
+        'en': 'Use Ctrl or Alt for the autocorrection toggle shortcut',
+        'he': 'יש להשתמש ב־Ctrl או ב־Alt לקיצור הפעלה/כיבוי של תיקון אוטומטי'},
+    'Сочетание уже назначено включению/выключению автоисправления': {
+        'en': 'This shortcut is already assigned to the autocorrection toggle',
+        'he': 'קיצור זה כבר משויך להפעלה/כיבוי של תיקון אוטומטי'},
+    'Выбери сочетание для автоисправления или «Отключено»': {
+        'en': 'Choose an autocorrection shortcut or Disabled',
+        'he': 'בחר קיצור לתיקון אוטומטי או ״מושבת״'},
 })

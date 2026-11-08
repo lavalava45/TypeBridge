@@ -6,7 +6,7 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
-from clipboard_hotkeys import PreparedContext, KeyboardEvent, monotonic
+from clipboard_hotkeys import CONTEXT_TTL, PreparedContext, KeyboardEvent, monotonic
 import test_clipboard_hotkeys as worker_tests
 from tray_layouts import WindowsLayouts, LayoutTarget, GuiInfo
 from typebridge_app import Settings
@@ -49,29 +49,77 @@ class ContextTests(unittest.TestCase):
                 router.notify.assert_not_called()
                 self.assertFalse(router.suppressed)
 
-    def test_blocked_metadata_reader_never_blocks_callback_or_keeps_old_cache(self):
+    def test_blocked_metadata_reader_retains_verified_cache_only_until_ttl(self):
         router = self.fixture()
         entered, release = threading.Event(), threading.Event()
+        started = monotonic()
         def capture():
             entered.set()
             release.wait(2)
             return object()
         router.layouts.capture.side_effect = capture
-        router.context_cache = PreparedContext(object(), router.settings, 0, monotonic())
+        original = PreparedContext(object(), router.settings, 0, started)
+        router.context_cache = original
         worker = threading.Thread(target=router._refresh_context, args=(router.context_stop,))
         with patch('clipboard_hotkeys.target_allowed', return_value=True):
             worker.start()
             try:
                 self.assertTrue(entered.wait(1))
-                self.assertEqual(self.send(router), 0)
+                with patch('clipboard_hotkeys.monotonic', return_value=started + .075):
+                    self.assertEqual(self.send(router), 1)
                 self.assertTrue(worker.is_alive())
                 router.layouts.capture.assert_called_once()
-                self.assertIsNone(router.context_cache)
+                self.assertIs(router.context_cache, original)
+                # A blocked provider cannot renew a 200 ms authorization.
+                router.suppressed.clear()
+                with patch('clipboard_hotkeys.monotonic', return_value=started + CONTEXT_TTL + .001):
+                    self.assertEqual(self.send(router), 0)
                 router.context_stop.set()
             finally:
                 release.set()
                 worker.join(1)
         self.assertIsNone(router.context_cache)  # Late result cannot publish.
+
+    def test_refresh_with_50_to_100ms_delay_keeps_hotkey_for_same_focus(self):
+        router = self.fixture()
+        entered, release = threading.Event(), threading.Event()
+        started = monotonic()
+        target = router.layouts.capture.return_value
+        original = PreparedContext(target, router.settings, 0, started)
+        router.context_cache = original
+        def capture():
+            entered.set()
+            release.wait(2)
+            return target
+        router.layouts.capture.side_effect = capture
+        worker = threading.Thread(target=router._refresh_context, args=(router.context_stop,))
+        with patch('clipboard_hotkeys.target_allowed', return_value=True):
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(1))
+                with patch('clipboard_hotkeys.monotonic', return_value=started + .075):
+                    self.assertEqual(self.send(router), 1)
+                router.notify.assert_called_once_with(('plain-paste', target))
+                router.layouts.matches_foreground.assert_called()
+            finally:
+                release.set()
+                worker.join(1)
+        self.assertIsNotNone(router.context_cache)
+
+    def test_denied_or_failed_refresh_revokes_previous_permission(self):
+        for mode in ('denied', 'exception', 'focus-changed'):
+            with self.subTest(mode=mode):
+                router = self.fixture()
+                router.context_cache = PreparedContext(router.layouts.capture.return_value,
+                                                       router.settings, 0, monotonic())
+                if mode == 'exception':
+                    router.layouts.capture.side_effect = OSError('reader-failed')
+                if mode == 'focus-changed':
+                    router.layouts.matches_foreground.return_value = False
+                with patch('clipboard_hotkeys.target_allowed', return_value=mode != 'denied'):
+                    router._refresh_context(router.context_stop)
+                self.assertIsNone(router.context_cache)
+                self.assertEqual(self.send(router), 0)
 
     def test_slow_or_denied_metadata_cannot_publish_fresh_authority(self):
         for mode in ('slow', 'denied', 'error', 'changed-settings'):

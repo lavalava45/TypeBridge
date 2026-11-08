@@ -21,6 +21,10 @@ class WordCycleTests(unittest.TestCase):
         self.focus = 100
         self.shift = False
         self.hook = make_hook()
+        # The in-memory recipient has no native HWND/UIA caret witness. Model
+        # the current simplified keyboard transport explicitly, rather than
+        # accidentally exercising strict-mode preflight without its fixtures.
+        self.hook.simple_mode = True
         self.hook.mouse_hook = None
         self.hook.engine = self.engine
         self.hook.keys = []
@@ -117,12 +121,25 @@ class WordCycleTests(unittest.TestCase):
                 self.cycle()
                 self.assertEqual(self.text, "белый ")
 
-    def test_key_repeat_only_cycles_once(self):
+    def test_pause_second_keydown_cycles_without_keyup(self):
         self.type("xyzzy ")
         key(self.hook, VK_PAUSE)
         first = self.text
         key(self.hook, VK_PAUSE)
+        # Windows Pause may never deliver KEYUP; each independent KEYDOWN must
+        # remain usable. A missing KEYUP cannot permanently freeze cycling.
+        self.assertNotEqual(self.text, first)
+
+    def test_function_key_repeat_is_swallowed_until_keyup(self):
+        self.hook.settings = replace(self.hook.settings, word_key='F9')
+        self.type('xyzzy ')
+        key(self.hook, 0x78)
+        first = self.text
+        key(self.hook, 0x78)
         self.assertEqual(self.text, first)
+        key(self.hook, 0x78, WM_KEYUP)
+        key(self.hook, 0x78)
+        self.assertNotEqual(self.text, first)
 
     def test_custom_key_and_paused_auto_correction(self):
         self.hook.settings = replace(self.hook.settings, cycle_key="F9")

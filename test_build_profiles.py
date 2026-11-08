@@ -11,6 +11,12 @@ from build_profiles import (PUBLIC_EXCLUDED_MODULES, build_both,
                             frozen_smoke_test, install_public_data, stage_sources,
                             verify_frozen_profile)
 
+# The frozen app now depends on native UIA; every simulated frozen inventory
+# must contain these modules unless the test intentionally checks absence.
+UIA_MODULES = {'uia_native_worker', 'uia_password_native',
+               'uia_selection_native', 'comtypes',
+               'comtypes.gen.UIAutomationClient'}
+
 
 class ProfileContractTests(unittest.TestCase):
     def test_one_public_exe_path_for_both_builders(self):
@@ -25,22 +31,32 @@ class ProfileContractTests(unittest.TestCase):
 
     def test_public_forbids_text_tracers_and_diagnostics_retains_them(self):
         with patch('build_profiles.frozen_module_names',
-                   return_value={'build_variant', 'typebridge_app', 'engine'}):
+                   return_value={'build_variant', 'typebridge_app', 'engine'} | UIA_MODULES):
             result = verify_frozen_profile('public.exe', 'public')
         self.assertEqual(result['diagnostic_modules'], [])
         for name in PUBLIC_EXCLUDED_MODULES:
             with self.subTest(module=name):
                 with patch('build_profiles.frozen_module_names',
-                           return_value={'build_variant', name}):
+                           return_value={'build_variant', name} | UIA_MODULES):
                     with self.assertRaisesRegex(ValueError, 'Unsafe public EXE'):
                         verify_frozen_profile('unsafe.exe', 'public')
         with patch('build_profiles.frozen_module_names',
-                   return_value={'build_variant', 'word_trace', 'browser_readback'}):
+                   return_value={'build_variant', 'word_trace', 'browser_readback'} | UIA_MODULES):
             self.assertEqual(verify_frozen_profile('diag.exe', 'diagnostics')['profile_marker_present'], True)
         with patch('build_profiles.frozen_module_names',
-                   return_value={'build_variant', 'word_trace'}):
+                   return_value={'build_variant', 'word_trace'} | UIA_MODULES):
             with self.assertRaisesRegex(ValueError, 'missing'):
                 verify_frozen_profile('bad-diagnostics.exe', 'diagnostics')
+
+    def test_missing_native_uia_dependency_is_rejected_in_both_profiles(self):
+        for profile in ('public', 'diagnostics'):
+            for missing in UIA_MODULES:
+                with self.subTest(profile=profile, missing=missing), \
+                     patch('build_profiles.frozen_module_names',
+                           return_value=({'build_variant', 'word_trace',
+                                          'browser_readback'} | UIA_MODULES) - {missing}):
+                    with self.assertRaisesRegex(ValueError, 'Frozen native UIA modules missing'):
+                        verify_frozen_profile('without-uia.exe', profile)
 
     def test_stage_source_creates_distinct_baked_profiles(self):
         with tempfile.TemporaryDirectory() as folder:

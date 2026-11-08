@@ -8,8 +8,14 @@ from user_lexicon import UserLexicon
 
 
 class EngineLexiconTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # The unmodified baseline corpus is read-only across all cases. Do not
+        # rebuild the complete dictionary for each individual test; cases with
+        # overlays still instantiate their distinct engines below.
+        cls.base = LanguageEngine(source_data_dir())
+
     def setUp(self):
-        self.base = LanguageEngine(source_data_dir())
         self.keys = [(ord(ch), False) for ch in "HELLO"]
         self.assertEqual(self.base.decide(self.keys, "ru").replacement, "hello")
 

@@ -46,10 +46,14 @@ from runtime_safety import require_no_original_switcher
 from single_instance import exclusive_live_hook
 from user_lexicon import UserLexicon, LexiconLoadError, recover_lexicon
 from tray_layouts import layout_owner, WindowsLayouts
-from direct_hotkeys import DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bindings
-from word_cycle import CYCLE_KEYS, RecentWord, remember_word
+from direct_hotkeys import (DEFAULTS, SUGGESTIONS, MANUAL_KEYS, Chord, compile_bindings,
+                            PAUSE_TOGGLE_DEFAULT, PAUSE_TOGGLE_SUGGESTIONS,
+                            pause_toggle_binding, conflicts_with_pause_toggle)
+from word_cycle import CYCLE_KEYS, RecentWord, remember_word, effective_word_key
 from incremental_recognition import prepare_early, cached_early_index, suggest_live_early
 from early_scintilla import ScintillaEarlyBridge, replace_prefix
+from scintilla_selection import ScintillaRangeTransport, ScintillaSelectionAdapter
+from selection_cycle import SelectionCycle, replace_selection
 from dictionary_diagnostics import dictionary_report
 from diagnostic_writer import DiagnosticWriter
 from pipeline_probe import emit_pipeline, decision_failure
@@ -66,7 +70,8 @@ TRACE_APPS = BROWSER_APPS | frozenset({'notepad.exe', 'notepad++.exe'})
 from early_native_edit import NativeEditBridge, supports_native_edit
 from r04_text_target import native_field_metadata
 from word_recovery import recover_prefix
-from caret_word_recovery import read_caret_word
+from caret_word_recovery import (parse_caret_word, read_caret_word,
+                                 read_selected_word, verify_selected_word)
 from input_transport import send_with_remainder, unmatched_keydowns
 from native_transaction_queue import (NativeTransactionQueue, PhysicalKey, KEYUP_MESSAGES,
                                       MODIFIER_VKS as TRANSACTION_MODIFIER_VKS)
@@ -95,6 +100,11 @@ DEBUG_ENABLED = (APP_DIR / "TypeBridge-debug.flag").is_file()
 DEBUG_WORDS_ENABLED = (BUILD_PROFILE == 'diagnostics' and DEBUG_ENABLED
                        and (APP_DIR / "TypeBridge-debug-words.flag").is_file())
 
+# 2026-11-07: user-requested switcher-only mode. Legacy guard/quarantine
+# implementations remain in source, but the live GUI/CLI opt out of them.
+# This is intentionally a code switch, not a new persisted setting.
+SIMPLE_SWITCHER_MODE = True
+
 WH_KEYBOARD_LL = 13
 WH_MOUSE_LL = 14
 WM_KEYDOWN = 0x0100
@@ -122,6 +132,8 @@ VK_SHIFT = 0x10
 VK_CONTROL = 0x11
 VK_MENU = 0x12
 VK_SPACE = 0x20
+VK_DELETE = 0x2E
+VK_LEFT = 0x25
 VK_LWIN = 0x5B
 VK_RWIN = 0x5C
 VK_CAPITAL = 0x14
@@ -188,6 +200,9 @@ class Settings:
     quick_search_engine: str = "Google"
     quick_search_engines: tuple[tuple[str, str], ...] = DEFAULT_ENGINES
     cycle_key: str = "Pause"
+    # Canonical single manual command. None reads legacy manual_key/cycle_key.
+    word_key: str | None = None
+    pause_toggle_key: str = PAUSE_TOGGLE_DEFAULT
     early_correction: bool = False
     early_native: bool = False
     show_caret_flag: bool = False
@@ -215,6 +230,9 @@ class FocusContext:
     layout_window: int = 0
     password_revision: int = 0
     hkl: int = 0
+    # Native HWND text-transport eligibility, as verified with host process
+    # and class names during focus acquisition. None for legacy model fixtures.
+    native_target: bool | None = None
 
 
 def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
@@ -247,6 +265,9 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
     title = raw.get("only_window_title", "")
     cycle_key = raw.get("cycle_key", "Pause")
     if not isinstance(cycle_key, str) or cycle_key not in CYCLE_KEYS:
+        raise ValueError("Выбери поддерживаемую клавишу переключения слова")
+    word_key = raw.get('word_key')
+    if word_key is not None and (not isinstance(word_key, str) or word_key not in CYCLE_KEYS):
         raise ValueError("Выбери поддерживаемую клавишу переключения слова")
     if not isinstance(title, str):
         raise ValueError("only_window_title must be text")
@@ -287,6 +308,8 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
                     plain_paste=raw.get("plain_paste", False),
                     plain_paste_key=raw.get("plain_paste_key", "Ctrl+Shift+V"),
                     cycle_key=cycle_key,
+                    word_key=word_key,
+                    pause_toggle_key=raw.get("pause_toggle_key", PAUSE_TOGGLE_DEFAULT),
                     early_correction=raw.get("early_correction", False),
                     early_native=raw.get("early_native", False),
                     show_caret_flag=raw.get("show_caret_flag", False),
@@ -325,14 +348,11 @@ def load_settings(path: Path | None = None, *, catalog=None) -> Settings:
     return settings
 
 
-def staged_password_guard(settings: Settings):
-    """Shared/custom text fields always need metadata; strict native UIA is optional.
-
-    Construction does no UIA work. run() owns helper lifetime. The default
-    keeps proven native style checks independent of provider startup.
-    """
+def staged_password_guard(settings: Settings, *, simple=False):
+    """Block explicit password evidence; unavailable UIA does not block input."""
     from password_fields import PasswordFieldGuard
-    return PasswordFieldGuard(require_element_id=True,
+    return PasswordFieldGuard(disabled=bool(simple), require_element_id=True,
+                              explicit_password_only=True,
                               native_fast_path=not settings.experimental_password_guard)
 
 
@@ -492,6 +512,31 @@ def correction_inputs(original_length: int, replacement: str,
     return events
 
 
+def manual_cycle_inputs(word: RecentWord, replacement: str) -> list[Input]:
+    """Replace a whole word around the caret and retain its relative offset.
+
+    Input packet submission is NOT evidence that a browser applied the edits.
+    The caller must validate the same field before dispatch and mark ambiguous
+    delivery as unverified rather than retrying it.
+    """
+    left = len(word.text) if word.caret_offset is None else word.caret_offset
+    if not 0 <= left <= len(word.text):
+        raise ValueError('invalid-caret-offset')
+    right = len(word.text) - left
+    if right and word.suffix:
+        raise ValueError('invalid-middle-word-suffix')
+    events: list[Input] = []
+    for _ in range(right):
+        events.extend((input_key(VK_DELETE, KEYEVENTF_EXTENDEDKEY),
+                       input_key(VK_DELETE, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP)))
+    events.extend(correction_inputs(left + len(word.suffix),
+                                    replacement + word.suffix, None, ''))
+    for _ in range(right):
+        events.extend((input_key(VK_LEFT, KEYEVENTF_EXTENDEDKEY),
+                       input_key(VK_LEFT, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP)))
+    return events
+
+
 def running_engine_settings(settings: Settings, engine) -> Settings:
     """Validate shortcuts against the STILL-RUNNING language set.
 
@@ -521,13 +566,24 @@ def pending_engine_settings(settings: Settings, active, catalog) -> Settings:
 class LiveHook:
     """Small global hook with a single, inspectable correction path."""
 
+    @property
+    def simple_mode(self):
+        # Old isolated tests construct LiveHook with __new__ and deliberately
+        # omit __init__. In those fixtures the legacy path remains the default.
+        return bool(getattr(self, '_simple_mode', False))
+
+    @simple_mode.setter
+    def simple_mode(self, value):
+        self._simple_mode = bool(value)
+
     def __init__(self, engine: LanguageEngine, settings: Settings,
                  emit=lambda _kind, _message: None,
                  *, accept_injected: bool = False, snippets: SnippetConfig | None = None,
-                 password_guard=None):
+                 password_guard=None, simple_mode=False):
         self.engine = engine
         self.settings = settings
         self.emit = emit
+        self.simple_mode = bool(simple_mode)
         self.accept_injected = accept_injected
         # Startup supplies the field guard. Shared/custom controls require
         # metadata; default native editors retain synchronous style checks.
@@ -576,8 +632,12 @@ class LiveHook:
         # Opt-in R04 must not persist plaintext diagnostics while a helper
         # can be stale or miss a same-HWND DOM password transition. Existing
         # files are not deleted; no new word/readback trace is generated here.
-        self.debug_words = DEBUG_WORDS_ENABLED and password_guard is None
+        self.debug_words = DEBUG_WORDS_ENABLED and password_guard is None and not self.simple_mode
         self._browser_field_revision = 0
+        # An unverified browser manual packet may leave Chrome's caret at an
+        # unexpected endpoint. On the next Pause, never mistake an adjacent
+        # word for the replaced word merely because its current HKL fits.
+        self._browser_unverified_followup = None
         # The HWND can stay unchanged while the focused browser DOM element
         # changes. A fresh metadata revision must start a new word, even if
         # the process, native focus HWND and keyboard layout all match.
@@ -736,8 +796,17 @@ class LiveHook:
             emit_pipeline(self, 'context-rejected', reason='invalid-focus', interval=4)
             return None
         process = self.process_name(focus_pid.value)
-        host_process = self.process_name(pid.value)
+        # Most controls and their top-level window belong to one process.
+        # Reuse the *same just-verified process identity* rather than opening
+        # that PID a second time in every low-level keyboard callback.
+        # Hosted controls keep independent checks for both distinct PIDs.
+        host_process = (process if focus_pid.value == pid.value
+                        else self.process_name(pid.value))
         excluded = effective_exclusions(self.settings)
+        if self.simple_mode:
+            # Password-manager exclusions belong to the deactivated password
+            # policy. Retain all other user/category application exclusions.
+            excluded = excluded.difference(PASSWORD_PROCESSES)
         if (not process or not host_process
                 or process in excluded or host_process in excluded):
             emit_pipeline(self, 'context-rejected', reason='process-unavailable-or-excluded', interval=4)
@@ -759,9 +828,10 @@ class LiveHook:
             top_class = top_buffer.value.casefold()
         password_guard = getattr(self, 'password_guard', None)
         native_metadata = native_field_metadata(process, host_process, focus_class, top_class)
-        check_metadata = (not for_layout and password_guard is not None and not (
-            getattr(password_guard, 'native_fast_path', False) is True
-            and native_metadata))
+        check_metadata = (not self.simple_mode and not for_layout and password_guard is not None and (
+            getattr(password_guard, 'explicit_password_only', False) is True or not (
+                getattr(password_guard, 'native_fast_path', False) is True
+                and native_metadata)))
         # These are navigation/list surfaces, not text editors. Their
         # type-ahead may look like a word to the hook, but injecting Backspace
         # can navigate folders, move selection or trigger other commands.
@@ -775,7 +845,7 @@ class LiveHook:
                      'progman', 'workerw'))):
             emit_pipeline(self, 'context-rejected', reason='non-text-navigation-control', interval=4)
             return None
-        if (not for_layout and focus_class in ("edit", "richedit20w", "richedit50w", "richeditd2dpt")
+        if (not self.simple_mode and not for_layout and focus_class in ("edit", "richedit20w", "richedit50w", "richeditd2dpt")
                 and self.user32.GetWindowLongPtrW(focus, GWL_STYLE)
                 & ES_PASSWORD):
             emit_pipeline(self, 'context-rejected', reason='protected-edit', interval=4)
@@ -784,14 +854,35 @@ class LiveHook:
         if check_metadata:
             self.protection_scope = (top, focus)
             # Metadata comes exclusively from an independent worker. Never
-            # block a callback on the UIA provider, and never interpret
-            # 'unknown' as permission. The revision is part of every scope
+            # block a callback on the UIA provider. The production policy
+            # blocks explicit passwords. Browser/non-native editors also
+            # require a fresh, addressable native COM/UIA identity; a failed
+            # helper is NOT permission to mutate unverified fields.
+            # The revision is part of every scope
             # so a field change invalidates in-flight replacement jobs.
             password_revision = password_guard.permit_revision(top, focus)
             if password_revision is None:
-                emit_pipeline(self, 'context-rejected', reason='password-metadata-unverified', interval=4)
+                sample = password_guard.snapshot
+                reason = ('password-field' if sample.state == 'password' else
+                          'text-target-unaddressable' if sample.state == 'safe'
+                          and not getattr(sample, 'addressable', False)
+                          else 'password-metadata-unverified')
+                emit_pipeline(self, 'context-rejected', reason=reason, interval=4)
                 return None
+            if not native_metadata:
+                sample = password_guard.snapshot
+                fresh = (sample.state == 'safe' and sample.addressable
+                         and (sample.top, sample.focus) == (top, focus)
+                         and isinstance(sample.element_id, str)
+                         and sample.element_id.startswith('uia:')
+                         and bool(sample.element_id[4:])
+                         and 0 <= password_guard.clock() - sample.checked <= .5)
+                if not fresh:
+                    emit_pipeline(self, 'context-rejected',
+                                  reason='uia-target-unverified', interval=4)
+                    return None
             if (not native_metadata
+                    and not getattr(password_guard, 'explicit_password_only', False)
                     and getattr(password_guard, 'require_element_id', False) is True
                     and not password_guard.snapshot.element_id.startswith('uia:')):
                 emit_pipeline(self, 'context-rejected', reason='missing-uia-element-id', interval=4)
@@ -807,9 +898,13 @@ class LiveHook:
         emit_pipeline(self, 'context-ready', interval=4, app=process,
                       language=language, hkl=f'{raw_hkl:08X}')
         return FocusContext(top, focus, owner_thread, language, process, title,
-                            owner, password_revision=password_revision, hkl=raw_hkl)
+                            owner, password_revision=password_revision, hkl=raw_hkl,
+                            native_target=native_metadata)
 
     def clear_token(self, *, preserve_snippets=False) -> None:
+        self._selection_cycle = None
+        self._browser_unverified_followup = None
+        self._selection_epoch = getattr(self, '_selection_epoch', 0) + 1
         self.keys.clear()
         self.token_blocked = False
         self._backspace_remaining = 0
@@ -849,6 +944,8 @@ class LiveHook:
         return True
 
     def _native_blocked(self, context) -> bool:
+        if self.simple_mode:
+            return False
         if getattr(self, 'native_edit_disabled', False):
             return True
         scopes = getattr(self, 'native_blocked_scopes', set())
@@ -864,7 +961,14 @@ class LiveHook:
 
     def _quarantine_native(self, reason='uncertain-write', context=None) -> None:
         """Do not retry unsafe native mutations; expose the actual reason."""
-        scoped = reason == 'input-barrier-lost' and context is not None
+        if self.simple_mode:
+            # Entire quarantine system is inactive in switcher-only mode:
+            # no disabled scopes, global lock, tray warning, or recovery gate.
+            return
+        # Only a proven HWND-addressed native mutation can be isolated.
+        # Generic SendInput and worker/replay faults still have a global stop.
+        scoped = context is not None and reason in (
+            'input-barrier-lost', 'uncertain-native-write')
         if reason == 'worker-error':
             # An unexpected worker/replay failure is not a RichEdit-only
             # preflight refusal: retain the stop for keyboard early edits.
@@ -881,13 +985,22 @@ class LiveHook:
             self.native_edit_disabled = True
             self.native_early_disabled = True
         if first:
+            # One metadata-only incident code explains a persistent degraded
+            # tray state without recording any document, key or window text.
+            emit_pipeline(self, 'transport-quarantine', reason=reason,
+                          scoped=bool(scoped))
             cause = {
                 'uncertain-write': 'после неопределённого результата записи',
+                'uncertain-native-write': 'после неподтверждённой записи в исходное поле',
                 'input-barrier-lost': 'из-за смены поля или неполной доставки задержанных клавиш',
                 'worker-error': 'из-за ошибки рабочего потока',
             }.get(reason, 'из-за ошибки нативной коррекции')
             if scoped:
-                message = 'Автоисправление ограничено в одном поле. Проверь введённый текст.'
+                message = ('Автоисправление ограничено в одном поле. Проверь введённый текст.'
+                           if reason == 'input-barrier-lost' else
+                           'Нативная замена в этом поле не подтверждена. '
+                           'Изменения этого поля остановлены; другие поля доступны. '
+                           'Проверь текст.')
             else:
                 message = ('Нативные исправления заблокированы ' + cause + '. '
                            'Остальные функции могут работать. Для восстановления закройте '
@@ -994,7 +1107,8 @@ class LiveHook:
             self._trace_word('post-early-deferred', context, state='read-failed',
                              reason=type(error).__name__)
 
-    def _send_guarded_inputs(self, events, valid, *, before_send=None):
+    def _send_guarded_inputs(self, events, valid, *, before_send=None,
+                             final_check=None):
         """One serial SendInput attempt, one bounded remainder, balanced releases.
 
         Generic keyboard correction, snippets, and manual cycling all use the
@@ -1024,7 +1138,7 @@ class LiveHook:
             return 0, 'context-changed-before-send'
         guard = getattr(self, 'password_guard', None)
         layout_only = getattr(getattr(self, '_native_worker_tls', None), 'layout_only', False)
-        if guard is not None and layout_only is not True:
+        if guard is not None and not self.simple_mode and layout_only is not True:
             # Never wait for UIA in WH_KEYBOARD_LL. All live generic text
             # mutations are scheduled off-hook before reaching this method.
             if (getattr(self, '_in_keyboard_callback', False)
@@ -1033,11 +1147,23 @@ class LiveHook:
             current = self.context()
             if current is None:
                 return 0, 'password-field-unverified'
-            if current.password_revision and not guard.revalidate(
+            if (current.password_revision or getattr(guard, 'explicit_password_only', False)) and not guard.revalidate(
                     current.top, current.focus, current.password_revision):
                 return 0, 'password-field-changed-before-send'
             if not valid():
                 return 0, 'context-changed-after-password-check'
+        if final_check is not None:
+            # The caller's read-only, potentially blocking field/selection
+            # preflight belongs AFTER password/UIA context admission and BEFORE
+            # the first irreversible SendInput call. A refused or failed read
+            # is ordinary zero-progress cancellation: no trigger mutation,
+            # worker exception, fallback packet or uncertain-write quarantine.
+            try:
+                checked = final_check()
+            except Exception:
+                checked = False
+            if not checked or not valid():
+                return 0, 'field-caret-changed-before-send'
 
         def send(part, *, cleanup=False):
             if before_send is not None and not cleanup:
@@ -1098,7 +1224,7 @@ class LiveHook:
         return observed
 
     def _schedule_native(self, context, job, *, trigger=None, drop_always=False,
-                         layout_only=False):
+                         layout_only=False, on_finished=None):
         """Start a native editor transaction off WH_KEYBOARD_LL.
 
         The hook then only captures physical keys to a bounded queue. On
@@ -1106,6 +1232,20 @@ class LiveHook:
         `job` returns True iff an original punctuation hotkey was already
         inserted by the native replacement and must not be replayed.
         """
+        pending = getattr(self, 'native_pending_recovery', None)
+        if pending is not None and not self.simple_mode:
+            self.emit('diagnostic', 'native-job-unavailable:pending-input-recovery')
+            # This state deliberately refuses to start another barrier so
+            # buffered physical keys cannot be silently lost or replayed into
+            # a different editor.  Previously it looked to the user like an
+            # arbitrary dictionary failure; report it once per saved buffer.
+            if getattr(self, '_native_pending_notice_id', None) != id(pending):
+                self._native_pending_notice_id = id(pending)
+                self.emit('error',
+                          'Автокоррекция приостановлена: задержанные клавиши '
+                          'сохранены. Проверь исходное поле и пункт возврата '
+                          'клавиш в меню TypeBridge')
+            return False  # Do not suppress another batch while recovery is pending.
         gate = getattr(self, 'native_queue', None)
         if gate is None:
             gate = self.native_queue = NativeTransactionQueue()
@@ -1124,6 +1264,7 @@ class LiveHook:
 
         def work():
             drop_trigger = bool(drop_always)
+            job_started = False
             try:
                 self._native_worker_tls.active = True
                 self._native_worker_tls.owner = owner
@@ -1136,12 +1277,26 @@ class LiveHook:
                             or current.language != gate.expected_language):
                         gate.abort('layout-changed', owner=owner)
                     else:
+                        job_started = True
                         drop_trigger = bool(job()) or drop_trigger
                 else:
                     gate.abort('focus-changed-before-commit', owner=owner)
                     self.emit('diagnostic', 'native-job-refused:focus-changed')
             except Exception as error:
-                self._quarantine_native('worker-error')
+                if job_started:
+                    # The editing job may have committed a partial write.
+                    # Never repeat the original trigger after an uncertain
+                    # mutation. Independent following physical keys are
+                    # still replayed ONLY when the source field/HKL guard
+                    # confirms their recipient. Aborting the whole queue
+                    # here loses legitimate following characters.
+                    gate.mark_trigger_irreversible(owner=owner)
+                    self._quarantine_native('worker-error')
+                else:
+                    # Failing UIA/context/HKL preflight has not entered the
+                    # editing job. Keep this scoped to the source field and
+                    # preserve intact held keys for explicit recovery.
+                    gate.abort('worker-preflight-error', owner=owner)
                 self.emit('diagnostic', 'native-worker-error:' + type(error).__name__)
             finally:
                 drop_trigger = drop_trigger or gate.trigger_irreversible
@@ -1161,6 +1316,8 @@ class LiveHook:
                     self._native_worker_tls.layout_only = False
                     self._native_worker_tls.owner = None
                     gate.close(owner=owner)
+                    if on_finished is not None:
+                        on_finished()
 
         try:
             thread = threading.Thread(target=work, name='TypeBridgeNativeEdit', daemon=True)
@@ -1169,6 +1326,8 @@ class LiveHook:
             return True
         except RuntimeError:
             gate.close(owner=owner)
+            if on_finished is not None:
+                on_finished()
             self.emit('error', 'Не удалось запустить нативную транзакцию')
             return False
 
@@ -1181,6 +1340,7 @@ class LiveHook:
         holds following input and replays the trigger only if nothing was edited.
         """
         if getattr(self, '_keyboard_job_release', None) is not None:
+            self.emit('diagnostic', 'keyboard-job-unavailable:pending-callback-release')
             return False
         serial = getattr(self, '_keyboard_job_serial', 0) + 1
         self._keyboard_job_serial = serial
@@ -1192,9 +1352,22 @@ class LiveHook:
             self._keyboard_job_release = None
             return False
 
+        def finish():
+            pending = getattr(self, '_keyboard_job_release', None)
+            if pending is not None and pending[0] == serial:
+                self._keyboard_job_release = None
+
         def released_job():
             try:
-                if not release.wait(.5):
+                # Debug-only, metadata-only timing of the callback-to-worker
+                # handoff. This has no effect on the release barrier or its
+                # half-second failure budget.
+                release_started = perf_counter() if getattr(self, 'pipeline_debug', False) else None
+                acknowledged = release.wait(.5)
+                if release_started is not None:
+                    emit_pipeline(self, 'transport', method='callback-release',
+                                  elapsed_ms=round((perf_counter() - release_started) * 1000, 2))
+                if not acknowledged:
                     # Without callback acknowledgement the trigger is
                     # ambiguous; never synthesize it a second time.
                     self.native_queue.mark_trigger_irreversible()
@@ -1222,13 +1395,11 @@ class LiveHook:
                     self.keyboard_early_disabled = True
                 raise
             finally:
-                pending = getattr(self, '_keyboard_job_release', None)
-                if pending is not None and pending[0] == serial:
-                    self._keyboard_job_release = None
+                finish()
 
         options = {'layout_only': True} if layout_only else {}
         started = self._schedule_native(context, released_job, trigger=trigger,
-                                        drop_always=drop_always, **options)
+                                        drop_always=drop_always, on_finished=finish, **options)
         if not started:
             self._keyboard_job_release = None
         else:
@@ -1259,7 +1430,7 @@ class LiveHook:
 
     def _browser_field_changed_after_submission(self, context, revision):
         """Never switch a browser thread's HKL for a different DOM input."""
-        if context.process_name.lower() not in BROWSER_APPS:
+        if self.simple_mode or context.process_name.lower() not in BROWSER_APPS:
             return False
         changed = getattr(self, '_browser_field_revision', 0) != revision
         try:
@@ -1303,7 +1474,7 @@ class LiveHook:
                 if not observed or observed != (int(expected_hkl) & 0xFFFFFFFF):
                     return False
             # context() already resolves the current guard revision and
-            # rejects unknown/password/stale fields. Calling revalidate()
+            # rejects explicit password fields. Calling revalidate()
             # again here would require a second asynchronous UIA update and
             # reject otherwise verified editor transactions.
             return True
@@ -1394,7 +1565,27 @@ class LiveHook:
                             gate.abort('modifier-state-changed', owner=owner)
                             return False
                         return True
-                    sent, reason = self._send_guarded_inputs(playable, valid)
+                    submission_started = False
+                    def mark_submission():
+                        nonlocal submission_started
+                        # Called immediately before the irreversible API.
+                        # If the preflight raises before this callback, the
+                        # entire physical buffer remains provably unsubmitted.
+                        submission_started = True
+                    try:
+                        sent, reason = self._send_guarded_inputs(
+                            playable, valid, before_send=mark_submission)
+                    except Exception as error:
+                        if submission_started:
+                            uncertain_replay = True
+                            gate.abort('unsafe-replay-send-exception', owner=owner)
+                        else:
+                            gate.abort('unsafe-replay-guard-exception-before-send',
+                                       owner=owner)
+                        lost = True
+                        self.emit('error', 'Досылка задержанных клавиш прервана: '
+                                  + type(error).__name__)
+                        break
                     # A pre-send focus refusal accepted NO events. Preserve
                     # the still-intact physical queue for explicit recovery
                     # in its original field, rather than treating the mere
@@ -1435,42 +1626,75 @@ class LiveHook:
                 lost = True
             if lost:
                 reason = gate.aborted_reason or 'replay-error'
+                # A consumed Pause (including its KEYUP) is a command, not
+                # lost text. Saving only that command creates a phantom
+                # recovery record which blocks every subsequent worker.
+                recoverable = [event for event in undelivered
+                               if not (drop_trigger and event.trigger)]
+                # Keep the underlying reason, not only the generic tray
+                # quarantine label. No VK, scan code, text or focus ID is
+                # persisted, only bounded reason and queue cardinality.
+                emit_pipeline(self, 'input-barrier-aborted', reason=reason,
+                              events=len(recoverable),
+                              pending=bool(recoverable),
+                              uncertain=bool(uncertain_replay))
                 # Preserve an untouched backlog in volatile memory ONLY if
                 # this batch was never partially submitted. Never insert
                 # it into an unrelated target or silently discard it.
-                if (reason in ('focus-changed', 'focus-changed-before-commit',
+                if (not self.simple_mode and reason in ('focus-changed', 'focus-changed-before-commit',
+                               'keyboard-context-changed',
+                               'worker-preflight-error',
+                               'buffer-overflow', 'field-revision-changed',
                                'unsafe-replay-context-changed-before-send',
+                               'unsafe-replay-context-changed-after-password-check',
+                               'unsafe-replay-password-field-unverified',
+                               'unsafe-replay-password-field-changed-before-send',
+                               'unsafe-replay-password-check-requires-worker',
+                               'unsafe-replay-guard-exception-before-send',
                                'modifier-state-changed', 'layout-changed', 'layout-unconfirmed',
                                'keyboard-callback-release-timeout')
-                        and not uncertain_replay and undelivered
+                        and not uncertain_replay and recoverable
+                        and any(event.message not in KEYUP_MESSAGES for event in recoverable)
                         and getattr(self, 'native_pending_recovery', None) is None
                         and (context.process_name.lower() not in BROWSER_APPS or
                              self._native_scope(context) == original_scope)
                         and all(self._native_recovery_key_safe(e, drop_trigger)
-                                for e in undelivered)):
-                    self.native_pending_recovery = (context, tuple(undelivered),
+                                for e in recoverable)):
+                    self.native_pending_recovery = (context, tuple(recoverable),
                                                     bool(drop_trigger), trigger,
                                                     gate.expected_language,
                                                     original_scope,
                                                     gate.expected_hkl, gate.replay_modifiers,
                                                     perf_counter())
-                    self.emit('native-recovery-available', len(undelivered))
+                    self.emit('native-recovery-available', len(recoverable))
                 # A refused (zero-event) replay, focus change or overflow
                 # does not prove the editor's text was mutated. Limit that
                 # quarantine to the source field. An uncertain partial replay
                 # or unexplained failure still requires a global stop.
                 local_failure = (not uncertain_replay and reason in ('focus-changed', 'focus-changed-before-commit',
+                                            'keyboard-context-changed',
+                                            'worker-preflight-error',
                                             'field-revision-changed',
                                             'buffer-overflow', 'external-injected-input',
                                             'modifier-state-changed',
                                             'layout-changed', 'layout-unconfirmed',
                                             'keyboard-callback-release-timeout',
-                                            'unsafe-replay-context-changed-before-send'))
-                self._quarantine_native('input-barrier-lost' if local_failure
-                                        else 'uncertain-write', context if local_failure else None)
-                self.emit('error', 'Задержанный ввод не может быть безопасно доставлен: '
-                          + reason + ('; исходное поле заблокировано' if local_failure
-                                      else '; нативный транспорт заблокирован'))
+                                            'unsafe-replay-context-changed-before-send',
+                                            'unsafe-replay-context-changed-after-password-check',
+                                            'unsafe-replay-password-field-unverified',
+                                            'unsafe-replay-password-field-changed-before-send',
+                                            'unsafe-replay-password-check-requires-worker',
+                                            'unsafe-replay-guard-exception-before-send'))
+                if not self.simple_mode:
+                    self._quarantine_native('input-barrier-lost' if local_failure
+                                            else 'uncertain-write', context if local_failure else None)
+                    self.emit('error', 'Задержанный ввод не может быть безопасно доставлен: '
+                              + reason + ('; исходное поле заблокировано' if local_failure
+                                          else '; нативный транспорт заблокирован'))
+                else:
+                    # The failed transaction is over. Never keep a persistent
+                    # buffer/quarantine that blocks Pause or later words.
+                    self.emit('diagnostic', 'simple-transport-refused:' + reason)
                 if trigger_vk is not None:
                     self.suppressed_keyups.discard(trigger_vk)
             # Replayed injected keystrokes intentionally bypass token parsing.
@@ -1512,14 +1736,24 @@ class LiveHook:
         if perf_counter() - timestamp > 180:
             self.expire_native_pending()
             return False
-        current = self.context()
+        try:
+            current = self.context()
+        except Exception:
+            # A stalled/failing UIA provider must not throw out of the tray
+            # Restore action or destroy the recoverable physical snapshot.
+            self.emit('error', 'Возврат клавиш отменён: невозможно проверить исходное поле')
+            return False
         if (current is None or self._word_scope(current) != self._word_scope(original)
                 or current.language != expected_language
                 or self._native_scope(current) != expected_scope):
             self.emit('error', 'Для возврата клавиш активируй исходное поле '
                       'и нужную раскладку (' + expected_language.upper() + ')')
             return False
-        actual_hkl = int(self.user32.GetKeyboardLayout(current.thread_id) or 0) & 0xFFFFFFFF
+        try:
+            actual_hkl = int(self.user32.GetKeyboardLayout(current.thread_id) or 0) & 0xFFFFFFFF
+        except Exception:
+            self.emit('error', 'Возврат клавиш отменён: раскладка не проверена')
+            return False
         if ((expected_hkl is not None and (not actual_hkl or actual_hkl != expected_hkl))
                 or (expected_modifiers is not None and self._replay_modifiers() != expected_modifiers)):
             self.emit('error', 'Для возврата клавиш восстанови исходную раскладку и состояние Shift/Caps Lock')
@@ -1553,23 +1787,18 @@ class LiveHook:
         paired.extend(PhysicalKey(item.vk, item.scan, 0, WM_KEYUP,
                                   trigger=item.trigger)
                       for item in reversed(unmatched))
-        if len(paired) > gate.limit:
+        if len(paired) > 2 * gate.limit:
             self.emit('error', 'Буфер восстановления превышает безопасный лимит')
             return False
         if not gate.begin(target_scope=expected_scope,
                           expected_hkl=expected_hkl if expected_hkl is not None else actual_hkl,
                           expected_language=expected_language,
                           replay_modifiers=expected_modifiers if expected_modifiers is not None else self._replay_modifiers(),
-                          replay_thread_id=current.thread_id):
+                          replay_thread_id=current.thread_id,
+                          recovery_events=paired):
             self.emit('info', 'Нативная операция ещё выполняется; восстановление не начато')
             return False
         owner = gate.owner
-        for item in paired:
-            if not gate.capture(item):
-                gate.close(owner=owner)
-                # No replay occurred. Preserve the original retry snapshot.
-                self.emit('error', 'Буфер восстановления переполнен; возврат отменён')
-                return False
         self.native_pending_recovery = None
         self.emit('native-recovery-available', 0)
 
@@ -1703,27 +1932,48 @@ class LiveHook:
         if (not self.settings.early_correction or self.paused
                 or getattr(self, "early_done", False)):
             return False
+        # Both the unified and legacy prefix policies require at least four
+        # physical keys (rare exact matches require five). Avoid class/window
+        # inspection and dictionary work on the first three keystrokes in the
+        # low-level hook. Preserve the pending-keyup cancellation contract.
+        if len(self.keys) < 4:
+            if await_native_keyup:
+                self.native_early_keyup_pending = None
+            return False
         native = context.process_name != "notepad++.exe"
         if native:
             if not self.settings.early_native:
                 return False
-            name = ctypes.create_unicode_buffer(128)
-            self.user32.GetClassNameW(context.focus, name, len(name))
-            keyboard = not supports_native_edit(name.value)
+            if self.simple_mode:
+                # The user-selected switcher-only policy ALWAYS uses keyboard
+                # packets. Reading GetClassNameW for every fourth/subsequent
+                # browser character cannot affect that choice and can block
+                # the low-level hook on a foreign window procedure.
+                keyboard = True
+            else:
+                name = ctypes.create_unicode_buffer(128)
+                self.user32.GetClassNameW(context.focus, name, len(name))
+                keyboard = not self._use_native_text_transport(context, name.value)
         else:
             keyboard = False
         # A RichEdit timeout must not disable desktop web, office, Qt/WPF or
         # other editors using keyboard packets. Each transport owns its state.
         disabled_attribute = ("keyboard_early_disabled" if keyboard else
                               "native_early_disabled" if native else "early_disabled")
-        if getattr(self, disabled_attribute, False):
+        if not self.simple_mode and getattr(self, disabled_attribute, False):
             return False
-        if keyboard and self._word_scope(context) in getattr(self, 'native_blocked_scopes', set()):
+        if not self.simple_mode and keyboard and self._word_scope(context) in getattr(self, 'native_blocked_scopes', set()):
             return False  # Lost queued keys quarantine their field for every transport.
         if native and not keyboard and (self._native_blocked(context)
                 or getattr(self, 'native_early_deferred', False)):
             return False
+        policy_started = perf_counter() if getattr(self, 'pipeline_debug', False) else None
         decision = suggest_live_early(self.engine, self.keys, context.language)
+        if policy_started is not None:
+            policy_ms = (perf_counter() - policy_started) * 1000
+            if policy_ms >= 2:
+                emit_pipeline(self, 'transport', method='early-policy',
+                              elapsed_ms=round(policy_ms, 2), interval=2)
         if decision is None:
             if await_native_keyup:
                 self.native_early_keyup_pending = None
@@ -1807,7 +2057,7 @@ class LiveHook:
                     self.emit('diagnostic', 'early-refused:' +
                               (getattr(bridge, 'failure', '') or type(error).__name__))
                     return False
-                self._quarantine_native()
+                self._quarantine_native('uncertain-native-write', context)
                 if not key_delivered:
                     self.suppressed_keyups.add(self.keys[-1][0])
                 self.clear_token()
@@ -1848,7 +2098,7 @@ class LiveHook:
                           reason=outcome.reason)
             setattr(self, disabled_attribute, True)
             if native:
-                self._quarantine_native()
+                self._quarantine_native('uncertain-native-write', context)
             self.clear_token()
             self.token_blocked = True
             if native:
@@ -1965,10 +2215,51 @@ class LiveHook:
                              getattr(self, '_browser_field_revision', 0)),)
         return scope
 
-    def _remember(self, context, keys, text, language, suffix, *, whole=False):
+    def _remember(self, context, keys, text, language, suffix, *, whole=False,
+                  caret_offset=None):
         self.last_word = remember_word(keys, text, language, suffix,
                                        self._word_scope(context), whole=whole,
-                                       active_languages=getattr(self.engine, 'active_languages', None))
+                                       active_languages=getattr(self.engine, 'active_languages', None),
+                                       caret_offset=caret_offset)
+
+    def _physical_keys_form_word(self, keys):
+        """Allow OEM letter keys without consulting dictionaries or frequency.
+
+        A punctuation glyph under the current HKL can be a letter under the
+        intended HKL; the physical sequence is still a whole word when at
+        least one active layout maps every key to a letter.
+        """
+        if not keys:
+            return False
+        for lang in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
+            try:
+                candidate = self.engine.mapper.word(list(keys), lang)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                continue
+            if (len(candidate) == len(keys) and all(ch.isalpha() for ch in candidate)):
+                return True
+        return False
+
+    @staticmethod
+    def _use_native_text_transport(context, focus_class):
+        """Never infer an HWND-editable target from class `Edit` alone.
+
+        A browser-hosted Edit still needs DOM-level recipient safety and must
+        not fall into the native Win32 text transport merely by class name.
+        """
+        if (not supports_native_edit(focus_class)
+                or not native_field_metadata(context.process_name, context.process_name,
+                                             focus_class)):
+            # A stale or incorrect native_target flag must not make a
+            # browser/WebView-hosted Edit HWND an addressable DOM field.
+            return False
+        proven = getattr(context, 'native_target', None)
+        if proven is not None:
+            return proven is True
+        # Test/legacy contexts without a host identity may only qualify under
+        # the same conservative process-level native policy.
+        return native_field_metadata(context.process_name, context.process_name,
+                                     focus_class)
 
     def _switch_direct(self, context: FocusContext, language: str) -> None:
         if language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
@@ -2003,16 +2294,27 @@ class LiveHook:
 
     def _try_caret_recovery(self, context, *, boundary_vk=None):
         """Recover from a currently verified element, never from skipped keys."""
+        if self.simple_mode:
+            # No UIA/password worker or caret-metadata admission in switcher
+            # mode. Use the physically tracked word, not a provider query.
+            return False
         if self._native_is_off_hook() or self._native_blocked(context):
             return False
         guard = getattr(self, 'password_guard', None)
         sample = getattr(guard, 'snapshot', None)
         element_id = getattr(sample, 'element_id', None)
         trigger = getattr(self, '_last_physical_event', None)
-        if (guard is None or trigger is None or not isinstance(element_id, str)
-                or not element_id.startswith('uia:')
+        permissive = getattr(guard, 'explicit_password_only', False) is True
+        if (guard is None or trigger is None
+                or (not permissive and (not isinstance(element_id, str)
+                                        or not element_id.startswith('uia:')))
                 or guard.permit_revision(context.top, context.focus) != context.password_revision):
+            if boundary_vk is None:
+                emit_pipeline(self, 'manual-cycle', reason='recovery-not-admitted',
+                              method='uia')
             return False
+        if permissive or not isinstance(element_id, str) or not element_id.startswith('uia:'):
+            element_id = ''  # Reader captures and verifies its own focused UIA identity.
         scope = self._native_scope(context)
         settings = self.settings
         hkl = context.hkl or int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
@@ -2036,11 +2338,21 @@ class LiveHook:
                     self._guard_skipped_token = False
                 return False
             if not valid() or not guard.revalidate(context.top, context.focus, context.password_revision):
+                if boundary_vk is None:
+                    emit_pipeline(self, 'manual-cycle', reason='recovery-context-changed',
+                                  method='uia')
                 return refused()
-            word = read_caret_word(context, self.engine.mapper, element_id, valid)
+            started = perf_counter()
+            word = read_caret_word(context, self.engine.mapper, element_id, valid,
+                                  active_languages=getattr(self.engine, 'active_languages', None),
+                                  allow_following_word=boundary_vk is None)
+            if boundary_vk is None:
+                emit_pipeline(self, 'manual-cycle', method='uia-recovery',
+                              reason='word-present' if word is not None else 'reader-refused',
+                              elapsed_ms=round((perf_counter() - started) * 1000))
             if (word is None or not valid()
                     or not guard.revalidate(context.top, context.focus, context.password_revision)
-                    or (boundary_vk is not None and word.suffix)):
+                    or (boundary_vk is not None and (word.suffix or word.caret_offset is not None))):
                 emit_pipeline(self, 'word-recovery-refused', reason='unverified-caret-word')
                 if boundary_vk is None:
                     self.emit('info', 'Не удалось безопасно определить слово у каретки')
@@ -2052,35 +2364,398 @@ class LiveHook:
                 self.keys = list(word.keys)
                 return self._correct(context, boundary_vk, '')
             self._remember(context, list(word.keys), word.text, context.language,
-                           word.suffix, whole=True)
-            self._cycle_word(context)
+                           word.suffix, whole=True, caret_offset=word.caret_offset)
+            # This verified UIA read is the first snapshot. The generic
+            # commit path still performs one independent read before SendInput.
+            self._cycle_word(context, selection_checked=True, preverified=word)
             return True
 
         return self._schedule_keyboard(context, recover, trigger=trigger,
-                                       drop_always=boundary_vk is None)
+                                       drop_always=boundary_vk is None,
+                                       allow_paused=boundary_vk is None)
 
-    def _cycle_word(self, context: FocusContext) -> None:
+    def _cycle_scintilla_selection(self, context):
+        """Selection takes priority; only a confirmed empty range falls through."""
+        if (getattr(self, '_in_keyboard_callback', False)
+                and not self._native_is_off_hook()):
+            if not self._schedule_keyboard(
+                    context, lambda: self._cycle_scintilla_selection(context),
+                    trigger=getattr(self, '_last_physical_event', None),
+                    drop_always=True, allow_paused=True):
+                self.emit('diagnostic', 'selection-worker-unavailable')
+            return
+        epoch = getattr(self, '_selection_epoch', 0)
+        settings = self.settings
+        source_hkl = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        def valid():
+            current = self.context()
+            gate = getattr(self, 'native_queue', None)
+            return (not self.stopping and self.settings is settings and current is not None
+                    and self._word_scope(current) == self._word_scope(context)
+                    and current.language == context.language
+                    and getattr(self, '_selection_epoch', 0) == epoch
+                    and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
+                    and not (gate is not None and gate.aborted_reason)
+                    and not any(self.pressed(vk) for vk in
+                                (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
+        cycle = None
+        transport = None
+        try:
+            if not valid():
+                raise ValueError('selection-context-changed')
+            with ScintillaRangeTransport(context) as transport:
+                bridge = ScintillaSelectionAdapter(
+                    transport, self._word_scope(context), epoch, valid)
+                snapshot = bridge.snapshot()
+                if not snapshot.text:
+                    self._selection_cycle = None
+                    # Transport is closed before invoking the existing word path.
+                    empty = True
+                else:
+                    empty = False
+                    cycle = getattr(self, '_selection_cycle', None)
+                    active = tuple(getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES))
+                    if (cycle is None or cycle.closed or cycle.snapshot != snapshot
+                            or cycle.language != context.language or tuple(cycle.active) != active
+                            or cycle.mapper is not self.engine.mapper):
+                        cycle = SelectionCycle(snapshot, context.language, self.engine.mapper, active)
+                    outcome = replace_selection(cycle, bridge, valid)
+            if empty:
+                self._cycle_word(context, selection_checked=True)
+                return
+            if outcome.state != 'verified':
+                raise ValueError('selection-' + outcome.state)
+            if not valid() or not self._postwrite_permitted(context, expected_hkl=source_hkl):
+                raise ValueError('selection-context-changed-after-write')
+            hkl = self.engine.mapper.layouts[cycle.language]
+            response = ctypes.c_size_t()
+            self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
+                WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                180, ctypes.byref(response))
+            observed = self._record_replay_layout(context, hkl)
+            if observed != int(hkl) & 0xFFFFFFFF:
+                raise ValueError('selection-layout-unconfirmed')
+            current = self.context()
+            if (current is None or self._word_scope(current) != self._word_scope(context)
+                    or current.language != cycle.language or self.stopping
+                    or self.settings is not settings
+                    or getattr(self, '_selection_epoch', 0) != epoch):
+                raise ValueError('selection-context-changed-after-layout')
+            # Clear stale word memory without changing the selection's epoch.
+            self.keys.clear()
+            self.last_word = None
+            self.token_blocked = True
+            self.last_focus, self.last_language = context.focus, cycle.language
+            self._selection_cycle = cycle
+            self.emit('ok', 'Выделение → ' + cycle.language.upper())
+        except Exception as error:
+            if cycle is not None:
+                cycle.closed = True
+            self.clear_token()
+            self.token_blocked = True
+            # Never retry a possible range write through the word/Backspace path.
+            self.emit('diagnostic', 'selection-cycle-refused:' + type(error).__name__)
+            if getattr(transport, 'write_started', False):
+                self.emit('error', 'Результат переключения выделения не подтверждён; проверь текст')
+
+    def _recover_scintilla_word(self, context):
+        """Read a collapsed Scintilla caret through its HWND, not UIA memory.
+
+        This is only used after the selection adapter proved an empty range.
+        It never writes based on this snapshot: the ordinary prefix transaction
+        rereads the editor and validates the exact word plus suffix before edit.
+        """
+        scope = self._word_scope(context)
+        settings = self.settings
+        hkl = int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+
+        def valid():
+            current = self.context()
+            gate = getattr(self, 'native_queue', None)
+            return (not self.stopping and self.settings is settings
+                    and current is not None and self._word_scope(current) == scope
+                    and current.language == context.language
+                    and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == hkl
+                    and not (gate is not None and gate.aborted_reason)
+                    and not any(self.pressed(vk) for vk in
+                                (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
+
+        # A previous uncertain Scintilla write must not be silently retried
+        # through recovery merely because its remembered word was discarded.
+        if (not self.simple_mode and getattr(self, 'early_disabled', False)
+                and getattr(self, 'token_blocked', False)):
+            return False
+        if not valid():
+            return False
+        try:
+            bridge = ScintillaEarlyBridge(context)
+            bridge.off_hook = self._native_is_off_hook()
+            with bridge:
+                data, byte_caret = bridge.snapshot()
+                prefix = data[:byte_caret].decode('utf-8', 'strict')
+                following = data[byte_caret:].decode('utf-8', 'strict')
+            # A bounded, complete UTF-16 context is sufficient to recover a
+            # <=40-character word and <=40-character suffix. If trimming cuts
+            # into a word, parse_caret_word refuses the unproven left edge.
+            before = prefix[-81:]
+            after = following[:81]
+            while len(before.encode('utf-16-le')) > 162:
+                before = before[1:]
+            while len(after.encode('utf-16-le')) > 162:
+                after = after[:-1]
+            identity = 'scintilla:bounded-caret'
+            sample = dict(before=before, after=after,
+                          at_start=len(before) == len(prefix),
+                          at_end=len(after) == len(following), element_id=identity)
+            recovered = parse_caret_word(
+                sample, self.engine.mapper, context.language, identity,
+                active_languages=getattr(self.engine, 'active_languages', None),
+                allow_following_word=True)
+        except Exception as error:
+            self.emit('diagnostic', 'manual-scintilla-recovery-refused:' + type(error).__name__)
+            return False
+        if recovered is None or recovered.caret_offset is not None or not valid():
+            return False  # Never use the generic interior-caret SendInput path.
+        # Old incomplete hook tracking must not overwrite the independently
+        # recovered word when _cycle_word is entered for the second time.
+        self.keys.clear()
+        self._remember(context, recovered.keys, recovered.text, context.language,
+                       recovered.suffix, whole=True)
+        if self.last_word is None:
+            return False
+        self._cycle_word(context, selection_checked=True)
+        return True
+
+    def _cycle_browser_selection(self, context):
+        """Prefer one verified Chrome UIA selection over remembered key history.
+
+        Browser TextPattern selection is not a collapsed caret. Only one
+        bounded Unicode packet may replace a confirmed selection; never send
+        Backspace/Delete to recover it. All UIA calls execute after hook release.
+        This remains non-atomic with browser DOM changes around SendInput.
+        """
+        if getattr(self, '_in_keyboard_callback', False) and not self._native_is_off_hook():
+            if not self._schedule_keyboard(
+                    context, lambda: self._cycle_browser_selection(context),
+                    trigger=getattr(self, '_last_physical_event', None),
+                    drop_always=True, allow_paused=True):
+                self.emit('diagnostic', 'browser-selection-worker-unavailable')
+            return
+        guard = getattr(self, 'password_guard', None)
+        sample = getattr(guard, 'snapshot', None)
+        element_id = '' if self.simple_mode else getattr(sample, 'element_id', '')
+        source_scope = self._native_scope(context)
+        expected_followup = getattr(self, '_browser_unverified_followup', None)
+        browser_revision = getattr(self, '_browser_field_revision', 0)
+        settings = self.settings
+        epoch = getattr(self, '_selection_epoch', 0)
+        source_hkl = context.hkl or int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+
+        def valid():
+            current = self.context()
+            gate = getattr(self, 'native_queue', None)
+            return (not self.stopping and self.settings is settings
+                    and getattr(self, 'password_guard', None) is guard
+                    and current is not None
+                    and self._native_scope(current) == source_scope
+                    and current.language == context.language
+                    and getattr(self, '_selection_epoch', 0) == epoch
+                    and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
+                    and not (gate is not None and gate.aborted_reason)
+                    and not any(self.pressed(vk) for vk in
+                                (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
+
+        if ((not self.simple_mode and (not isinstance(element_id, str)
+                                      or not element_id.startswith('uia:')
+                                      or not element_id[4:])) or not valid()):
+            emit_pipeline(self, 'manual-cycle', method='uia-selection', reason='target-unverified')
+            return
+        started = perf_counter()
+        options = {'simple_mode': True} if self.simple_mode else {}
+        if getattr(self, 'pipeline_debug', False):
+            options['on_refusal'] = lambda reason: emit_pipeline(
+                self, 'manual-cycle', method='uia-selection-source', reason=reason)
+        selected = read_selected_word(
+            context, self.engine.mapper, element_id, valid,
+            active_languages=getattr(self.engine, 'active_languages', None), **options)
+        emit_pipeline(self, 'manual-cycle', method='uia-selection',
+                      reason='word-present' if selected is not None else 'selection-unavailable',
+                      elapsed_ms=round((perf_counter() - started) * 1000))
+        if selected is None:
+            # A failed selected-word query cannot distinguish a collapsed
+            # caret from an unsupported provider or an actual selection. In
+            # simple mode the historical generic path deliberately omitted
+            # caret preflight; falling through here could delete preceding
+            # text: the FIRST Backspace erases the selection, subsequent ones
+            # eat the prefix. Require an independent collapsed-caret snapshot
+            # without re-enabling password-field checks or quarantine.
+            if self.simple_mode:
+                refusal = (lambda reason: emit_pipeline(
+                    self, 'manual-cycle', method='uia-caret-source', reason=reason)
+                    ) if getattr(self, 'pipeline_debug', False) else None
+                diagnostics = {'on_refusal': refusal} if refusal is not None else {}
+                recovered = read_caret_word(
+                    context, self.engine.mapper, '', valid,
+                    active_languages=getattr(self.engine, 'active_languages', None),
+                    allow_following_word=True, simple_mode=True,
+                    **diagnostics)
+                if recovered is None or not valid():
+                    emit_pipeline(self, 'manual-cycle', method='uia-caret',
+                                  reason='collapsed-caret-unverified')
+                    self.emit('info', 'Pause: выделение или положение каретки не подтверждено; текст не изменён')
+                    return
+                if expected_followup is not None and (
+                        expected_followup[0] != source_scope
+                        or expected_followup[1] != recovered.element_id
+                        or expected_followup[2] != context.language
+                        or expected_followup[3] != recovered.text
+                        or expected_followup[4] != tuple(recovered.keys)
+                        or expected_followup[5] != recovered.suffix
+                        or expected_followup[6] != recovered.caret_offset
+                        or (expected_followup[7] and expected_followup[7] !=
+                            getattr(recovered, 'after_digest', ''))):
+                    # An accepted selected-word SendInput is not DOM readback.
+                    # If Chrome collapsed at the *start* of a failed edit,
+                    # ordinary caret recovery can read the PRECEDING word
+                    # (possibly even with the expected target spelling).
+                    # Preserve the gate until actual typing/navigation or
+                    # mouse activity clears it; repeated Pause stays safe.
+                    self.token_blocked = True
+                    emit_pipeline(self, 'manual-cycle', method='uia-caret',
+                                  reason='selected-followup-not-proven')
+                    return
+                self.keys.clear()
+                self._remember(context, recovered.keys, recovered.text,
+                               context.language, recovered.suffix, whole=True,
+                               caret_offset=recovered.caret_offset)
+                if self.last_word is None:
+                    return
+                self._cycle_word(context, selection_checked=True,
+                                 preverified=recovered)
+                return
+            word = getattr(self, 'last_word', None)
+            if not self.simple_mode and (word is None or word.scope != self._word_scope(context)):
+                recovered = read_caret_word(
+                    context, self.engine.mapper, element_id, valid,
+                    active_languages=getattr(self.engine, 'active_languages', None),
+                    allow_following_word=True)
+                if recovered is not None and valid():
+                    self.keys.clear()
+                    self._remember(context, recovered.keys, recovered.text,
+                                   context.language, recovered.suffix, whole=True,
+                                   caret_offset=recovered.caret_offset)
+                    self._cycle_word(context, selection_checked=True,
+                                     preverified=recovered)
+                    return
+            self._cycle_word(context, selection_checked=True)
+            return
+
+        if expected_followup is not None and (
+                expected_followup[0] != source_scope
+                or expected_followup[1] != selected.element_id
+                or expected_followup[2] != context.language
+                or expected_followup[3] != selected.text
+                or expected_followup[4] != tuple(selected.keys)
+                or expected_followup[5] != ''):
+            self.token_blocked = True
+            emit_pipeline(self, 'manual-cycle', method='uia-selection',
+                          reason='selected-followup-not-proven')
+            return
+        try:
+            variant = RecentWord(tuple(selected.keys), selected.text,
+                                 context.language, '', self._word_scope(context))
+            target, replacement = variant.next_variant(
+                self.engine.mapper, getattr(self.engine, 'active_languages', None))
+        except ValueError:
+            self.emit('info', 'Выделенное слово нельзя точно сопоставить с активными раскладками')
+            return
+        if not valid():
+            emit_pipeline(self, 'manual-cycle', method='uia-selection', reason='context-changed')
+            return
+
+        # Only Unicode insertion: the browser itself replaces its selected
+        # range. No blind Backspace prefix can erase a different word.
+        events = unicode_inputs(replacement)
+        sent, reason = self._send_guarded_inputs(
+            events, valid, before_send=self._mark_keyboard_trigger_mutation,
+            final_check=lambda: verify_selected_word(context, selected, valid))
+        self._confirm_keyboard_trigger_acceptance(sent)
+        if sent != len(events):
+            emit_pipeline(self, 'manual-cycle', method='uia-selection',
+                          reason=reason, result='refused' if sent == 0 else 'partial')
+            if sent:
+                self._quarantine_native('uncertain-write')
+                self.emit('error', 'Частичная отправка выделенного слова: проверь текст, повтор запрещён')
+            return
+        self.clear_token()
+        self.token_blocked = True
+        if not self._postwrite_permitted(context, expected_hkl=source_hkl,
+                                         browser_revision=browser_revision):
+            emit_pipeline(self, 'manual-cycle', method='uia-selection',
+                          reason='postwrite-context-changed')
+            return
+        hkl = self.engine.mapper.layouts[target]
+        result = ctypes.c_size_t()
+        self.user32.SendMessageTimeoutW(context.layout_window or context.focus,
+            WM_INPUTLANGCHANGEREQUEST, 0, hkl, SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            180, ctypes.byref(result))
+        observed = self._record_replay_layout(context, hkl)
+        if observed != int(hkl) & 0xFFFFFFFF:
+            emit_pipeline(self, 'manual-cycle', method='uia-selection',
+                          reason='layout-unconfirmed')
+            self.emit('error', 'Выделенный текст отправлен, смена раскладки не подтверждена')
+            return
+        self.last_language = target
+        # The next physical Pause must address THIS exact replacement, not an
+        # arbitrary adjacent word if Chrome accepted but ignored the packet.
+        if self.simple_mode:
+            self._browser_unverified_followup = (
+                source_scope, selected.element_id, target, replacement,
+                tuple(selected.keys), '', None, '')
+        emit_pipeline(self, 'manual-cycle', method='uia-selection',
+                      reason='packet-accepted-unverified')
+        self.emit('info', 'Выделение: пакет замены отправлен → '
+                  + target.upper() + '; содержимое браузера не подтверждено')
+
+    def _cycle_word(self, context: FocusContext, *, selection_checked=False,
+                    preverified=None) -> None:
         if context.language not in getattr(self.engine, 'active_languages', DEFAULT_ACTIVE_LANGUAGES):
             self.clear_token()
             self.emit('info', 'Текущая раскладка исключена из активных языков')
             return
         class_name = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(context.focus, class_name, len(class_name))
-        native = supports_native_edit(class_name.value)
+        native = not self.simple_mode and self._use_native_text_transport(context, class_name.value)
         scintilla = context.process_name == 'notepad++.exe' and class_name.value == 'Scintilla'
+        if scintilla and not selection_checked:
+            self._cycle_scintilla_selection(context)
+            return
+        if context.process_name.lower() in BROWSER_APPS and not selection_checked:
+            guard = getattr(self, 'password_guard', None)
+            sample = getattr(guard, 'snapshot', None)
+            identity = getattr(sample, 'element_id', None)
+            if (self.simple_mode or isinstance(identity, str)
+                    and identity.startswith('uia:') and identity[4:]):
+                self._cycle_browser_selection(context)
+                return
         if native and self._native_blocked(context):
             self.emit('diagnostic', 'native-edit-quarantined:manual-cycle')
             return
         if self.keys and not self.token_blocked:
             text = self.engine.mapper.word(self.keys, context.language)
-            match = self.engine.decide(self.keys, context.language, allow_rare=True)
             self._remember(context, self.keys, text, context.language, "",
-                           whole=bool(match and match.reason == "unique dictionary match"))
+                           whole=self._physical_keys_form_word(self.keys))
         word = getattr(self, "last_word", None)
         if word is None or word.scope != self._word_scope(context):
+            emit_pipeline(self, 'manual-cycle', method='word-memory',
+                          reason='missing' if word is None else 'scope-changed')
+            if scintilla and selection_checked and self._recover_scintilla_word(context):
+                return
             if self._try_caret_recovery(context):
                 return
             self.clear_token()
+            emit_pipeline(self, 'manual-cycle', method='word-memory',
+                          reason='recovery-unavailable')
             self.emit("info", "Нет последнего слова у курсора для переключения")
             return
         try:
@@ -2089,7 +2764,10 @@ class LiveHook:
         except ValueError as error:
             self.emit("info", str(error))
             return
-        if native or scintilla:
+        # The native prefix transaction can only replace text BEFORE caret.
+        # For an interior caret use the bounded whole-word keyboard packet.
+        if (native or scintilla) and (word.caret_offset is None
+                                       or word.caret_offset == len(word.text)):
             if (getattr(self, '_in_keyboard_callback', False)
                     and not self._native_is_off_hook()):
                 trigger = getattr(self, '_last_physical_event', None)
@@ -2112,30 +2790,115 @@ class LiveHook:
             if self._schedule_keyboard(
                     context,
                     lambda: self._cycle_word(context),
-                    trigger=trigger, drop_always=True):
+                    trigger=trigger, drop_always=True, allow_paused=True):
                 return
             # Scheduling failed: do NOT fall back to blocking the hook.
             self.emit('diagnostic', 'manual-cycle-keyboard-worker-unavailable')
             return
-        events = correction_inputs(len(word.text + word.suffix),
-                                   replacement + word.suffix, None, "")
-        def still_valid():
+        # P0-D: the hook's word memory is not a cursor/selection lease. JS or
+        # the editor can programmatically select a range without any mouse or
+        # keyboard event reaching us. Backspace would then erase that selection
+        # FIRST, and subsequent Backspaces would destroy preceding text.
+        # A TextPattern caret read must prove the *same* complete word, suffix
+        # and caret offset, with NO selection, before constructing a packet.
+        # This is a capability check per field, not a browser/unknown ban.
+        source_scope = self._native_scope(context)
+        source_hkl = context.hkl or int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF
+        settings = self.settings
+        def base_valid():
             current = self.context()
+            gate = getattr(self, 'native_queue', None)
             return (not self.stopping and current is not None
-                    and self._word_scope(current) == self._word_scope(context)
+                    and self.settings is settings
+                    and self._native_scope(current) == source_scope
                     and current.language == context.language
-                    and getattr(self, 'last_word', None) is word)
+                    and getattr(self, 'last_word', None) is word
+                    and int(self.user32.GetKeyboardLayout(context.thread_id) or 0) & 0xFFFFFFFF == source_hkl
+                    and not (gate is not None and gate.aborted_reason)
+                    and not any(self.pressed(vk) for vk in
+                                (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
 
-        sent, reason = self._send_guarded_inputs(events, still_valid)
+        def matches(sample):
+            return (sample is not None and base_valid()
+                    and isinstance(getattr(sample, 'element_id', None), str)
+                    and sample.element_id.startswith('uia:') and bool(sample.element_id[4:])
+                    and sample.text == word.text and tuple(sample.keys) == tuple(word.keys)
+                    and sample.suffix == word.suffix
+                    and sample.caret_offset == word.caret_offset)
+
+        # Simple mode intentionally skips password checks and long-lived
+        # quarantine. Browser text remains special: SendInput Backspace may
+        # destroy neighboring text if an unknown selection is present, so
+        # demand the same read-only collapsed-caret evidence before writing.
+        needs_caret_preflight = (not self.simple_mode
+                                 or context.process_name.lower() in BROWSER_APPS)
+
+        def read_matching(expected_id=''):
+            started = perf_counter()
+            try:
+                options = {'simple_mode': True} if self.simple_mode else {}
+                sample = read_caret_word(
+                    context, self.engine.mapper, expected_id, base_valid,
+                    active_languages=getattr(self.engine, 'active_languages', None),
+                    allow_following_word=True, **options)
+            except Exception:
+                # A broken provider is indistinguishable from an unsafe caret.
+                emit_pipeline(self, 'manual-cycle', method='uia-preflight',
+                              reason='reader-exception', elapsed_ms=round(
+                                  (perf_counter() - started) * 1000))
+                return None
+            if sample is None:
+                reason = 'reader-refused'
+            elif not base_valid():
+                reason = 'context-changed'
+            elif (not isinstance(getattr(sample, 'element_id', None), str)
+                  or not sample.element_id.startswith('uia:')
+                  or (expected_id and sample.element_id != expected_id)):
+                reason = 'identity-changed'
+            elif sample.text != word.text:
+                reason = 'text-changed'
+            elif tuple(sample.keys) != tuple(word.keys):
+                reason = 'physical-keys-changed'
+            elif sample.suffix != word.suffix:
+                reason = 'suffix-changed'
+            elif sample.caret_offset != word.caret_offset:
+                reason = 'caret-changed'
+            else:
+                reason = 'matched'
+            emit_pipeline(self, 'manual-cycle', method='uia-preflight', reason=reason,
+                          elapsed_ms=round((perf_counter() - started) * 1000))
+            return sample if reason == 'matched' else None
+
+        # No need to launch a second preflight helper when the same worker
+        # just recovered this exact word and its bound element identity.
+        initial = (None if not needs_caret_preflight else
+                   ((preverified if matches(preverified) else None)
+                    if preverified is not None else read_matching()))
+        if needs_caret_preflight and initial is None:
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('info', 'Ручная замена отменена: слово или выделение у каретки не подтверждено')
+            return
+        # Recheck the SAME UIA Runtime ID after password preflight but before
+        # any SendInput. The guard cannot atomically pin a browser DOM target.
+        events = manual_cycle_inputs(word, replacement)
+        sent, reason = self._send_guarded_inputs(
+            events, base_valid, before_send=self._mark_keyboard_trigger_mutation,
+            final_check=(None if not needs_caret_preflight else
+                         lambda: read_matching(initial.element_id) is not None))
         if sent != len(events):
             self.clear_token()
             self.token_blocked = True
+            emit_pipeline(self, 'manual-cycle', method='keyboard', reason=reason,
+                          result='refused' if sent == 0 else 'partial')
             self.emit('diagnostic' if reason == 'context-changed-before-send' else 'error',
                       f'Ручная замена: отправлено {sent}/{len(events)}; {reason}; повтор отменён')
             return
         if not self._postwrite_permitted(context, expected_hkl=context.hkl or None):
             self.clear_token()
             self.token_blocked = True
+            emit_pipeline(self, 'manual-cycle', method='keyboard',
+                          reason='postwrite-context-changed')
             self.emit('diagnostic', 'manual-cycle-postwrite-refused:field-changed')
             return
         hkl = self.engine.mapper.layouts[language]
@@ -2145,14 +2908,37 @@ class LiveHook:
             180, ctypes.byref(result))
         observed = self._record_replay_layout(context, hkl)
         self.last_language = self._language_from_id(observed & 0xFFFF)
+        if observed != int(hkl) & 0xFFFFFFFF:
+            # The text packet was accepted, but the intended input language
+            # was not. Do not mutate the remembered word into a false HKL
+            # state or permit a second cycle over an unverified document.
+            self.clear_token()
+            self.token_blocked = True
+            emit_pipeline(self, 'manual-cycle', method='keyboard',
+                          reason='layout-unconfirmed')
+            self.emit('error', 'Клавиши замены отправлены, но смена раскладки не подтверждена; проверь текст')
+            return
         word.text, word.language = replacement, language
+        if self.simple_mode and context.process_name.lower() in BROWSER_APPS:
+            # A subsequent Pause must prove the exact new word, rather than
+            # recovering an unrelated adjacent word after an accepted-but-
+            # ignored generic SendInput packet.
+            self._browser_unverified_followup = (
+                source_scope, initial.element_id, language, replacement,
+                tuple(word.keys), word.suffix, word.caret_offset,
+                getattr(initial, 'after_digest', ''))
+        emit_pipeline(self, 'manual-cycle', method='keyboard',
+                      result='packet-accepted-unverified', reason='complete')
         self.keys.clear()
         # Extending a manually changed unfinished word must not auto-correct
         # only its newly typed tail. A delimiter ends this protection.
         self.token_blocked = not bool(word.suffix)
-        self.emit("ok" if self.last_language == language else "error",
-                  f"Ручное переключение → {language.upper()}" if self.last_language == language
-                  else "Слово переключено, но приложение не подтвердило смену раскладки")
+        # SendInput event count and matching HKL are not a verified document
+        # readback. Do not tell the user that a browser word was changed.
+        self.emit('info' if self.last_language == language else 'error',
+                  tr('Команда → {v0}: клавиши переданы, содержимое поля не подтверждено').format(
+                      v0=language.upper()) if self.last_language == language else
+                  tr('Клавиши замены отправлены, но смена раскладки не подтверждена; проверь текст'))
 
     def _cycle_edit_word(self, context, word, language, replacement, *, native):
         """Verified native manual cycle. Never blindly backspace a RichEdit word.
@@ -2174,6 +2960,8 @@ class LiveHook:
         try:
             bridge = (NativeEditBridge(context, valid, off_hook=self._native_is_off_hook())
                       if native else ScintillaEarlyBridge(context))
+            if not native:
+                bridge.off_hook = self._native_is_off_hook()
             with bridge:
                 result = replace_prefix(bridge, word.text + word.suffix,
                                         replacement + word.suffix, valid)
@@ -2196,10 +2984,16 @@ class LiveHook:
             if uncertain:
                 self.token_blocked = True
                 if native:
-                    self._quarantine_native()
+                    self._quarantine_native('uncertain-native-write', context)
                 else:
                     self.early_disabled = True
             self.emit('diagnostic', 'manual-cycle-' + ('uncertain:' if uncertain else 'refused:') + reason)
+            if context.process_name == 'notepad++.exe':
+                # A diagnostic-only event looks like a dead Pause key to the
+                # user. The reason is a bounded transport code, not editor text.
+                self.emit('error' if uncertain else 'info',
+                          'Pause: ' + ('результат замены не подтверждён' if uncertain
+                                      else 'замена отменена') + ' (' + reason + ')')
             return
         self._trace_word('manual-cycle-result', context, source=word.text,
                          replacement=replacement, state='verified',
@@ -2229,12 +3023,15 @@ class LiveHook:
         self.emit('ok', f'Ручное переключение → {language.upper()}')
 
     def _boundary(self, vk: int, language: str,
-                  shift: bool) -> tuple[int | None, str] | None:
+                  shift: bool, *, is_candidate: bool | None = None) -> tuple[int | None, str] | None:
         if vk in BOUNDARY_VKS:
             return vk, ""
-        if candidate_token_key(self.engine.mapper, vk, shift, language, bool(self.keys),
-                               active_languages=getattr(self.engine, 'active_languages', None),
-                               policies=getattr(self.engine, 'language_policies', None)):
+        if is_candidate is None:
+            is_candidate = candidate_token_key(
+                self.engine.mapper, vk, shift, language, bool(self.keys),
+                active_languages=getattr(self.engine, 'active_languages', None),
+                policies=getattr(self.engine, 'language_policies', None))
+        if is_candidate:
             # OEM punctuation may be a letter anywhere, e.g. EN ';' is RU ж.
             # Resolve literal trailing punctuation once the token is complete.
             return None
@@ -2313,26 +3110,27 @@ class LiveHook:
                 reason = 'paused'
             elif getattr(self, 'early_done', False) and not manual:
                 reason = 'already-corrected-early'
-            else:
+            elif getattr(self, 'pipeline_debug', False):
+                # The verbose negative classifier repeats dictionary and
+                # layout checks but has no influence on the decision. Never
+                # run it in the ordinary keyboard callback when tracing is off.
                 try:
                     reason = decision_failure(self.engine, keys, context.language,
                                               allow_rare=manual)
                 except Exception:
                     reason = 'diagnostic-classifier-failed'
-            emit_pipeline(self, 'decision-none', reason=reason, length=len(keys),
-                          language=context.language, rare=not self.settings.conservative,
-                          manual=manual)
+            if getattr(self, 'pipeline_debug', False):
+                emit_pipeline(self, 'decision-none', reason=reason, length=len(keys),
+                              language=context.language, rare=not self.settings.conservative,
+                              manual=manual)
             if remember and keys:
                 typed = self.engine.mapper.word(keys, context.language)
-                whole = False
-                if typed and (not typed[0].isalpha() or not typed[-1].isalpha()):
-                    match = self.engine.decide(keys, context.language, allow_rare=True)
-                    whole = bool(match and match.reason == "unique dictionary match")
+                whole = self._physical_keys_form_word(keys)
                 self._remember(context, keys, typed, context.language, suffix, whole=whole)
             return False
         name = ctypes.create_unicode_buffer(128)
         self.user32.GetClassNameW(context.focus, name, len(name))
-        native = supports_native_edit(name.value)
+        native = not self.simple_mode and self._use_native_text_transport(context, name.value)
         emit_pipeline(self, 'decision-found', target=decision.language,
                       language=context.language, length=len(keys),
                       method='native' if native else 'generic')
@@ -2376,12 +3174,14 @@ class LiveHook:
                     and getattr(self, '_browser_field_revision', 0) == readback_revision)
 
         readback_revision = getattr(self, '_browser_field_revision', 0)
+        send_started = perf_counter() if getattr(self, 'pipeline_debug', False) else None
         sent, reason = self._send_guarded_inputs(
             events, target_still_valid,
             before_send=self._mark_keyboard_trigger_mutation)
         self._confirm_keyboard_trigger_acceptance(sent)
         emit_pipeline(self, 'transport', method='sendinput',
-                  result=reason)
+                      result=reason, **({'elapsed_ms': round((perf_counter() - send_started) * 1000, 2)}
+                                      if send_started is not None else {}))
         self._trace_word('boundary-result', context, source=decision.typed,
                          replacement=decision.replacement, target=decision.language,
                          state='submitted-unverified' if sent == len(events) else 'incomplete',
@@ -2412,6 +3212,7 @@ class LiveHook:
             return True
         target_hkl = int(self.engine.mapper.layouts[decision.language])
         result = ctypes.c_size_t()
+        layout_started = perf_counter() if getattr(self, 'pipeline_debug', False) else None
         self.user32.SendMessageTimeoutW(
             context.layout_window or context.focus, WM_INPUTLANGCHANGEREQUEST, 0, target_hkl,
             SMTO_ABORTIFHUNG | SMTO_BLOCK, 180, ctypes.byref(result))
@@ -2421,9 +3222,11 @@ class LiveHook:
         emit_pipeline(self, 'layout-result', target=decision.language,
                       observed=f'{observed_language_id:04X}',
                       hkl=f'{target_hkl & 0xFFFFFFFF:08X}',
-                      result='confirmed' if changed else 'unconfirmed')
+                      result='confirmed' if changed else 'unconfirmed',
+                      **({'elapsed_ms': round((perf_counter() - layout_started) * 1000, 2)}
+                         if layout_started is not None else {}))
         self.last_language = self._language_from_id(observed_language_id)
-        if remember:
+        if remember and changed:
             self._remember(context, keys, decision.replacement, decision.language,
                            suffix, whole=decision.reason == "unique dictionary match")
             if manual:
@@ -2435,6 +3238,9 @@ class LiveHook:
                       f"{context.language.upper()} → {decision.language.upper()}"
                       f" · {original_length} символов")
         else:
+            self.clear_token()
+            self.token_blocked = True
+            self.keyboard_early_disabled = True
             self.emit("error", "Текст исправлен, но приложение не подтвердило смену раскладки")
         self._queue_browser_readback(context, decision.typed, decision.replacement,
                                      'boundary', revision=readback_revision)
@@ -2474,7 +3280,7 @@ class LiveHook:
             self.emit("diagnostic", "boundary-refused:" +
                       (getattr(bridge, 'failure', '') or type(error).__name__))
             if getattr(bridge, 'write_started', False):
-                self._quarantine_native()
+                self._quarantine_native('uncertain-native-write', context)
             return False
         self._note_native_mutation(bridge)
         self._trace_native(bridge)
@@ -2487,7 +3293,7 @@ class LiveHook:
             self.emit("diagnostic", "boundary-" + outcome.state + ":" +
                       (getattr(bridge, 'failure', '') or outcome.reason))
             if outcome.state == "uncertain":
-                self._quarantine_native()
+                self._quarantine_native('uncertain-native-write', context)
                 self.token_blocked = True
             return False  # Forward the delimiter; never retry a possibly partial word edit.
         # A verified editor write does not authorize subsequent HKL/CapsLock
@@ -2529,10 +3335,16 @@ class LiveHook:
                       observed=f'{observed:04X}', hkl=f'{hkl & 0xFFFFFFFF:08X}',
                       result='confirmed' if observed == hkl & 0xFFFFFFFF else 'unconfirmed')
         self.last_language = self._language_from_id(observed & 0xFFFF)
-        if remember:
+        layout_confirmed = observed == hkl & 0xFFFFFFFF
+        if remember and layout_confirmed:
             self._remember(context, keys, decision.replacement, decision.language,
                            suffix, whole=decision.reason == "unique dictionary match")
-        self.token_blocked = manual
+        if not layout_confirmed:
+            self.clear_token()
+            self.token_blocked = True
+            self.emit('error', 'Нативная замена подтверждена, но раскладка не переключилась')
+        else:
+            self.token_blocked = manual
         self.emit("diagnostic", "boundary-verified:layout-" +
                   ("confirmed" if observed == hkl & 0xFFFFFFFF else "unconfirmed"))
         self._trace_word('boundary-result', context, source=decision.typed,
@@ -2568,6 +3380,10 @@ class LiveHook:
             password_guard.invalidate()
         gate = getattr(self, 'native_queue', None)
         if gate is not None and gate.busy:
+            if (vk == CYCLE_KEYS[effective_word_key(self.settings)] and
+                    message in (WM_KEYDOWN, WM_SYSKEYDOWN)):
+                emit_pipeline(self, 'manual-cycle', method='keyboard-worker',
+                              reason='worker-still-busy')
             if event.flags & LLKHF_INJECTED:
                 # External synthetic input must not be captured and replayed
                 # as our physical key. Another input tool may be injecting
@@ -2580,6 +3396,15 @@ class LiveHook:
                 # barrier, even after that barrier has already been aborted.
                 gate.capture(self._physical_event(vk, message, event))
                 return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
+            if (message in KEYUP_MESSAGES and
+                    gate.capture_trigger_keyup(self._physical_event(vk, message, event))):
+                # The source delimiter/hotkey KEYDOWN was already suppressed.
+                # Its matching KEYUP is not typing into another field. The
+                # layout/metadata revision may have changed *because this
+                # very correction succeeded*; never turn that harmless
+                # release into a focus-change abort before queue.capture().
+                # All other keys retain the strict field-scope preflight.
+                return 1
             # The barrier belongs to one specific focused control. If the
             # user clicks another field, do not swallow that field's typing.
             # The worker must not replay already held events into the new
@@ -2641,14 +3466,11 @@ class LiveHook:
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         self._last_physical_event = self._physical_event(vk, message, event, trigger=True)
+        if vk != CYCLE_KEYS[effective_word_key(self.settings)]:
+            self._selection_cycle = None
+            self._browser_unverified_followup = None
+            self._selection_epoch = getattr(self, '_selection_epoch', 0) + 1
         emit_pipeline(self, 'hook-keydown', interval=5)
-        if (vk == VK_PAUSE and self.pressed(VK_CONTROL)
-                and self.pressed(VK_MENU) and self.layout_context() is not None):
-            # Pause is another non-mutating command, independent of UIA state.
-            if vk not in self.suppressed_keyups:
-                self.toggle_pause()
-                self.suppressed_keyups.add(vk)
-            return 1
         # Selecting HKL does not mutate field text. Keep this command usable
         # in password/unknown UIA fields while honoring window/app exclusions.
         if vk not in MODIFIER_VKS and not (self.pressed(VK_LWIN) or self.pressed(VK_RWIN)):
@@ -2657,7 +3479,16 @@ class LiveHook:
             if getattr(self, '_binding_settings', None) is not self.settings:
                 self._direct_bindings = compile_bindings(
                     self.settings, getattr(self.engine, 'language_catalog', None))
+                self._pause_toggle_binding = pause_toggle_binding(self.settings)
                 self._binding_settings = self.settings
+            if (conflicts_with_pause_toggle(chord, self._pause_toggle_binding)
+                    and self.layout_context() is not None):
+                # Distinct from unmodified manual Pause. Suppress typematic
+                # repeats until KEYUP, as for other configurable chords.
+                if vk not in self.suppressed_keyups:
+                    self.toggle_pause()
+                    self.suppressed_keyups.add(vk)
+                return 1
             language = self._direct_bindings.get(chord)
             if language:
                 layout_context = self.layout_context()
@@ -2687,6 +3518,9 @@ class LiveHook:
         if password_guard is not None:
             revision = context.password_revision
             if revision != getattr(self, '_tracked_password_revision', None):
+                if vk == CYCLE_KEYS[effective_word_key(self.settings)]:
+                    emit_pipeline(self, 'manual-cycle', method='field-guard',
+                                  reason='protection-revision-changed')
                 # Clear all token/snippet state from the previous UIA element;
                 # never append the new field's keystrokes to an old token.
                 self.clear_token()
@@ -2700,7 +3534,7 @@ class LiveHook:
             if getattr(self, '_guard_skipped_token', False):
                 # Never treat a skipped tail as a complete word. Only a
                 # verified caret read on Space/Pause can recover the whole.
-                cycle_recovery = (vk == CYCLE_KEYS[self.settings.cycle_key] and vk != 0
+                cycle_recovery = (vk == CYCLE_KEYS[effective_word_key(self.settings)] and vk != 0
                                   and not any(self.pressed(k) for k in
                                               (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN)))
                 if vk == VK_SPACE and not self.paused:
@@ -2735,30 +3569,19 @@ class LiveHook:
                 self.clear_token()
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
-        if (vk == CYCLE_KEYS[self.settings.cycle_key] and vk != 0
+        if (vk == CYCLE_KEYS[effective_word_key(self.settings)] and vk != 0
                 and not any(self.pressed(key) for key in
                             (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN))):
-            if vk not in self.suppressed_keyups:
+            emit_pipeline(self, 'manual-cycle', method='hotkey', reason='received',
+                          blocked=bool(getattr(self, 'token_blocked', False)))
+            # VK_PAUSE may never produce KEYUP (unlike F-keys/ScrollLock).
+            # The native_queue gate serializes outstanding workers and drops
+            # repeats while busy; do not use a missing KEYUP as a permanent
+            # veto on subsequent independent Pause KEYDOWN events.
+            if vk == VK_PAUSE or vk not in self.suppressed_keyups:
                 if getattr(self, 'snippets', None): self.snippets.reset()
                 self.suppressed_keyups.add(vk)
                 self._cycle_word(context)
-            return 1
-        manual_vk = MANUAL_KEYS[self.settings.manual_key]
-        if self.paused and vk == manual_vk and manual_vk != 0:
-            self.clear_token()
-            return self.user32.CallNextHookEx(
-                self.keyboard_hook, code, message, param)
-        if (vk == manual_vk and manual_vk != 0 and self.settings.manual_f8
-                and not any(self.pressed(key) for key in
-                            (VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN))):
-            if vk in self.suppressed_keyups:
-                return 1
-            if getattr(self, 'snippets', None): self.snippets.reset()
-            if self._correct(context, None, "", manual=True):
-                self.suppressed_keyups.add(vk)
-                return 1
-            self.emit("info", "Однозначное исправление не найдено")
-            self.suppressed_keyups.add(vk)
             return 1
         if (self.pressed(VK_CONTROL) or self.pressed(VK_MENU)
                 or self.pressed(VK_LWIN) or self.pressed(VK_RWIN)):
@@ -2826,7 +3649,16 @@ class LiveHook:
             self.keys.clear(); self.last_word = None; self.early_done = False
             self.token_blocked = True
             return self.user32.CallNextHookEx(self.keyboard_hook, code, message, param)
-        boundary = self._boundary(vk, context.language, shift)
+        # Keep one physical-key classification per keydown. OEM punctuation
+        # remains a possible letter in another active layout; the decision
+        # rules are unchanged. Space/Enter/Tab need no classification.
+        candidate = (candidate_token_key(
+            self.engine.mapper, vk, shift, context.language, bool(self.keys),
+            active_languages=getattr(self.engine, 'active_languages', None),
+            policies=getattr(self.engine, 'language_policies', None))
+            if vk not in BOUNDARY_VKS else False)
+        boundary = self._boundary(vk, context.language, shift,
+                                  is_candidate=candidate)
         if boundary is not None:
             if self._correct(context, *boundary):
                 return 1
@@ -2836,11 +3668,7 @@ class LiveHook:
         if getattr(self, "token_blocked", False):
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
-        if (candidate_token_key(self.engine.mapper, vk, shift,
-                                context.language, bool(self.keys),
-                                active_languages=getattr(self.engine, 'active_languages', None),
-                                policies=getattr(self.engine, 'language_policies', None))
-                or self.engine.mapper.char(vk, context.language, shift) in WORD_AFFIXES):
+        if (candidate or self.engine.mapper.char(vk, context.language, shift) in WORD_AFFIXES):
             self.keys.append((vk, shift))
             if len(self.keys) == 1:
                 emit_pipeline(self, 'token-start', language=context.language, interval=1)
@@ -3002,7 +3830,9 @@ class LiveHook:
                       rare=not self.settings.conservative,
                       early=self.settings.early_correction,
                       native=self.settings.early_native, words=self.debug_words)
-        self.emit("ready", "Автоисправление включено")
+        self.emit("paused" if self.paused else "ready",
+                  "Автоисправление выключено; ручное переключение доступно"
+                  if self.paused else "Автоисправление включено")
         message = wintypes.MSG()
         try:
             password_guard = getattr(self, 'password_guard', None)
@@ -3083,7 +3913,7 @@ class TypeBridgeGui:
         self._watchdog_idle_logged = False
         self._comparison_captured = False
         self._browser_readback = None
-        if DEBUG_WORDS_ENABLED:
+        if DEBUG_WORDS_ENABLED and not SIMPLE_SWITCHER_MODE:
             from browser_readback import BrowserReadback
             self._browser_readback = BrowserReadback(
                 lambda result: self.events.put(('browser-readback-result', result)))
@@ -3147,21 +3977,19 @@ class TypeBridgeGui:
         root.protocol("WM_DELETE_WINDOW", self.hide)
         self.status = LocalizedStringVar(value="Остановлен")
         self.conservative = tk.BooleanVar(value=settings.conservative)
-        self.manual_f8 = tk.BooleanVar(value=settings.manual_f8)
-        self.manual_key = ChoiceVar(value=settings.manual_key)
+        # The two legacy values remain in saved settings for old builds only.
+        self.word_key = ChoiceVar(value=effective_word_key(settings))
+        self.pause_toggle_key = ChoiceVar(value=settings.pause_toggle_key)
         self.clipboard_history = tk.BooleanVar(value=settings.clipboard_history)
         self.clipboard_history_key = ChoiceVar(value=settings.clipboard_history_key)
         self.plain_paste = tk.BooleanVar(value=settings.plain_paste)
         self.plain_paste_key = ChoiceVar(value=settings.plain_paste_key)
-        self.cycle_key = ChoiceVar(value=settings.cycle_key)
         self._init_early_options(settings)
         self.show_events = tk.BooleanVar(value=settings.show_events)
         self.show_caret_flag = tk.BooleanVar(value=settings.show_caret_flag)
         self.fix_caps_lock = tk.BooleanVar(value=settings.fix_caps_lock)
         self.autostart = tk.BooleanVar(value=read_registration() is not None)
         self.corrections_enabled = tk.BooleanVar(value=settings.corrections_enabled)
-        self.experimental_password_guard = tk.BooleanVar(
-            value=settings.experimental_password_guard)
         additional_keys = dict(settings.direct_extra)
         generic_keys = dict(settings.language_shortcuts)
         self.direct_keys = {
@@ -3190,6 +4018,11 @@ class TypeBridgeGui:
         root.after(200, lambda: self._apply_caret_indicator(self.show_caret_flag.get()))
         if settings.corrections_enabled:
             root.after(300, self._restore_corrections)
+        elif effective_word_key(settings) != 'Отключено':
+            # A manual hotkey still needs a running keyboard hook even when
+            # automatic corrections are off. Start with the hook PAUSED;
+            # no automatic changes or early text transactions are enabled.
+            root.after(300, lambda: self.start(manual_only=True))
 
     def _schedule_debug_probes(self, root):
         """Never schedule unavailable Diagnostics-only probes in Public.
@@ -3288,29 +4121,26 @@ class TypeBridgeGui:
             command=self._on_corrections_check)
         self.corrections_check.pack(anchor="w", pady=(0, 10))
         Tooltip(self.corrections_check, "Исправлять слова, набранные в неправильной раскладке. Определяется после пробела или другого разделителя")
-        rare_option = self._make_rare_words_option(frame)
-        rare_option.pack(anchor="w")
-        Tooltip(rare_option, RARE_WORDS_HELP)
+        # Keep conservative in the engine and serialized profile; the user
+        # should not have to select between internal dictionary lists.
         early_option = self._make_early_option(frame)
         early_option.pack(anchor="w", pady=(6, 0))
         Tooltip(early_option, "Экспериментальный режим: Не ждать пробела или другого разделителя. Исправление происходит, когда набранных букв достаточно для выбора слова.")
         scope_note = ttk.Label(frame,
             text=PASSWORD_CHECK_NOTE, wraplength=620)
         scope_note.pack(anchor="w", pady=(3, 0))
-        guard_option = ttk.Checkbutton(
-            frame, text=PASSWORD_CHECK_LABEL,
-            variable=self.experimental_password_guard)
-        guard_option.pack(anchor="w", pady=(6, 0))
-        Tooltip(guard_option, PASSWORD_CHECK_HELP)
+        # Password detection is internal, not an ordinary user preference.
         ttk.Checkbutton(frame, text="Исправлять случайный CapsLock: пРИВЕТ → Привет",
                         variable=self.fix_caps_lock).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(frame, text="Автозапуск в трее",
                         variable=self.autostart).pack(anchor="w", pady=(6, 0))
         cycle_row = ttk.Frame(frame)
         cycle_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(cycle_row, text="Перебрать раскладки последнего слова:").pack(side="left")
-        ttk.Combobox(cycle_row, textvariable=self.cycle_key, state="readonly",
-                     values=tuple(CYCLE_KEYS), width=15).pack(side="left", padx=10)
+        ttk.Label(cycle_row, text="Переключить раскладку слова:").pack(side="left")
+        word_key_choice = ttk.Combobox(cycle_row, textvariable=self.word_key,
+                                       state="readonly", values=tuple(CYCLE_KEYS), width=15)
+        word_key_choice.pack(side="left", padx=10)
+        Tooltip(word_key_choice, "Переключает набираемое слово или предыдущее слово после пробелов. Внутри слова сохраняет положение курсора; повторные нажатия перебирают включённые языки. Работает без словаря и при выключенном автоисправлении.")
         title_row = ttk.Frame(frame)
         title_row.pack(fill="x", pady=(12, 4))
         ttk.Label(title_row, text="Переключать только в окнах с заголовками:").pack(side="left")
@@ -3335,14 +4165,16 @@ class TypeBridgeGui:
         dictionary = page("Мои слова и исключения")
         self._build_dictionary(dictionary)
         shortcuts = page("Горячие клавиши")
-        manual_row = ttk.Frame(shortcuts)
-        manual_row.pack(fill="x", pady=(6, 0))
-        manual_option = ttk.Checkbutton(manual_row, text="Ручное исправление слова до пробела",
-                                        variable=self.manual_f8)
-        manual_option.pack(side="left")
-        Tooltip(manual_option, "Исправить набираемое слово по выбранной горячей клавише, не дожидаясь пробела.")
-        ttk.Combobox(manual_row, textvariable=self.manual_key, state="readonly",
-                     values=tuple(MANUAL_KEYS), width=15).pack(side="left", padx=10)
+        toggle_row = ttk.Frame(shortcuts)
+        toggle_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(toggle_row, text="Включить/выключить автоисправление:").pack(side="left")
+        toggle_choice = ttk.Combobox(toggle_row, textvariable=self.pause_toggle_key,
+                                     values=PAUSE_TOGGLE_SUGGESTIONS, width=24)
+        toggle_choice.pack(side="left", padx=10)
+        Tooltip(toggle_choice, "Выбери сочетание, введи своё с Ctrl или Alt либо выбери «Отключено». "
+                "Работает, когда TypeBridge запущен. Обычный Pause переключает слово отдельно.")
+        ttk.Label(shortcuts, text="Эта команда включает или выключает автоматику, не меняя раскладку слова.",
+                  wraplength=620).pack(anchor="w", pady=(0, 15))
         ttk.Label(shortcuts, text="Установить раскладку без изменения текста",
                   font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 14))
         for lang, description in self.language_catalog.items():
@@ -3470,6 +4302,42 @@ class TypeBridgeGui:
             self.journal_window.window.lift()
         else:
             self.journal_window = JournalWindow(self.root, self)
+
+    def restore_clipboard_backup(self):
+        from clipboard_recovery import recovery_folder, restore_file
+        if getattr(self, '_clipboard_recovery_busy', False):
+            return
+        try:
+            available = any(recovery_folder().glob('*.tbclip'))
+        except OSError:
+            messagebox.showerror('TypeBridge', 'Не удалось прочитать папку резервных копий буфера',
+                                 parent=self.root)
+            return
+        if not available:
+            messagebox.showinfo('TypeBridge', 'Нет резервных копий буфера для восстановления',
+                                parent=self.root)
+            return
+        filename = filedialog.askopenfilename(
+            parent=self.root, title=tr('Восстановить резервную копию буфера…'),
+            initialdir=str(recovery_folder()), filetypes=[('TypeBridge', '*.tbclip')])
+        if not filename or not messagebox.askyesno(
+                'TypeBridge', 'Заменить текущее содержимое буфера выбранной резервной копией?',
+                parent=self.root):
+            return
+        self._clipboard_recovery_busy = True
+        def work():
+            try:
+                with self.clipboard_tools.selection_copy():
+                    restore_file(filename, still_valid=lambda: not self.closing)
+                self.emit('clipboard-recovery-result', True)
+            except Exception:
+                # Do not log decrypted data or arbitrary provider exceptions.
+                self.emit('clipboard-recovery-result', False)
+        try:
+            threading.Thread(target=work, name='TypeBridgeClipboardRecovery', daemon=True).start()
+        except RuntimeError:
+            self._clipboard_recovery_busy = False
+            self.emit('error', 'Не удалось запустить восстановление буфера; резервная копия сохранена')
 
     def apply_journal_settings(self, enabled, days, apps):
         apps = validate_journal(days, apps)
@@ -3621,6 +4489,11 @@ class TypeBridgeGui:
     def pause(self) -> None:
         hook = self.hook
         if hook:
+            # Pausing auto-correction must persist the user's choice while
+            # leaving the hook alive for the manual word command. The pause
+            # itself still happens if saving settings is refused/failed.
+            self.corrections_enabled.set(False)
+            self.save()
             hook.request_pause()
 
     def toggle_corrections(self) -> None:
@@ -3642,7 +4515,8 @@ class TypeBridgeGui:
             self.start()
 
     def _sync_tray_state(self) -> None:
-        self.corrections_enabled.set(self.run_state in ("starting", "running"))
+        self.corrections_enabled.set(self.run_state == 'running' or
+            (self.run_state == 'starting' and not getattr(self, '_starting_manual_only', False)))
         self.corrections_check.configure(
             state="disabled" if self.run_state in ("starting", "stopping") else "normal")
         if self.tray:
@@ -3679,20 +4553,19 @@ class TypeBridgeGui:
                         quick_search_engine=self.search_settings.quick_search_engine,
                         quick_search_engines=self.search_settings.quick_search_engines,
                         corrections_enabled=self.corrections_enabled.get(),
-                        experimental_password_guard=(
-                            self.experimental_password_guard.get()
-                            if getattr(self, 'experimental_password_guard', None) is not None
-                            else getattr(self.search_settings, 'experimental_password_guard', False)),
+                        experimental_password_guard=self.search_settings.experimental_password_guard,
                         show_events=(self.show_events.get() if getattr(self, 'show_events', None) is not None
                                      else getattr(self.search_settings, 'show_events', False)),
                         conservative=self.conservative.get(),
-                        manual_f8=self.manual_f8.get(),
-                        manual_key=self.manual_key.get(),
+                        manual_f8=self.search_settings.manual_f8,
+                        manual_key=self.search_settings.manual_key,
                         clipboard_history=self.clipboard_history.get(),
                         clipboard_history_key=self.clipboard_history_key.get().strip(),
                         plain_paste=self.plain_paste.get(),
                         plain_paste_key=self.plain_paste_key.get().strip(),
-                        cycle_key=self.cycle_key.get(),
+                        cycle_key=self.search_settings.cycle_key,
+                        word_key=self.word_key.get(),
+                        pause_toggle_key=self.pause_toggle_key.get().strip(),
                         early_correction=self.early_correction.get(),
                         early_native=self.early_native.get(),
                         show_caret_flag=self.show_caret_flag.get(),
@@ -4118,11 +4991,24 @@ class TypeBridgeGui:
 
     def _drain(self) -> None:
         started = perf_counter()
+        # A blocked search provider cannot hold the GUI's busy flag
+        # indefinitely. This schedules only a safe timeout result; a stalled
+        # worker never receives permission to start a late Ctrl+C.
+        quick_search = getattr(self, 'quick_search', None)
+        if quick_search is not None:
+            quick_search.expire_pending()
+        clipboard_tools = getattr(self, 'clipboard_tools', None)
+        if clipboard_tools is not None:
+            clipboard_tools.expire_pending()
         try:
             for _ in range(100):
                 if perf_counter() - started >= .008:
                     break
                 kind, message = self.events.get_nowait()
+                if kind == 'clipboard-recovery-result':
+                    self._clipboard_recovery_busy = False
+                    kind, message = ('info', 'Буфер восстановлен из резервной копии') if message else (
+                        'error', 'Не удалось восстановить буфер; резервная копия сохранена')
                 if kind == 'journal-io':
                     io = getattr(self, 'journal_io', None)
                     if io is not None:
@@ -4238,6 +5124,7 @@ class TypeBridgeGui:
                         action = {"open": self.show, "snippets": self.open_snippets, "toggle": self.toggle_corrections,
                                   "toggle-caret-flag": self.toggle_caret_flag, "journal": self.open_journal,
                                   "restore-native-input": lambda: self.hook.restore_native_pending() if self.hook else None,
+                                  "restore-clipboard-backup": self.restore_clipboard_backup,
                                   "exit": self.close}.get(message)
                         if action:
                             action()
@@ -4311,13 +5198,20 @@ class TypeBridgeGui:
         writer = getattr(self, '_diagnostic_writer', None)
         return writer.submit(kind, payload) if writer is not None else False
 
-    def start(self) -> None:
+    def start(self, *, manual_only=False) -> None:
         if self.closing:
             return
-        self.corrections_enabled.set(True)
+        self._starting_manual_only = bool(manual_only)
+        self.corrections_enabled.set(not manual_only)
         if self.worker and self.worker.is_alive():
+            # A paused/manual-only hook already exists. The UI preference
+            # must be saved too, otherwise the next process launch silently
+            # reverts to the previous automatic-correction state.
+            if self.save() is None:
+                self._sync_tray_state()
+                return
             hook = self.hook
-            if hook and hook.paused:
+            if hook and hook.paused != bool(manual_only):
                 hook.request_pause()
             return
         settings = self.save()
@@ -4379,7 +5273,12 @@ class TypeBridgeGui:
                         engine.user_lexicon = current_lexicon
                         self.hook = LiveHook(engine, current, self.emit,
                                              snippets=self.snippet_config,
-                                             password_guard=staged_password_guard(current))
+                                             password_guard=(None if SIMPLE_SWITCHER_MODE else
+                                                             staged_password_guard(current)),
+                                             simple_mode=SIMPLE_SWITCHER_MODE)
+                        # Construction alone must not decide auto-correction
+                        # status for model users; GUI owns the startup choice.
+                        self.hook.paused = not current.corrections_enabled
                     if self.cancel_start.is_set():
                         self.hook.request_stop()
                     self.hook.run()
@@ -4452,6 +5351,31 @@ def self_test() -> dict:
     from PIL import Image, ImageDraw
     from caret_process import smoke_test as caret_helper_smoke_test
     caret_helper_ok = caret_helper_smoke_test()
+    # Validate the embedded native COM typelib and frozen multiprocessing
+    # lifecycle without ever contacting the active Windows UIA provider.
+    # A source-only unit test cannot prove generated comtypes modules are
+    # present inside the delivered one-file EXE.
+    uia_helper_ok = False
+    try:
+        from comtypes.gen import UIAutomationClient as uia_typelib
+        from uia_native_worker import UiaService
+        if (getattr(uia_typelib, 'CUIAutomation', None) is not None
+                and getattr(uia_typelib, 'IUIAutomationTextPattern', None) is not None):
+            service = UiaService(synthetic=True, timeout=5)
+            try:
+                probe = {'command': 'caret', 'top': 1, 'focus': 2,
+                         'element_id': 'uia:1'}
+                first = service.request(probe)
+                pid = service.process.pid if service.process is not None else None
+                second = service.request(probe)
+                uia_helper_ok = bool(first is None and second is None and pid
+                                     and service.process is not None
+                                     and service.process.pid == pid
+                                     and service.process.is_alive())
+            finally:
+                service.close()
+    except (ImportError, OSError, RuntimeError, AttributeError, ValueError):
+        uia_helper_ok = False
     engine = LanguageEngine(source_data_dir())
     cases = (("ru", "hello", "en", "hello"),
              ("en", "ghbdtn", "ru", "привет"),
@@ -4470,8 +5394,9 @@ def self_test() -> dict:
         'build_profile': BUILD_PROFILE,
         'word_trace_enabled': DEBUG_WORDS_ENABLED,
         "ok": all(item["passed"] for item in results)
-              and ctypes.sizeof(Input) == 40 and caret_helper_ok,
+              and ctypes.sizeof(Input) == 40 and caret_helper_ok and uia_helper_ok,
         'caret_helper_ok': caret_helper_ok,
+        'uia_helper_ok': uia_helper_ok,
         "input_size": ctypes.sizeof(Input),
         "tray_dependencies": all((TrayController, Image, ImageDraw)),
         "dictionary_sizes": {name: len(words)
@@ -4529,7 +5454,9 @@ def main(argv=None) -> int:
                      lambda kind, msg: print(f"[{kind}] {msg}", flush=True),
                      accept_injected=args.accept_injected,
                      snippets=SnippetConfig.load(USER_DIR / 'snippets.json'),
-                     password_guard=staged_password_guard(settings)).run()
+                     password_guard=(None if SIMPLE_SWITCHER_MODE else
+                                     staged_password_guard(settings)),
+                     simple_mode=SIMPLE_SWITCHER_MODE).run()
         return 0
     root = tk.Tk()
     try:

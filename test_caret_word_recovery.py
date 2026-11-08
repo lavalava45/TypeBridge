@@ -1,12 +1,10 @@
 """R02 caret recovery: API fixtures only, no live UIA, hooks or input."""
-import base64
 from dataclasses import replace
-import subprocess
 import time
 import unittest
 from unittest.mock import Mock, patch
 
-from caret_word_recovery import WORD_SCRIPT, CaretWord, parse_caret_word, read_caret_word
+from caret_word_recovery import CaretWord, parse_caret_word, read_caret_word
 from engine import LanguageEngine, LayoutMapper, source_data_dir
 from password_fields import PasswordFieldGuard
 from word_cycle import remember_word
@@ -27,7 +25,44 @@ class CaretParserTests(unittest.TestCase):
         word = parse_caret_word(self.sample(), self.mapper, 'he', 'uia:1,2')
         self.assertEqual(word.text, 'גיאהז')
         self.assertEqual(word.suffix, ' ')
+        self.assertEqual(word.element_id, 'uia:1,2')
         self.assertEqual(self.mapper.word(list(word.keys), 'ru'), 'время')
+
+    def test_previous_word_before_next_word_is_separated_by_spaces(self):
+        sample = self.sample(before='גיאהז  ')
+        sample['after'] = 'NEXT'
+        # Default parser still rejects ambiguous changed-middle inputs.
+        self.assertIsNone(parse_caret_word(sample, self.mapper, 'he', 'uia:1,2'))
+        word = parse_caret_word(sample, self.mapper, 'he', 'uia:1,2',
+                                allow_following_word=True)
+        self.assertIsNotNone(word)
+        self.assertEqual((word.text, word.suffix, word.caret_offset),
+                         ('גיאהז', '  ', None))
+
+    def test_unambiguous_punctuation_preserves_exact_suffix(self):
+        for before, suffix in (
+                ('PREFIX ghbdtn!  ', '!  '),
+                ('PREFIX (ghbdtn)  ', ')  '),
+                ('PREFIX ((ghbdtn))!!  ', '))!!  ')):
+            with self.subTest(before=before):
+                sample = {'before': before, 'after': ' SUFFIX',
+                          'at_start': False, 'at_end': False, 'element_id': 'uia:1,2'}
+                word = parse_caret_word(sample, self.mapper, 'en', 'uia:1,2',
+                                        active_languages=('en', 'ru', 'he'),
+                                        allow_following_word=True)
+                self.assertIsNotNone(word)
+                self.assertEqual((word.text, word.suffix, word.caret_offset),
+                                 ('ghbdtn', suffix, None))
+
+    def test_ambiguous_cross_layout_oem_is_not_trimmed_as_literal_punctuation(self):
+        sample = {'before': 'PREFIX ghbdtn, ', 'after': ' SUFFIX',
+                  'at_start': False, 'at_end': False, 'element_id': 'uia:1,2'}
+        word = parse_caret_word(sample, self.mapper, 'en', 'uia:1,2',
+                                active_languages=('en', 'ru', 'he'),
+                                allow_following_word=True)
+        self.assertIsNotNone(word)
+        self.assertEqual(word.text, 'ghbdtn,')
+        self.assertEqual(word.suffix, ' ')
 
     def test_incomplete_selected_or_unbounded_samples_are_rejected(self):
         samples = [self.sample(before='x'*82), self.sample(before='גיאהז'+' '*41),
@@ -41,32 +76,49 @@ class CaretParserTests(unittest.TestCase):
 
     def test_reader_does_not_start_without_verified_identity_or_valid_context(self):
         ctx=FocusContext(1,2,3,'he','chrome.exe','fixture')
-        with patch('caret_word_recovery.subprocess.run') as run:
-            self.assertIsNone(read_caret_word(ctx,self.mapper,'',lambda:True))
+        with patch('uia_native_worker.get_uia_service') as service:
+            self.assertIsNone(read_caret_word(ctx,self.mapper,'invalid:',lambda:True))
             self.assertIsNone(read_caret_word(ctx,self.mapper,'uia:1,2',lambda:False))
-            run.assert_not_called()
+            service.assert_not_called()
 
     def test_changed_context_timeout_and_bad_reply_fail_closed(self):
         ctx=FocusContext(1,2,3,'he','chrome.exe','fixture')
-        for outcome in (subprocess.TimeoutExpired('helper',2.5), Mock(returncode=2,stdout=''),
-                        Mock(returncode=0,stdout='not json')):
-            with self.subTest(outcome=outcome), patch('caret_word_recovery.subprocess.run',side_effect=[outcome]):
+        for outcome in (None, {}, {'before':42}, {'element_id':'uia:other'}):
+            with self.subTest(outcome=outcome), patch('uia_native_worker.get_uia_service') as getter:
+                getter.return_value.request.return_value = outcome
                 self.assertIsNone(read_caret_word(ctx,self.mapper,'uia:1,2',lambda:True))
-        with patch('caret_word_recovery.subprocess.run',return_value=Mock(returncode=0,stdout='{}')):
+        with patch('uia_native_worker.get_uia_service') as getter:
+            getter.return_value.request.return_value = dict(before='גיאהז ',after='',
+                                                             at_start=True,at_end=True,element_id='uia:1,2')
             self.assertIsNone(read_caret_word(ctx,self.mapper,'uia:1,2',Mock(side_effect=[True,False])))
 
+    def test_caret_diagnostic_is_reason_only_and_opt_in(self):
+        ctx = FocusContext(1, 2, 3, 'en', 'chrome.exe', 'fixture')
+        for result, expected in (
+                ({'state': 'unavailable', 'reason': 'noncollapsed-selection'},
+                 'noncollapsed-selection'),
+                (None, 'service-unavailable-or-context-changed'),
+                ({'before': 'tot', 'after': '', 'at_start': True,
+                  'at_end': True, 'element_id': 'uia:1,2'}, None),
+                ({'before': '123', 'after': '', 'at_start': True,
+                  'at_end': True, 'element_id': 'uia:1,2'}, 'word-parser-refused')):
+            with self.subTest(expected=expected):
+                reasons = []
+                with patch('uia_native_worker.get_uia_service') as getter:
+                    getter.return_value.request.return_value = result
+                    read_caret_word(ctx, self.mapper, '', lambda: True,
+                                    simple_mode=True, on_refusal=reasons.append)
+                    request = getter.return_value.request.call_args.args[0]
+                    self.assertEqual(request['diagnostic'], True)
+                    self.assertEqual(request['simple_mode'], True)
+                    self.assertNotIn('tot', str(reasons))
+                self.assertEqual(reasons, [] if expected is None else [expected])
+
     def test_helper_parses_without_executing_uia_or_reading_foreground(self):
-        encoded=base64.b64encode(WORD_SCRIPT.encode('utf-16-le')).decode('ascii')
-        parse=("$s=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('"+encoded+"'));"
-               "$t=$null;$e=$null;[void][Management.Automation.Language.Parser]::ParseInput($s,[ref]$t,[ref]$e);"
-               "if($e.Count){$e|% Message;exit 1}")
-        result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-EncodedCommand',
-                               base64.b64encode(parse.encode('utf-16-le')).decode('ascii')],
-                              capture_output=True,timeout=10,creationflags=subprocess.CREATE_NO_WINDOW)
-        self.assertEqual(result.returncode,0,result.stdout)
-        self.assertNotIn('SetFocus',WORD_SCRIPT)
-        self.assertNotIn('.Select()',WORD_SCRIPT)
-        self.assertNotIn('.Value',WORD_SCRIPT)
+        from uia_native_worker import read_native_caret
+        self.assertNotIn('SetFocus', read_native_caret.__code__.co_names)
+        self.assertNotIn('Select', read_native_caret.__code__.co_names)
+        self.assertNotIn('SetValue', read_native_caret.__code__.co_names)
 
 
 class CaretRecoveryIntegrationTests(unittest.TestCase):
@@ -80,6 +132,10 @@ class CaretRecoveryIntegrationTests(unittest.TestCase):
         self.d.setUp()
         self.d.language='he'
         self.h=self.d.hook
+        # WordCycleTests intentionally models the no-UIA simple switcher.
+        # This suite instead verifies strict password/UIA caret recovery;
+        # never silently inherit its simple-mode admission bypass.
+        self.h.simple_mode=False
         self.h.settings=replace(self.h.settings,manual_key='Scroll Lock',cycle_key='Pause')
         self.h._try_early=Mock(return_value=False)
         self.h._in_keyboard_callback=True
@@ -108,10 +164,13 @@ class CaretRecoveryIntegrationTests(unittest.TestCase):
                 self.d.text+=self.engine.mapper.char(vk,before,False)
             key(self.h,vk,WM_KEYUP)
 
-    def read_fixture(self,context,mapper,element,valid):
+    def read_fixture(self,context,mapper,element,valid, **_options):
         self.assertTrue(valid())
+        # The real helper binds an initially unknown focused element to the
+        # runtime ID it reads. Mirror that behavior without live UIA.
+        identity = element or 'uia:1,2'
         return parse_caret_word({'before':self.d.text,'after':'','at_start':True,
-                                 'element_id':element},mapper,context.language,element)
+                                 'element_id':identity},mapper,context.language,identity)
 
     def release(self):
         self.h._release_keyboard_job(self.h._keyboard_job_release[0])
@@ -171,27 +230,30 @@ class CaretRecoveryIntegrationTests(unittest.TestCase):
             reader.assert_not_called()
         self.assertEqual(self.d.text,'גיאהז время ')
 
-    def test_scroll_lock_after_space_keeps_word_for_pause(self):
+    def test_repeated_single_command_after_space_preserves_word(self):
         self.d.text='גיאהז '
         keys=tuple((vk,False) for vk in (68,72,84,86,90))
         self.h.last_word=remember_word(keys,'גיאהז','he',' ',
                                       self.h._word_scope(self.h.context()))
         original=self.h.last_word
-        key(self.h,0x91);key(self.h,0x91,WM_KEYUP)
         self.assertIs(self.h.last_word,original)
-        with patch('typebridge_app.read_caret_word') as reader:
+        with patch('typebridge_app.read_caret_word',side_effect=self.read_fixture) as reader:
             key(self.h,VK_PAUSE);key(self.h,VK_PAUSE,WM_KEYUP)
             self.release()
-            reader.assert_not_called()
+            # P0-D requires two fresh reads even when the word was tracked.
+            self.assertEqual(reader.call_count, 2)
         self.assertEqual(self.d.text,'время ')
 
     def test_pause_recovers_untracked_word_after_space(self):
         self.d.text='גיאהז '
         self.h.keys=[];self.h.last_word=None
-        with patch('typebridge_app.read_caret_word',side_effect=self.read_fixture):
+        with patch('typebridge_app.read_caret_word',side_effect=self.read_fixture) as reader:
             self.assertEqual(key(self.h,VK_PAUSE),1)
             key(self.h,VK_PAUSE,WM_KEYUP)
             self.release()
+            # One initial recovery snapshot, one independently checked before
+            # SendInput; never start three separate PowerShell processes.
+            self.assertEqual(reader.call_count, 2)
         self.assertEqual(self.d.text,'время ')
 
     def test_empty_token_after_tracking_reset_recovers_on_space(self):
@@ -202,6 +264,21 @@ class CaretRecoveryIntegrationTests(unittest.TestCase):
             key(self.h,VK_SPACE,WM_KEYUP)
             self.release()
         self.assertEqual(self.d.text,'время ')
+
+    def test_simple_mode_untracked_space_passes_once_without_uia(self):
+        # Simple mode has NO caret recovery: one forwarded physical Space,
+        # no injected duplicate, no UIA worker and no document mutation.
+        self.h.simple_mode=True
+        self.d.text='גיאהז'
+        self.h.keys=[];self.h.last_word=None;self.h.token_blocked=False
+        with patch('typebridge_app.read_caret_word') as reader:
+            self.assertEqual(key(self.h,VK_SPACE),0)
+            self.d.text+=' '  # Host receives the one forwarded physical Space.
+            key(self.h,VK_SPACE,WM_KEYUP)
+            reader.assert_not_called()
+        self.assertEqual(self.d.text,'גיאהז ')
+        self.h.user32.SendInput.assert_not_called()
+        self.assertFalse(getattr(self.h,'native_queue',None) and self.h.native_queue.busy)
 
     def test_pause_before_space_can_recover_skipped_prefix(self):
         self.d.text='גיאהז';self.h._guard_skipped_token=True

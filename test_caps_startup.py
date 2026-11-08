@@ -156,6 +156,9 @@ class GuiTests(unittest.TestCase):
                 for state in ('running','paused','stopped','starting','error'):
                     gui.run_state=state; gui._sync_tray_state()
                     self.assertEqual(gui.corrections_enabled.get(),state in ('starting','running'))
+                gui._starting_manual_only = True
+                gui.run_state = 'starting'; gui._sync_tray_state()
+                self.assertFalse(gui.corrections_enabled.get())
         finally: root.destroy()
 
     def test_correction_preference_saved_and_restored_without_installing_hook(self):
@@ -171,10 +174,15 @@ class GuiTests(unittest.TestCase):
                         self.assertEqual(gui.corrections_enabled.get(),enabled)
                         self.assertEqual(gui.current_settings().corrections_enabled,enabled)
                         restore=[callback for delay,callback in scheduled if delay==300]
-                        self.assertEqual(len(restore),int(enabled))
+                        # Auto off still installs a paused hook for the single
+                        # manual word command. No global hook is started here.
+                        self.assertEqual(len(restore),1)
                         gui.start=Mock()
                         if restore: restore[0]()
-                        self.assertEqual(gui.start.call_count,int(enabled))
+                        if enabled:
+                            gui.start.assert_called_once_with()
+                        else:
+                            gui.start.assert_called_once_with(manual_only=True)
                 finally: root.destroy()
 
     def test_start_from_tray_saves_enabled_state_before_loading(self):

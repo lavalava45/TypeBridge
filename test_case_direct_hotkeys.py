@@ -26,9 +26,10 @@ class ShortcutSettingsTests(unittest.TestCase):
             self.assertEqual(load_settings(path).manual_key, "Scroll Lock")
 
     def test_manual_key_conflicts_and_invalid_values(self):
-        for value in ("Pause", "unknown", None, []):
+        for value in ("unknown", None, []):
             with self.assertRaises(ValueError):
                 compile_bindings(replace(Settings(), manual_key=value))
+        compile_bindings(replace(Settings(), manual_key="Pause"))
         compile_bindings(replace(Settings(), manual_key="Pause", manual_f8=False))
         compile_bindings(replace(Settings(), manual_key="Отключено"))
 
@@ -42,7 +43,7 @@ class ShortcutSettingsTests(unittest.TestCase):
                 replace(Settings(), direct_ru="Shift+Control+F2"),
                 replace(Settings(), direct_ru="Pause"),
                 replace(Settings(), direct_ru="Ctrl+Alt+Shift+Pause"),
-                replace(Settings(), direct_ru="Scroll Lock")):
+                replace(Settings(), direct_ru="Scroll Lock", word_key="Scroll Lock")):
             with self.assertRaises(ValueError):
                 compile_bindings(settings)
         self.assertEqual(compile_bindings(replace(Settings(), direct_ru="F8", manual_f8=False))[

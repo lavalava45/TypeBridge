@@ -66,6 +66,13 @@ def verify_frozen_profile(exe, profile):
     names = frozen_module_names(exe)
     if 'build_variant' not in names:
         raise ValueError('Missing frozen build profile marker')
+    required_uia = {'uia_native_worker', 'uia_password_native',
+                    'uia_selection_native', 'comtypes',
+                    'comtypes.gen.UIAutomationClient'}
+    missing_uia = required_uia - names
+    if missing_uia:
+        raise ValueError('Frozen native UIA modules missing: ' +
+                         ', '.join(sorted(missing_uia)))
     present = sorted(name for name in PUBLIC_EXCLUDED_MODULES if name in names)
     if profile == 'public' and present:
         raise ValueError('Unsafe public EXE contains diagnostic modules: ' + ', '.join(present))

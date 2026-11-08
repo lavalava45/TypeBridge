@@ -41,19 +41,31 @@ def worker(field_class='RichEdit50W'):
         original = u.GetThreadDesktop(tid)
         desktop_name = 'TypeBridge-test-' + uuid.uuid4().hex
         desk = u.CreateDesktopW(desktop_name, None, None, 0, 0x1FF, None)
-        top = edit = None
+        top = edit = second = None
         try:
             if not desk or not u.SetThreadDesktop(desk):
                 raise ctypes.WinError(ctypes.get_last_error())
             if not k.LoadLibraryW('Msftedit.dll'):
                 raise ctypes.WinError(ctypes.get_last_error())
-            top = u.CreateWindowExW(0, 'STATIC', 'TypeBridge isolated test', 0,
+            # UIA native proxy requires a discoverable host for this EDIT
+            # capability fixture. It remains on the INACTIVE private desktop.
+            top_style = 0x10000000 if field_class == 'EDIT' else 0
+            top = u.CreateWindowExW(0, 'STATIC', 'TypeBridge isolated test', top_style,
                                     0, 0, 600, 300, None, None, None, None)
-            edit = u.CreateWindowExW(0, field_class, '', 0x40000000 | 0x4 | 0x1000,
+            style = (0x40000000 | 0x10000000 | 0x00800000
+                     if field_class == 'EDIT' else 0x40000000 | 0x4 | 0x1000)
+            edit = u.CreateWindowExW(0, field_class, '', style,
                                      0, 0, 500, 200, top, None, None, None)
-            if not top or not edit:
+            if field_class == 'EDIT':
+                # Two independent synthetic fields under the same top-level
+                # test HWND. These are never user windows or DOM elements.
+                second = u.CreateWindowExW(0, 'EDIT', '', style,
+                                            0, 210, 500, 50, top, None, None, None)
+            if not top or not edit or (field_class == 'EDIT' and not second):
                 raise ctypes.WinError(ctypes.get_last_error())
             result.update(top=int(top), focus=int(edit), thread=tid, desktop=desktop_name)
+            if second:
+                result['other'] = int(second)
             ready.set()
             msg = w.MSG()
             while u.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
@@ -63,6 +75,7 @@ def worker(field_class='RichEdit50W'):
             result['error'] = type(error).__name__
             ready.set()
         finally:
+            if second: u.DestroyWindow(second)
             if edit: u.DestroyWindow(edit)
             if top: u.DestroyWindow(top)
             u.SetThreadDesktop(original)

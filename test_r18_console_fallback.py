@@ -46,9 +46,13 @@ class ConsoleFallbackTests(unittest.TestCase):
         api.assert_not_called()
 
     def test_uia_selection_in_console_does_not_use_fallback(self):
-        with (patch('quick_search.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='"selected"')),
+        # Native UIA replaced the legacy PowerShell subprocess. A validated
+        # UIA selection must never trigger generic Ctrl+C fallback.
+        with (patch('uia_native_worker.get_uia_service') as native,
               patch('quick_search.copy_selection') as fallback):
+            native.return_value.request.return_value = {'state': 'ok', 'text': 'selected'}
             self.assertEqual(read_selection(self.target), 'selected')
+        native.return_value.request.assert_called_once()
         fallback.assert_not_called()
 
     def test_delayed_metadata_check_cannot_authorize_late_copy(self):

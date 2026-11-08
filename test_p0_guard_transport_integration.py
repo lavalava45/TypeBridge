@@ -59,38 +59,36 @@ class P0GuardTransportIntegration(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'experimental_password_guard'):
                 load_settings(path)
 
-    def test_real_hidden_settings_panel_opt_in_roundtrip_without_running_hook(self):
+    def test_hidden_field_guard_option_retains_saved_policy_without_running_hook(self):
         from user_lexicon import UserLexicon
         with TemporaryDirectory() as directory:
             root = tk.Tk()
             root.withdraw()
             try:
                 with patch('typebridge_app.USER_DIR', Path(directory)), \
-                     patch('typebridge_app.load_settings', return_value=Settings()), \
+                     patch('typebridge_app.load_settings', return_value=Settings(experimental_password_guard=True)), \
                      patch('typebridge_app.load_user_lexicon', return_value=UserLexicon()), \
                      patch('typebridge_app.read_registration', return_value=None), \
                      patch('typebridge_app.DEBUG_ENABLED', False):
                     gui = TypeBridgeGui(root)
-                    self.assertFalse(gui.experimental_password_guard.get())
-                    self.assertFalse(gui.current_settings().experimental_password_guard)
-                    gui.experimental_password_guard.set(True)
+                    self.assertFalse(hasattr(gui, 'experimental_password_guard'))
                     self.assertTrue(gui.current_settings().experimental_password_guard)
                     self.assertIsNone(gui.hook)
             finally:
                 root.destroy()
 
-    def test_strict_runtime_rejects_legacy_metadata_and_safe_same_hwnd_switch(self):
+    def test_runtime_allows_unknown_but_rejects_explicit_password_same_hwnd(self):
         guard = staged_password_guard(replace(Settings(), experimental_password_guard=True))
         hook = self.hook(guard)
         guard.ingest('10|20|safe')
-        self.assertIsNone(hook.context())
+        self.assertIsNotNone(hook.context())
         guard.ingest(metadata('uia:1,1'))
         first = hook.context()
         self.assertIsNotNone(first)
         guard.ingest(metadata('uia:1,2', state='password'))
         self.assertIsNone(hook.context())
         guard.ingest(metadata('uia:1,2', state='unknown'))
-        self.assertIsNone(hook.context())
+        self.assertIsNotNone(hook.context())
         guard.ingest(metadata('uia:1,3'))
         last = hook.context()
         self.assertIsNotNone(last)
@@ -114,13 +112,13 @@ class P0GuardTransportIntegration(unittest.TestCase):
         hook.process_name = lambda pid: 'chrome.exe' if pid == 200 else 'test.exe'
         self.assertIsNotNone(hook.context())
 
-    def test_strict_runtime_rejects_empty_malformed_or_wrong_win32_identity(self):
+    def test_runtime_does_not_block_on_missing_or_malformed_identity(self):
         guard = staged_password_guard(replace(Settings(), experimental_password_guard=True))
         hook = self.hook(guard)
         for identity in ('uia:', 'uia:1,,2', 'uia:one', 'win32:21', 'other:1'):
             with self.subTest(identity=identity):
                 guard.ingest(metadata(identity))
-                self.assertIsNone(hook.context())
+                self.assertIsNotNone(hook.context())
                 self.assertEqual(guard.snapshot.state, 'unknown')
         guard.ingest(metadata('win32:20'))
         self.assertIsNotNone(hook.context())
@@ -146,7 +144,7 @@ class P0GuardTransportIntegration(unittest.TestCase):
             self.assertFalse(hook._trace_word('typed-character', None, source='secret'))
             hook.user32.SendInput.assert_not_called()
 
-    def test_no_conversion_or_injection_from_unknown_and_password_fields(self):
+    def test_no_conversion_or_injection_from_explicit_password_fields(self):
         from test_app_controls import key
         guard = staged_password_guard(replace(Settings(), experimental_password_guard=True))
         hook = self.hook(guard)
@@ -155,7 +153,7 @@ class P0GuardTransportIntegration(unittest.TestCase):
         hook._correct = Mock()
         hook._cycle_word = Mock()
         hook._switch_direct = Mock()
-        for state in ('password', 'unknown'):
+        for state in ('password',):
             guard.ingest(metadata('uia:6,7', state=state))
             for vk in (0x41, VK_SPACE, 0x13, 0x91, 0x77):
                 with self.subTest(state=state, vk=vk):
@@ -167,7 +165,7 @@ class P0GuardTransportIntegration(unittest.TestCase):
             path.assert_not_called()
         hook.user32.SendInput.assert_not_called()
 
-    def test_unknown_prefix_then_safe_same_hwnd_suffix_is_not_corrected(self):
+    def test_password_prefix_then_safe_same_hwnd_suffix_is_not_corrected(self):
         from test_app_controls import key
         guard = staged_password_guard(replace(Settings(), experimental_password_guard=True))
         hook = self.hook(guard)
@@ -177,8 +175,8 @@ class P0GuardTransportIntegration(unittest.TestCase):
         hook._try_early = Mock(return_value=False)
         hook.engine.mapper.char.return_value = 'a'
         hook.user32.GetKeyState.return_value = 0
-        guard.ingest(metadata('uia:1,1', state='unknown'))
-        self.assertEqual(key(hook, 0x47), 0)  # Unknown prefix is delivered.
+        guard.ingest(metadata('uia:1,1', state='password'))
+        self.assertEqual(key(hook, 0x47), 0)  # Password prefix is delivered.
         self.assertTrue(hook._guard_skipped_token)
         guard.ingest(metadata('uia:1,1'))
         self.assertEqual(key(hook, 0x48), 0)  # Safe suffix still passed intact.
