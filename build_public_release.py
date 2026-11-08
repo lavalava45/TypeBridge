@@ -36,7 +36,13 @@ def require_clean_source_snapshot(root):
 
 def run_isolated_tests(source, env):
     """Run each unittest module in its own process to bound dictionary RAM use."""
-    modules = sorted(path.stem for path in source.glob('test_*.py'))
+    # These two CLI helpers are intentionally named test_* for the standalone
+    # local matrix runner, but own no unittest.TestCase classes. Invoking them
+    # via `python -m unittest` exits with status 5 (NO TESTS RAN) on Windows.
+    # Exclude ONLY these known helpers; never suppress failed/empty real suites.
+    helpers = {'test_matrix_module', 'test_matrix_runner'}
+    modules = sorted(path.stem for path in source.glob('test_*.py')
+                     if path.stem not in helpers)
     if not modules:
         raise RuntimeError('Public release refused: no unittest modules in source snapshot')
     for number, module in enumerate(modules, 1):

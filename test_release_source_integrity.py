@@ -52,7 +52,8 @@ class ReleaseSourceIntegrityTests(unittest.TestCase):
     def test_release_tests_run_every_module_in_sorted_isolated_processes(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            for name in ('test_zeta.py', 'test_alpha.py'):
+            for name in ('test_zeta.py', 'test_alpha.py',
+                         'test_matrix_module.py', 'test_matrix_runner.py'):
                 (root / name).write_text('import unittest\n', encoding='utf-8')
             env = {'TYPEBRIDGE_DICTIONARY_TEST_DIR': str(root / 'data')}
             with patch('build_public_release.run') as invoke:
