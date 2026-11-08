@@ -5,6 +5,8 @@ Called on the hook thread: formatting and queueing only, no file writes.
 """
 
 import re
+import queue
+import threading
 from time import monotonic
 
 
@@ -14,6 +16,7 @@ EVENTS = frozenset({
     'decision-none', 'decision-found', 'transport', 'layout-result',
     'early-found', 'settings', 'input-filtered', 'watchdog', 'callback-error',
     'manual-cycle', 'transport-quarantine', 'input-barrier-aborted',
+    'dictionary-diagnostic',
 })
 FIELDS = frozenset({'reason', 'app', 'language', 'target', 'hkl', 'observed',
                     'length', 'separator', 'blocked', 'paused', 'early',
@@ -93,3 +96,89 @@ def decision_failure(engine, keys, current, *, allow_rare=False):
     if engine.conservative and not allow_rare and len(keys) > 1 and not engine._confident(lang, word):
         return 'rare-word-policy'
     return 'mapping-or-punctuation-policy'
+
+
+# Explicitly bounded vocabulary: even a faulty diagnostic classifier must
+# never turn a typed word, physical key sequence, or exception into a log.
+DICTIONARY_REASONS = frozenset({
+    'empty-token', 'unsupported-context', 'source-mapping-incomplete',
+    'source-excluded', 'already-valid-source-word',
+    'no-target-dictionary-match', 'multiple-targets-policy',
+    'target-excluded', 'rare-word-policy',
+    'mapping-or-punctuation-policy', 'diagnostic-classifier-failed',
+    'diagnostic-classifier-unexpected',
+})
+
+
+class DeferredDictionaryDiagnostics:
+    """Opt-in, bounded decision explanations strictly outside the LL hook.
+
+    Caller submits at most 40 physical key descriptors without waiting.
+    Neither the queued keys nor any mapped words are persisted or emitted.
+    Classification is best-effort: live dictionary/configuration changes can
+    make a late explanation differ from the earlier production decision.
+    """
+
+    def __init__(self, engine, on_result, *, capacity=32):
+        self.engine = engine
+        self.on_result = on_result
+        self.jobs = queue.Queue(maxsize=max(1, min(64, capacity)))
+        self.closed = False
+        self.worker = threading.Thread(target=self._run,
+                                       name='TypeBridgeDictionaryDiagnostic', daemon=True)
+        self.worker.start()  # Caller constructs this BEFORE hook installation.
+
+    def submit(self, keys, language, *, allow_rare=False):
+        if self.closed or not isinstance(language, str):
+            return False
+        # Keep the in-memory diagnostic snapshot finite. It is never a source
+        # of authority for text mutation or automatic replay.
+        sample = tuple(keys)
+        if (not 1 <= len(sample) <= 40
+                or any(not isinstance(item, tuple) or len(item) != 2
+                       or type(item[0]) is not int or not 0 <= item[0] <= 255
+                       or type(item[1]) is not bool for item in sample)):
+            return False
+        try:
+            self.jobs.put_nowait((sample, language, bool(allow_rare)))
+            return True
+        except queue.Full:
+            return False  # Never wait for diagnostics in the keyboard hook.
+
+    def _run(self):
+        while True:
+            job = self.jobs.get()
+            try:
+                if job is None:
+                    return
+                keys, language, allow_rare = job
+                try:
+                    reason = decision_failure(self.engine, keys, language,
+                                              allow_rare=allow_rare)
+                except Exception:
+                    reason = 'diagnostic-classifier-failed'
+                if reason not in DICTIONARY_REASONS:
+                    reason = 'diagnostic-classifier-unexpected'
+                try:
+                    self.on_result(reason, language, len(keys), allow_rare)
+                except Exception:
+                    pass  # The background probe cannot affect input delivery.
+            finally:
+                self.jobs.task_done()
+
+    def close(self):
+        self.closed = True
+        try:
+            self.jobs.put_nowait(None)
+        except queue.Full:
+            # Drop one pending *diagnostic* job to admit shutdown. No key is
+            # ever blocked, replayed or mutated as a consequence.
+            try:
+                self.jobs.get_nowait()
+                self.jobs.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self.jobs.put_nowait(None)
+            except queue.Full:
+                pass

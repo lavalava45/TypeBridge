@@ -119,12 +119,12 @@ class BrowserHotpathTests(unittest.TestCase):
         hook.engine = SimpleNamespace(
             decide_token=Mock(return_value=None),
             mapper=SimpleNamespace(word=Mock(return_value='a')))
-        with patch('typebridge_app.decision_failure', side_effect=RuntimeError('should not run')) as diagnostic:
+        with patch('pipeline_probe.decision_failure', side_effect=RuntimeError('should not run')) as diagnostic:
             self.assertFalse(hook._correct(BROWSER, None, ''))
             diagnostic.assert_not_called()
             hook._remember.assert_called_once()
 
-    def test_debug_mode_keeps_negative_diagnostic_reason(self):
+    def test_debug_mode_skips_negative_classifier_in_keyboard_hook(self):
         hook = LiveHook.__new__(LiveHook)
         hook.settings = Settings()
         hook.paused = False
@@ -139,11 +139,11 @@ class BrowserHotpathTests(unittest.TestCase):
         hook.engine = SimpleNamespace(
             decide_token=Mock(return_value=None),
             mapper=SimpleNamespace(word=Mock(return_value='a')))
-        with patch('typebridge_app.decision_failure', return_value='known-word') as diagnostic, \
+        with patch('pipeline_probe.decision_failure', side_effect=RuntimeError('should not run')) as diagnostic, \
                 patch('typebridge_app.emit_pipeline') as emitted:
             self.assertFalse(hook._correct(BROWSER, None, ''))
-            diagnostic.assert_called_once()
-            self.assertEqual(emitted.call_args.kwargs.get('reason'), 'known-word')
+            diagnostic.assert_not_called()
+            self.assertEqual(emitted.call_args.kwargs.get('reason'), 'policy-not-classified')
 
     def test_transport_latency_probes_are_metadata_only_and_debug_opt_in(self):
         hook = LiveHook.__new__(LiveHook)

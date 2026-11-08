@@ -56,7 +56,7 @@ from scintilla_selection import ScintillaRangeTransport, ScintillaSelectionAdapt
 from selection_cycle import SelectionCycle, replace_selection
 from dictionary_diagnostics import dictionary_report
 from diagnostic_writer import DiagnosticWriter
-from pipeline_probe import emit_pipeline, decision_failure
+from pipeline_probe import emit_pipeline, DeferredDictionaryDiagnostics
 try:
     from build_variant import PROFILE as BUILD_PROFILE
 except ModuleNotFoundError:
@@ -99,6 +99,10 @@ DEFAULT_SETTINGS_PATH = APP_DIR / "typebridge-settings.json"
 DEBUG_ENABLED = (APP_DIR / "TypeBridge-debug.flag").is_file()
 DEBUG_WORDS_ENABLED = (BUILD_PROFILE == 'diagnostics' and DEBUG_ENABLED
                        and (APP_DIR / "TypeBridge-debug-words.flag").is_file())
+# Additional opt-in file; ordinary pipeline_debug NEVER repeats dictionary
+# classification inside WH_KEYBOARD_LL. Only metadata reason codes are logged.
+DEEP_DICTIONARY_DEBUG = (DEBUG_ENABLED and
+                         (APP_DIR / 'TypeBridge-deep-dictionary.flag').is_file())
 
 # 2026-11-07: user-requested switcher-only mode. Legacy guard/quarantine
 # implementations remain in source, but the live GUI/CLI opt out of them.
@@ -629,6 +633,12 @@ class LiveHook:
         self.snippets = SnippetMatcher(snippets or SnippetConfig())
         self.pending_snippets = None
         self.pipeline_debug = DEBUG_ENABLED
+        self._decision_diagnostics = (
+            DeferredDictionaryDiagnostics(
+                engine, lambda reason, language, length, manual: emit_pipeline(
+                    self, 'dictionary-diagnostic', reason=reason, language=language,
+                    length=length, manual=manual))
+            if DEEP_DICTIONARY_DEBUG else None)
         # Opt-in R04 must not persist plaintext diagnostics while a helper
         # can be stale or miss a same-HWND DOM password transition. Existing
         # files are not deleted; no new word/readback trace is generated here.
@@ -3091,9 +3101,9 @@ class LiveHook:
             try:
                 alternatives = {lang: self.engine.mapper.word(keys, lang)
                                 for lang in getattr(self.engine, 'active_languages', LANGS)}
-                reason = (decision.reason if decision else
-                          decision_failure(self.engine, keys, context.language,
-                                           allow_rare=manual))
+                # The detailed negative classifier must never run inside the
+                # keyboard hook, including the Diagnostics word-trace profile.
+                reason = decision.reason if decision else 'policy-not-classified'
                 self._trace_word('boundary-decision', context,
                                  source=alternatives[context.language], **alternatives,
                                  replacement=decision.replacement if decision else '',
@@ -3110,15 +3120,20 @@ class LiveHook:
                 reason = 'paused'
             elif getattr(self, 'early_done', False) and not manual:
                 reason = 'already-corrected-early'
-            elif getattr(self, 'pipeline_debug', False):
-                # The verbose negative classifier repeats dictionary and
-                # layout checks but has no influence on the decision. Never
-                # run it in the ordinary keyboard callback when tracing is off.
-                try:
-                    reason = decision_failure(self.engine, keys, context.language,
-                                              allow_rare=manual)
-                except Exception:
-                    reason = 'diagnostic-classifier-failed'
+            else:
+                # The ordinary debug log records the rejection without
+                # repeating dictionary/layout work in WH_KEYBOARD_LL. A
+                # separate explicit opt-in queues an immutable bounded token
+                # for best-effort classification by an independent thread.
+                reason = 'policy-not-classified'
+                diagnostics = getattr(self, '_decision_diagnostics', None)
+                if diagnostics is not None and keys:
+                    try:
+                        reason = ('classification-queued' if diagnostics.submit(
+                            keys, context.language, allow_rare=manual)
+                            else 'classification-queue-full')
+                    except Exception:
+                        reason = 'classification-queue-unavailable'
             if getattr(self, 'pipeline_debug', False):
                 emit_pipeline(self, 'decision-none', reason=reason, length=len(keys),
                               language=context.language, rare=not self.settings.conservative,
@@ -3879,6 +3894,9 @@ class LiveHook:
                         self.password_guard.close()
                     except Exception:
                         self.emit('diagnostic', 'password-metadata-helper-close-failed')
+                diagnostics = getattr(self, '_decision_diagnostics', None)
+                if diagnostics is not None:
+                    diagnostics.close()  # Non-blocking, no wait for a slow diagnostic.
                 self.emit("stopped", "Автопереключение остановлено")
 
 
