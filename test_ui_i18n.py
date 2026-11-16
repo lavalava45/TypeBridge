@@ -19,6 +19,18 @@ class CatalogTests(unittest.TestCase):
     def tearDown(self):
         set_language('ru')
 
+    def test_simple_mode_exclusions_warning_translates_without_enabling_guard(self):
+        sources = (
+            'Исключения приложений применяются к переключению раскладки; в простом режиме защита паролей намеренно отключена. Операции буфера и история имеют отдельные правила доступа.',
+            'Хранители паролей — автоматическое исключение только вне простого режима',
+        )
+        for language in ('en', 'he'):
+            set_language(language)
+            for source in sources:
+                with self.subTest(language=language, source=source):
+                    self.assertIn(source, CATALOG)
+                    self.assertNotEqual(tr(source), source)
+
     def test_complete_language_entries_and_format_fields(self):
         for source, values in CATALOG.items():
             fields = {field for _, field, _, _ in Formatter().parse(source) if field is not None}

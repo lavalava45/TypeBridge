@@ -1750,3 +1750,14 @@ CATALOG.update({
         'en': 'Choose an autocorrection shortcut or Disabled',
         'he': 'בחר קיצור לתיקון אוטומטי או ״מושבת״'},
 })
+
+# Exclusions GUI in switcher-only mode: its password-field limitations are
+# an explicit user choice and must be stated accurately in every UI language.
+CATALOG.update({
+    'Исключения приложений применяются к переключению раскладки; в простом режиме защита паролей намеренно отключена. Операции буфера и история имеют отдельные правила доступа.': {
+        'en': 'Application exclusions apply to layout switching; password-field protection is intentionally disabled in simple mode. Clipboard commands and history have separate access rules.',
+        'he': 'החרגות יישומים חלות על החלפת פריסת מקלדת; במצב הפשוט ההגנה על שדות סיסמה מושבתת בכוונה. לפקודות הלוח ולהיסטוריה יש כללי גישה נפרדים.'},
+    'Хранители паролей — автоматическое исключение только вне простого режима': {
+        'en': 'Password managers — automatically excluded only outside simple mode',
+        'he': 'מנהלי סיסמאות — מוחרגים אוטומטית רק מחוץ למצב הפשוט'},
+})
