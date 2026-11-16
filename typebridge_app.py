@@ -158,7 +158,8 @@ GWL_STYLE = -16
 ES_PASSWORD = 0x0020
 from win32_input import Input, InputUnion, KeyInput, OWN_INPUT_MARKER
 BOUNDARY_VKS = frozenset((VK_SPACE, VK_RETURN, VK_TAB))
-PUNCTUATION_BOUNDARIES = frozenset(".!?;:…")
+PUNCTUATION_BOUNDARIES = frozenset(".!?;:…-+")
+MIDWORD_BOUNDARIES = frozenset("-+")
 MOUSE_BOUNDARIES = frozenset((WM_LBUTTONDOWN, WM_RBUTTONDOWN,
                               WM_MBUTTONDOWN, WM_MOUSEWHEEL,
                               WM_XBUTTONDOWN))
@@ -3153,9 +3154,11 @@ class LiveHook:
                 whole = self._physical_keys_form_word(keys)
                 self._remember(context, keys, typed, context.language, suffix, whole=whole)
             return False
-        name = ctypes.create_unicode_buffer(128)
-        self.user32.GetClassNameW(context.focus, name, len(name))
-        native = not self.simple_mode and self._use_native_text_transport(context, name.value)
+        native = False
+        if not self.simple_mode:
+            name = ctypes.create_unicode_buffer(128)
+            self.user32.GetClassNameW(context.focus, name, len(name))
+            native = self._use_native_text_transport(context, name.value)
         emit_pipeline(self, 'decision-found', target=decision.language,
                       language=context.language, length=len(keys),
                       method='native' if native else 'generic')
@@ -3687,6 +3690,12 @@ class LiveHook:
         if boundary is not None:
             if self._correct(context, *boundary):
                 return 1
+            if boundary[1] in MIDWORD_BOUNDARIES:
+                # Hyphens/pluses also join identifiers. Unless the preceding
+                # word was *actually* corrected, never treat its suffix as an
+                # independent token (x-ghbdtn, hello+ghbdtn, paths, etc.).
+                # A later Space/Enter/Tab releases the block as usual.
+                self.token_blocked = True
             return self.user32.CallNextHookEx(
                 self.keyboard_hook, code, message, param)
         self.last_word = None
@@ -5384,7 +5393,10 @@ def self_test() -> dict:
     # A source-only unit test cannot prove generated comtypes modules are
     # present inside the delivered one-file EXE.
     uia_helper_ok = False
+    uia_helper_stage = 'not-started'
+    uia_helper_failure = ''
     try:
+        uia_helper_stage = 'typelib-import'
         if not getattr(sys, 'frozen', False):
             # A clean Windows CI checkout has no pre-generated
             # comtypes.gen.UIAutomationClient module. The local development
@@ -5402,17 +5414,26 @@ def self_test() -> dict:
             try:
                 probe = {'command': 'caret', 'top': 1, 'focus': 2,
                          'element_id': 'uia:1'}
+                uia_helper_stage = 'synthetic-first-request'
                 first = service.request(probe)
                 pid = service.process.pid if service.process is not None else None
+                uia_helper_stage = 'synthetic-second-request'
                 second = service.request(probe)
                 uia_helper_ok = bool(first is None and second is None and pid
                                      and service.process is not None
                                      and service.process.pid == pid
                                      and service.process.is_alive())
+                uia_helper_failure = service.last_failure_code
+                uia_helper_stage = ('passed' if uia_helper_ok else
+                                    'synthetic-worker-not-confirmed')
             finally:
                 service.close()
-    except (ImportError, OSError, RuntimeError, AttributeError, ValueError):
+        else:
+            uia_helper_stage = 'typelib-symbols-missing'
+    except (ImportError, OSError, RuntimeError, AttributeError, ValueError) as error:
         uia_helper_ok = False
+        uia_helper_failure = type(error).__name__
+        uia_helper_stage = 'exception'
     engine = LanguageEngine(source_data_dir())
     cases = (("ru", "hello", "en", "hello"),
              ("en", "ghbdtn", "ru", "привет"),
@@ -5434,6 +5455,8 @@ def self_test() -> dict:
               and ctypes.sizeof(Input) == 40 and caret_helper_ok and uia_helper_ok,
         'caret_helper_ok': caret_helper_ok,
         'uia_helper_ok': uia_helper_ok,
+        'uia_helper_stage': uia_helper_stage,
+        'uia_helper_failure': uia_helper_failure,
         "input_size": ctypes.sizeof(Input),
         "tray_dependencies": all((TrayController, Image, ImageDraw)),
         "dictionary_sizes": {name: len(words)

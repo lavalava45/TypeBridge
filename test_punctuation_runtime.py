@@ -158,7 +158,8 @@ class PunctuationRuntimeTests(unittest.TestCase):
 
     def test_mail_urls_paths_digits_and_identifiers_do_not_restart_from_suffix(self):
         for text in ("test@ghbdtn ", "https://ghbdtn ", "C:\\ghbdtn ",
-                     "id_ghbdtn ", "123ghbdtn ", "ghbdtn123 ", "x-ghbdtn "):
+                     "id_ghbdtn ", "123ghbdtn ", "ghbdtn123 ", "x-ghbdtn ",
+                     "x+ghbdtn ", "hello-ghbdtn ", "hello+ghbdtn "):
             with self.subTest(text=text):
                 self.assertEqual(self.type_text(text), text)
 

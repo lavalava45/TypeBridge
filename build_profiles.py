@@ -203,7 +203,20 @@ def frozen_smoke_test(exe, profile):
             if (result.returncode or not report.get('ok')
                     or report.get('build_profile') != profile
                     or report.get('word_trace_enabled') is not (profile == 'diagnostics')):
-                raise ValueError(f'{profile}: frozen self-test/profile mismatch')
+                stage = report.get('uia_helper_stage', 'not-reported')
+                failure = report.get('uia_helper_failure', '')
+                # Only fixed diagnostic codes produced by our self-test: no
+                # editor content, UIA field identity or arbitrary exception.
+                safe_stage = stage if stage in (
+                    'not-started', 'typelib-import', 'typelib-symbols-missing',
+                    'synthetic-first-request', 'synthetic-second-request',
+                    'synthetic-worker-not-confirmed', 'exception', 'passed') else 'unknown'
+                safe_failure = failure if failure in (
+                    '', 'uia-startup', 'uia-read', 'ImportError', 'OSError',
+                    'RuntimeError', 'AttributeError', 'ValueError',
+                    'EOFError', 'TimeoutError', 'TypeError', 'AssertionError') else 'unknown'
+                raise ValueError(f'{profile}: frozen self-test/profile mismatch '
+                                 f'(uia_stage={safe_stage}, uia_failure={safe_failure})')
             return report
         finally:
             for flag in created:

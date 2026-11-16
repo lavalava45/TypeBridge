@@ -1,5 +1,17 @@
 # TypeBridge: privacy and input access
 
+**15 November 2026 — explicit user decision, supersedes earlier password-field
+policies below:** runtime `SIMPLE_SWITCHER_MODE=True` intentionally disables
+`PasswordFieldGuard`, native `ES_PASSWORD` blocking, UIA `IsPassword` checks in
+the correction path and the simple-mode password-manager exclusion preset.
+The user accepts that layout correction may occur in a password field after
+earlier protection attempts blocked ordinary editors. Do **not** reactivate
+password-field detection without a new explicit request. Code review is
+permitted while this path stays disconnected. This decision does not authorize
+secret logging and does not change separate clipboard privacy constraints.
+Older descriptions below are historical and should not be read as the
+operational simple-mode policy.
+
 **7 November 2026, source-only clipboard recovery:** explicit Copy fallback and
 temporary plain paste now require a verified Windows DPAPI checkpoint under
 `TypeBridge-data/clipboard-recovery`. All supported original format payloads

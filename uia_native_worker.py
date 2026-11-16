@@ -18,6 +18,8 @@ class UiaService:
         self.process = None
         self.connection = None
         self.retry_at = 0.0
+        # Diagnostic metadata only; never include request payloads or field text.
+        self.last_failure_code = ''
 
     def _close_locked(self):
         connection, self.connection = self.connection, None
@@ -108,7 +110,11 @@ class UiaService:
                     return None
                 return response.get('sample') if set(response) == {'sample'} else response
             except (EOFError, OSError, TimeoutError, ValueError, TypeError,
-                    AssertionError, RuntimeError):
+                    AssertionError, RuntimeError) as error:
+                if isinstance(error, TimeoutError) and error.args and error.args[0] in ('uia-startup', 'uia-read'):
+                    self.last_failure_code = error.args[0]
+                else:
+                    self.last_failure_code = type(error).__name__
                 self._close_locked()
                 self.retry_at = time.monotonic() + 1
                 return None

@@ -15,10 +15,11 @@ class ExclusionsWindow:
         self.window.minsize(700, 660)
         frame = ttk.Frame(self.window, padding=16)
         frame.pack(fill='both', expand=True)
-        ttk.Label(frame, text='В этих приложениях TypeBridge пропускает клавиши и не исправляет текст. '
-                  'Команды буфера и сохранение его истории также отключаются для исключённых приложений.',
+        ttk.Label(frame, text='Исключения приложений применяются к переключению раскладки; '
+                  'в простом режиме защита паролей намеренно отключена. '
+                  'Операции буфера и история имеют отдельные правила доступа.',
                   wraplength=710).pack(anchor='w', pady=(0, 12))
-        passwords = ttk.LabelFrame(frame, text='Хранители паролей и системный вход — всегда исключены', padding=8)
+        passwords = ttk.LabelFrame(frame, text='Хранители паролей — автоматическое исключение только вне простого режима', padding=8)
         passwords.pack(fill='x', pady=4)
         self._names(passwords, PASSWORD_PROCESSES, 2)
         self.categories = {}

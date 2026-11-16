@@ -62,7 +62,7 @@ class WordCycleTests(unittest.TestCase):
                 vk, self.shift = VK_SPACE, False
             else:
                 vk, self.shift = next((v, shift) for shift in (False, True) for v in
-                    [*range(65, 91), *LETTER_PUNCTUATION_KEYS]
+                    [*range(65, 91), *LETTER_PUNCTUATION_KEYS, 0xBD]
                     if self.engine.mapper.char(v, "en", shift) == char)
             before = self.language
             if key(self.hook, vk) != 1:
@@ -106,6 +106,26 @@ class WordCycleTests(unittest.TestCase):
         for _ in range(3):
             self.cycle()
         self.assertEqual(self.text, "hello xyzzy.  ")
+
+    def test_hyphen_corrects_before_separator_and_preserves_following_letter(self):
+        self.type("Rfrjt-n")
+        self.assertEqual(self.text, "Какое-т")
+        self.assertEqual(self.language, "ru")
+
+    def test_shifted_plus_corrects_before_separator_and_following_word(self):
+        self.type("vfif+cfif ")
+        self.assertEqual(self.text, "маша+саша ")
+        self.assertEqual(self.language, "ru")
+
+    def test_correctly_typed_hyphenated_and_plus_words_remain_literal(self):
+        self.type("hello-world hello+world ")
+        self.assertEqual(self.text, "hello-world hello+world ")
+        self.assertEqual(self.language, "en")
+
+    def test_identifiers_with_unknown_prefix_do_not_autocorrect_suffix(self):
+        self.type("x-ghbdtn x+ghbdtn ")
+        self.assertEqual(self.text, "x-ghbdtn x+ghbdtn ")
+        self.assertEqual(self.language, "en")
 
     def test_word_starting_with_punctuation_key_keeps_that_physical_key(self):
         for paused in (False, True):

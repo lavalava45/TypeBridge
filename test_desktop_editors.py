@@ -96,6 +96,17 @@ class DesktopEditorTests(unittest.TestCase):
         decide.assert_not_called()
         hook.user32.SendInput.assert_not_called()
 
+    def test_simple_boundary_skips_unused_win32_class_read(self):
+        hook = self.fixture(*DESKTOP_FIELDS[0])
+        hook.simple_mode = True
+        context = hook.context()
+        hook.user32.GetClassNameW.reset_mock()
+        # Ignore transport-side postwrite context checks; we measure only the
+        # routing branch, not the mock's subsequent verification snapshots.
+        with patch.object(hook, '_correct_keyboard', return_value=True):
+            self.assertTrue(LiveHook._correct(hook, context, VK_SPACE, ''))
+        hook.user32.GetClassNameW.assert_not_called()
+
     def test_keyboard_failure_does_not_disable_native_richedit_recognition(self):
         hook = self.fixture('notepad.exe', 'RichEditD2DPT')
         hook.keyboard_early_disabled = True
