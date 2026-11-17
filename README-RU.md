@@ -1,7 +1,7 @@
 # TypeBridge — переключатель раскладки
 
-**Alpha.9 — 08.11.2026:** [скачать предварительный выпуск](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.9).
-[Что изменилось после alpha.8](docs/releases/0.1.0-alpha.9.md) ·
+**Alpha.11 — 17.11.2026:** [скачать предварительный выпуск](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.11).
+[Что изменилось после alpha.9](docs/releases/0.1.0-alpha.11.md) ·
 [Проверка сборок](https://github.com/lavalava45/TypeBridge/actions/workflows/release.yml) ·
 [Текущий статус и ограничения](docs/STATUS.md).
 **Предупреждение:** в действующем упрощённом режиме отключены проверки

@@ -2,8 +2,8 @@
 
 # TypeBridge — הוראות שימוש
 
-**Alpha.9 — 8 בנובמבר 2026:** [הורדת גרסת האלפא](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.9).
-[מה השתנה מאז alpha.8](docs/releases/0.1.0-alpha.9.md) ·
+**Alpha.11 — 17 בנובמבר 2026:** [הורדת גרסת האלפא](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.11).
+[מה השתנה מאז alpha.9](docs/releases/0.1.0-alpha.11.md) ·
 [בדיקות ההפצה](https://github.com/lavalava45/TypeBridge/actions/workflows/release.yml) ·
 [מצב ומגבלות](docs/STATUS.md).
 **אזהרת אבטחה:** במצב המחליף הפשוט הפעיל, בדיקות שדות הסיסמה מבוטלות.

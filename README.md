@@ -2,8 +2,8 @@
 
 # TypeBridge
 
-**Alpha.9 — 8 November 2026:** [Windows prerelease](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.9).
-See [changes since alpha.8](docs/releases/0.1.0-alpha.9.md),
+**Alpha.11 — 17 November 2026:** [Windows prerelease](https://github.com/lavalava45/TypeBridge/releases/tag/v0.1.0-alpha.11).
+See [changes since alpha.9](docs/releases/0.1.0-alpha.11.md),
 [tagged build verification](https://github.com/lavalava45/TypeBridge/actions/workflows/release.yml)
 and [remaining acceptance limits](docs/STATUS.md).
 **Security warning:** this alpha's active simple-switcher mode disables password-field
